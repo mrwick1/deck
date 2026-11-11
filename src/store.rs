@@ -125,7 +125,9 @@ impl Store {
     ) -> anyhow::Result<T> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = conn.lock().map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+            let conn = conn
+                .lock()
+                .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
             Ok(f(&conn)?)
         })
         .await?
@@ -162,6 +164,7 @@ impl Store {
         .await
     }
 
+    #[allow(dead_code)]
     pub async fn add_message(
         &self,
         chat_id: i64,
@@ -224,7 +227,9 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         migrate(&conn).unwrap();
         migrate(&conn).unwrap();
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, 1);
     }
 
@@ -258,7 +263,15 @@ mod tests {
     async fn bad_role_and_missing_chat_fail() {
         let s = Store::open_memory().unwrap();
         let chat = s.create_chat("c".into()).await.unwrap();
-        assert!(s.add_message(chat.id, "bogus".into(), "{}".into()).await.is_err());
-        assert!(s.add_message(999, "user".into(), "{}".into()).await.is_err());
+        assert!(
+            s.add_message(chat.id, "bogus".into(), "{}".into())
+                .await
+                .is_err()
+        );
+        assert!(
+            s.add_message(999, "user".into(), "{}".into())
+                .await
+                .is_err()
+        );
     }
 }

@@ -6,20 +6,20 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)] // `model` and `bare` are unused until later PRs.
 pub struct Config {
     pub listen: SocketAddr,
     pub data_dir: PathBuf,
     pub trusted_proxies: Vec<IpAddr>,
     #[serde(default)]
     pub allowed_users: Vec<String>,
-    #[allow(dead_code)]
     pub model: Model,
-    #[allow(dead_code)]
     pub bare: Bare,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)] // Unused until the agent loop lands.
 pub struct Model {
     pub base_url: String,
     pub api_key_env: String,
@@ -29,6 +29,7 @@ pub struct Model {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)] // Unused until the browser lands.
 pub struct Bare {
     pub command: String,
     #[serde(default)]
