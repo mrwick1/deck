@@ -1,4 +1,4 @@
-//! Tools the model can call: browser steps through bare, and `send_file`.
+//! Tools the model can call: every bare-mcp tool as `browser_<name>`, and `send_file`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,11 +12,26 @@ use crate::store::Store;
 
 const MAX_FILE: u64 = 25 * 1024 * 1024;
 const MAX_REPORT: usize = 8000;
+/// The longest text reply (a snapshot, a page of text) that goes back to the model.
+const MAX_TEXT: usize = 20_000;
+/// bare-mcp tools that deck does not offer: a whole journey runner.
+const HIDDEN_TOOLS: &[&str] = &["run_steps"];
+/// Arguments that deck sets or forbids: a window on the desktop, files that the model must not pick, inline image data.
+const HIDDEN_ARGS: &[&str] = &[
+    "window",
+    "secrets_file",
+    "file",
+    "path",
+    "downloads_dir",
+    "inline",
+];
 const KEEP_ENTRIES: usize = 20;
 
 /// Runs bare-mcp tools. A trait so tests can replace the browser.
 pub trait BrowserHost: Send + Sync {
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, anyhow::Result<Value>>;
+    /// The tools of bare-mcp (`tools/list`).
+    fn tools(&self) -> BoxFuture<'_, anyhow::Result<Vec<Value>>>;
     /// Capture folders seen in reports so far.
     fn out_dirs(&self) -> Vec<PathBuf>;
 }
@@ -24,6 +39,10 @@ pub trait BrowserHost: Send + Sync {
 impl BrowserHost for Bare {
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, anyhow::Result<Value>> {
         Box::pin(Bare::call(self, name, args))
+    }
+
+    fn tools(&self) -> BoxFuture<'_, anyhow::Result<Vec<Value>>> {
+        Box::pin(Bare::tools(self))
     }
 
     fn out_dirs(&self) -> Vec<PathBuf> {
@@ -61,40 +80,36 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
     }})
 }
 
-pub fn schemas() -> Vec<Value> {
-    let s = json!({"type":"string"});
-    vec![
-        tool(
-            "browser_open",
-            "Open a URL in a fresh browser session. This ends the previous session.",
-            json!({"url": s}),
-            &["url"],
-        ),
-        tool(
-            "browser_step",
-            "Run one or more step lines in the open page. One step per line.",
-            json!({"steps": s}),
-            &["steps"],
-        ),
-        tool(
-            "browser_close",
-            "Close the browser session.",
-            json!({}),
-            &[],
-        ),
-        tool(
-            "browser_ensure_session",
-            "Get a logged-in page: restore a saved session or log in again.",
-            json!({"name": s, "url": s, "login": s, "check": s}),
-            &["name", "url", "login", "check"],
-        ),
-        tool(
-            "send_file",
-            "Send a file into the chat. Use it for screenshots and any file the user asked for.",
-            json!({"path": s, "caption": s}),
-            &["path"],
-        ),
-    ]
+/// The tool schemas for the model: each bare-mcp tool as `browser_<name>`, without the arguments that deck controls, and `send_file`.
+pub fn schemas(bare: &[Value]) -> Vec<Value> {
+    let mut out: Vec<Value> = bare
+        .iter()
+        .filter_map(|t| {
+            let name = t["name"].as_str()?;
+            if HIDDEN_TOOLS.contains(&name) {
+                return None;
+            }
+            let mut params = t["inputSchema"].clone();
+            if let Some(p) = params["properties"].as_object_mut() {
+                p.retain(|k, _| !HIDDEN_ARGS.contains(&k.as_str()));
+            }
+            if let Some(r) = params["required"].as_array_mut() {
+                r.retain(|k| !k.as_str().is_some_and(|k| HIDDEN_ARGS.contains(&k)));
+            }
+            Some(json!({"type":"function","function":{
+                "name": format!("browser_{name}"),
+                "description": t["description"],
+                "parameters": params,
+            }}))
+        })
+        .collect();
+    out.push(tool(
+        "send_file",
+        "Send a file into the chat. Use it for screenshots and any file the user asked for.",
+        json!({"path": {"type":"string"}, "caption": {"type":"string"}}),
+        &["path"],
+    ));
+    out
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -187,27 +202,36 @@ impl Tools {
         }
     }
 
+    /// The bare-mcp tools, for the schemas of a run.
+    pub async fn bare_tools(&self) -> anyhow::Result<Vec<Value>> {
+        self.host.tools().await
+    }
+
     async fn browser(&self, name: &str, args: &Value) -> anyhow::Result<String> {
-        let pick = |keys: &[&str]| -> anyhow::Result<Value> {
-            let mut o = serde_json::Map::new();
-            for k in keys {
-                let v = args[k]
-                    .as_str()
-                    .ok_or_else(|| anyhow!("argument {k} must be a string"))?;
-                o.insert((*k).into(), json!(v));
-            }
-            Ok(Value::Object(o))
+        let bare_name = name
+            .strip_prefix("browser_")
+            .filter(|n| !HIDDEN_TOOLS.contains(n))
+            .ok_or_else(|| anyhow!("unknown tool {name}"))?;
+        let mut a = match args {
+            Value::Object(o) => o.clone(),
+            Value::Null => serde_json::Map::new(),
+            _ => return Err(anyhow!("the arguments must be an object")),
         };
-        let (bare_name, bare_args) = match name {
-            "browser_open" => ("open", pick(&["url"])?),
-            "browser_step" => ("step", pick(&["steps"])?),
-            "browser_close" => ("close", json!({})),
-            "browser_ensure_session" => {
-                ("ensure_session", pick(&["name", "url", "login", "check"])?)
+        a.retain(|k, _| !HIDDEN_ARGS.contains(&k.as_str()));
+        // Screenshots land in the workspace, so send_file can send them.
+        if bare_name == "screenshot" {
+            let dir = self.workspace.join("shots");
+            tokio::fs::create_dir_all(&dir).await?;
+            let path = dir.join(format!("{}.png", uuid::Uuid::new_v4()));
+            a.insert("path".into(), json!(path));
+        }
+        Ok(match self.host.call(bare_name, Value::Object(a)).await? {
+            Value::String(text) if text.chars().count() > MAX_TEXT => {
+                text.chars().take(MAX_TEXT).collect::<String>() + "…[truncated]"
             }
-            _ => return Err(anyhow!("unknown tool {name}")),
-        };
-        Ok(trim_report(self.host.call(bare_name, bare_args).await?))
+            Value::String(text) => text,
+            report => trim_report(report),
+        })
     }
 
     fn allowed(&self, path: &Path) -> bool {
@@ -416,7 +440,47 @@ mod tests {
             host.calls.lock().unwrap()[0],
             ("open".to_owned(), json!({"url":"https://example.test"}))
         );
-        let bad = tools.execute(chat, "browser_step", &json!({})).await;
+        let bad = tools.execute(chat, "browser_run_steps", &json!({})).await;
         assert!(!bad.ok);
+        // A text reply (a snapshot) goes back as it is; deck sets the screenshot path in the workspace.
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(json!("[e1] button \"Go\""));
+        let out = tools
+            .execute(
+                chat,
+                "browser_screenshot",
+                &json!({"path": "/etc/x.png", "ref": "e1"}),
+            )
+            .await;
+        assert_eq!(out.content, "[e1] button \"Go\"");
+        let (name, args) = host.calls.lock().unwrap()[1].clone();
+        assert_eq!((name.as_str(), &args["ref"]), ("screenshot", &json!("e1")));
+        assert!(
+            args["path"]
+                .as_str()
+                .unwrap()
+                .starts_with(ws.join("shots").to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn schemas_wrap_bare_tools_without_hidden_args() {
+        let bare = vec![
+            json!({"name":"run_steps","description":"x","inputSchema":{"type":"object","properties":{}}}),
+            json!({"name":"snapshot","description":"Read","inputSchema":{"type":"object","properties":{"session":{"type":"string"},"window":{"type":"boolean"}}}}),
+        ];
+        let s = schemas(&bare);
+        let names: Vec<&str> = s
+            .iter()
+            .map(|t| t["function"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["browser_snapshot", "send_file"]);
+        assert!(
+            s[0]["function"]["parameters"]["properties"]
+                .get("window")
+                .is_none()
+        );
     }
 }

@@ -97,7 +97,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Conn<R, W> {
         self.request("tools/list", json!({})).await
     }
 
-    /// Call a tool and parse the JSON report in `content[0].text`.
+    /// Call a tool. A JSON report in `content[0].text` is parsed; other text (a snapshot, a receipt) is a string.
     pub async fn call_tool(&mut self, name: &str, args: Value) -> anyhow::Result<Value> {
         let r = self
             .request("tools/call", json!({"name": name, "arguments": args}))
@@ -108,7 +108,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Conn<R, W> {
         if r["isError"].as_bool() == Some(true) {
             return Err(anyhow!("bare-mcp tool error: {text}"));
         }
-        serde_json::from_str(text).context("bare-mcp report is not JSON")
+        Ok(serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_owned())))
     }
 }
 
@@ -116,6 +116,8 @@ type Pipes = Conn<tokio::process::ChildStdout, tokio::process::ChildStdin>;
 
 struct Session {
     conn: Pipes,
+    /// The `tools` of `tools/list`.
+    tools: Vec<Value>,
     _child: Child,
 }
 
@@ -159,16 +161,27 @@ impl Bare {
         let stdin = child.stdin.take().context("no stdin")?;
         let stdout = child.stdout.take().context("no stdout")?;
         let mut conn = Conn::new(stdout, stdin);
-        tokio::time::timeout(Duration::from_secs(30), async {
+        let list = tokio::time::timeout(Duration::from_secs(30), async {
             conn.handshake().await?;
             conn.list_tools().await
         })
         .await
         .context("bare-mcp handshake timed out")??;
+        let tools = list["tools"].as_array().cloned().unwrap_or_default();
         Ok(Session {
             conn,
+            tools,
             _child: child,
         })
+    }
+
+    /// The tools of bare-mcp. Starts it when it does not run.
+    pub async fn tools(&self) -> anyhow::Result<Vec<Value>> {
+        let mut guard = self.session.lock().await;
+        if guard.is_none() {
+            *guard = Some(self.spawn().await?);
+        }
+        Ok(guard.as_ref().expect("session set above").tools.clone())
     }
 
     /// Call a bare-mcp tool. Restarts the process once when it died.

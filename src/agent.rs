@@ -233,7 +233,15 @@ impl Agent {
     }
 
     async fn run_loop(&self, run: &Run) -> anyhow::Result<Status> {
-        let tool_schemas = schemas();
+        // The tools come from bare-mcp itself, so a new bare tool reaches the model with no change here.
+        let bare = match self.tools.bare_tools().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("bare-mcp tools unavailable: {e:#}");
+                Vec::new()
+            }
+        };
+        let tool_schemas = schemas(&bare);
         for _ in 0..self.config.agent.max_steps {
             let messages = self.history(run.chat_id).await?;
             let mut stream = Box::pin(self.model.stream(
