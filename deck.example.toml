@@ -1,7 +1,9 @@
 # Address deck listens on.
 listen = "127.0.0.1:8790"
-# Folder for the SQLite file (deck.db) and, later, the workspace.
+# Folder for the SQLite file (deck.db), sent files and the default workspace.
 data_dir = "./data"
+# Folder the agent may send files from. Default: data_dir/workspace.
+# workspace_dir = "./data/workspace"
 # Peers allowed to set the Remote-User header.
 trusted_proxies = ["127.0.0.1"]
 # Users allowed in. An empty list accepts any Remote-User value.
@@ -22,3 +24,7 @@ small_model = "claude-haiku-5-5"
 command = "bare-mcp"
 # Arguments for that command.
 args = []
+
+[agent]
+# Most model calls in one run.
+max_steps = 30

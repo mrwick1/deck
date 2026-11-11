@@ -1,7 +1,14 @@
+mod agent;
 mod api;
 mod auth;
+mod bare;
 mod config;
+mod model;
+mod prompt;
 mod store;
+#[cfg(test)]
+mod testutil;
+mod tools;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -15,7 +22,26 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let config = Arc::new(config::Config::load()?);
     let store = store::Store::open(&config.data_dir)?;
-    let app = api::router(config.clone(), store);
+    let key = std::env::var(&config.model.api_key_env).ok();
+    if key.is_none() {
+        tracing::warn!(
+            "{} is not set: runs fail until it is set",
+            config.model.api_key_env
+        );
+    }
+    let model = model::ModelClient::new(&config.model.base_url, key, &config.model.api_key_env);
+    // bare-mcp starts on the first browser tool call.
+    let host = Arc::new(bare::Bare::new(
+        config.bare.command.clone(),
+        config.bare.args.clone(),
+    ));
+    let agent = Arc::new(agent::Agent::new(
+        config.clone(),
+        store.clone(),
+        model,
+        host,
+    ));
+    let app = api::router(config.clone(), store, agent);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!("listening on {}", listener.local_addr()?);
     axum::serve(
