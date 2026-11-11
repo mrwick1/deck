@@ -14,6 +14,35 @@ Checked against `bare-mcp` on 2026-11-11. It has these tools: `run_steps`, `open
 6. **Many sessions.** One live session per bot, by name. Today a new `open` ends the old session.
 7. **Downloads and uploads.** Save a downloaded file to the workspace, and set a file input from the workspace.
 
+## Proposed design
+
+This design comes from four browser agents. See [inspiration.md](inspiration.md).
+
+Snapshot format: one line per element, indented by nesting.
+
+```
+[e1] heading "Settings"
+[e2] textbox "Username" = "admin"
+[e3] button "Save" (disabled)
+*[e4] alert "Saved"
+```
+
+- `bare` mints each ref. A ref from an old page fails with a clear error.
+- `*` marks an element that is new since the last snapshot.
+- A long snapshot keeps 80 % from the top and 20 % from the end.
+
+Tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `snapshot(scope?, mode?, budget?)` | The outline of the page or of one element. `mode` is `interactive` or `all`. |
+| `find(role?, name?, text?, within?)` | Elements that match, without a full snapshot. |
+| `read(ref?, offset?, max_chars?)` | Page or element text, in pages. |
+| `screenshot(ref?)` | A PNG path of the page or of one element. |
+| `step` | Accepts a ref as a locator. Returns a receipt: navigation, new elements, downloads. |
+
+Each error has a code, the failed part and a hint for the next step.
+
 ## Later
 
 - Tabs or windows.
