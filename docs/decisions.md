@@ -27,3 +27,91 @@ Each decision has a date, the decision and the reason.
 **Decision:** When the user asks for a screenshot, `deck` takes a `bare` capture and sends the PNG into the chat. The system instructions and a test cover this.
 
 **Reason:** This was the main failure in Rakazo.
+
+## D5. deck is a standalone app (2026-11-11)
+
+**Decision:** `deck` is its own service with its own web app. It is not a toolkit inside a coding harness.
+
+**Reason:** The vision needs routines, approval cards, a live view and files in the chat. A coding harness does not give that experience.
+
+## D6. The service is in Rust (2026-11-11)
+
+**Decision:** The service uses Rust with axum and tokio. It builds to one binary.
+
+**Reason:** `bare` is a Rust workspace. One language makes fixes in both repositories easier. Later, `deck` can call `bare` crates in the same process instead of through MCP.
+
+## D7. The web app is a Svelte SPA (2026-11-11)
+
+**Decision:** The web app uses Svelte and Vite. The service serves the built static files.
+
+**Reason:** The bundle is small and fast on a phone. Svelte makes streaming chat simple. No Node server runs in production.
+
+## D8. deck runs on the owner's main machine (2026-11-11)
+
+**Decision:** `deck` runs as a systemd user service on the owner's always-on main machine.
+
+**Reason:** `bare` and the model proxy already run there. `deck` is one small binary plus a headless `bare`, so it does not compete with other work. It can move to a server later.
+
+## D9. deck is public, behind Caddy and Authelia (2026-11-11)
+
+**Decision:** The owner's Caddy server publishes the web app. Caddy proxies to `deck` over the private network. Authelia, the owner's single sign-on, gates every request with a forward-auth check.
+
+**Reason:** The owner wants to reach `deck` from any device and network. Caddy and Authelia already publish and protect the owner's other apps.
+
+**Consequence:** `deck` holds site logins and runs a shell. Security is a first-class requirement. Page content is untrusted input to the model.
+
+## D10. Authelia is the only login (2026-11-11)
+
+**Decision:** `deck` has no login code. It uses the same Authelia login as the owner's other apps: a username and a password. `deck` trusts the `Remote-User` header only on requests from the Caddy server. It binds only to the private network address, never to a public one.
+
+**Reason:** One login for all apps. No auth code in `deck` to build or get wrong.
+
+**Risk:** A password is weaker than a passkey for an agent with a shell and site logins. Authelia can add a WebAuthn second factor for the `deck` host later, with no change in `deck`.
+
+## D11. Models: Sonnet and Haiku (2026-11-11)
+
+**Decision:** Agent runs use Sonnet. Routines, chat titles and summaries use Haiku. Both go through the owner's OpenAI-compatible proxy.
+
+**Reason:** Sonnet is fast and good with tools. Haiku is enough for small jobs and costs less. The endpoint and the model names are configuration.
+
+## D12. The database is SQLite (2026-11-11)
+
+**Decision:** `deck` stores chats, runs, memory and routines in one SQLite file.
+
+**Reason:** One owner and one process need no database server. A backup is a file copy.
+
+## D13. The shell runs in bubblewrap from v1 (2026-11-11)
+
+**Decision:** The bot has a shell tool in v1. Each command runs in a `bwrap` sandbox. The sandbox sees only the bot's workspace folder.
+
+**Reason:** The owner wants a shell from the start. `bwrap` is lighter and faster than a container.
+
+**Network:** The sandbox has internet access. The bot needs it to install tools and fetch data.
+
+**To decide during the build:** limits on time, memory and processes, and whether to block the private network from the sandbox.
+
+## D14. Approvals: model flag plus domain rules (2026-11-11)
+
+**Decision:** The model marks a step as `needs_approval` when it sends, buys, posts, deletes or submits a form on a logged-in site. A list of domains in the configuration always needs approval. The run pauses and shows an approval card. A push notification reaches the owner's phone. Reading and navigation never ask.
+
+**Reason:** No rule can tell a safe click from a risky one on every site. The model knows the intent. The domain list is a hard backstop.
+
+## D15. The bare loop: a scheduled fixer and a pinned bare (2026-11-11)
+
+**Decision:** `deck` files each `bare` failure as an issue on `mrwick1/bare` with the label `bare-mcp`. A small cron job runs once a day. It picks two or three open labelled issues and starts an agent to fix each one in a pull request. `deck` pins a `bare` release. The owner chooses when to update it.
+
+**Reason:** Fixes arrive without manual work. A small daily batch keeps the cost and the review load low. A pinned `bare` keeps `deck` stable.
+
+## D16. M1 starts in parallel with the bare gaps (2026-11-11)
+
+**Decision:** Work on `deck` M1 starts now, against the current `bare-mcp`. The `bare` gaps (page snapshot and screenshot as a tool result) are built at the same time.
+
+**M1 scope:** the Rust service, the Authelia header check, streaming chat, the agent loop with `bare`, the step log, and a screenshot sent to the chat with a test.
+
+**Reason:** The service, the login and the web app do not depend on the new `bare` tools.
+
+## D17. License: MIT or Apache 2.0 (2026-11-11)
+
+**Decision:** `deck` uses the license "MIT OR Apache-2.0".
+
+**Reason:** `bare` uses the same license.

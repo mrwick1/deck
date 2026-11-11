@@ -21,4 +21,4 @@ Design only. There is no code yet. Start with [docs/vision.md](docs/vision.md).
 | [docs/feedback-loop.md](docs/feedback-loop.md) | How `deck` makes `bare` better |
 | [docs/rakazo-lessons.md](docs/rakazo-lessons.md) | What we learned from Rakazo |
 | [docs/bare-gaps.md](docs/bare-gaps.md) | What `bare-mcp` must add for `deck` |
-| [docs/open-questions.md](docs/open-questions.md) | Questions to answer before the first code |
+| [docs/open-questions.md](docs/open-questions.md) | Design questions and their answers |
