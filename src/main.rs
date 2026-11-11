@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod bare;
 mod config;
 mod model;
 mod store;
