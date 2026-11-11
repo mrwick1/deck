@@ -13,6 +13,10 @@ Set `DECK_MODEL_KEY` in the environment. Never write the key in a file.
 Run `cargo run` to start the server. It reads `deck.toml`, or the file in `DECK_CONFIG`.
 The server trusts the `Remote-User` header only from the `trusted_proxies` addresses.
 Run `cargo test` to run the tests.
+For the web app, run `cargo run`, then `npm run dev` in `web/`. Open the address that Vite prints. The dev server proxies `/api` to `127.0.0.1:8790` and sets `Remote-User: dev`.
+Run `npm ci` in `web/` once. Run `npm run check` and `npm test` there before you commit.
+To build one binary, run `npm run build` in `web/`, then `cargo build --release`. The binary embeds `web/dist`.
+Without `web/dist`, `cargo build` embeds a placeholder page.
 `bare-mcp` must be on `PATH`, or set `bare.command` in `deck.toml`. The agent starts it on the first browser tool call.
 Run `cargo test -- --ignored` to run the live test that starts the real `bare-mcp`.
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.

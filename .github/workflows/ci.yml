@@ -9,6 +9,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web app
+        working-directory: web
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
