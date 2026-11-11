@@ -88,7 +88,11 @@ Each decision has a date, the decision and the reason.
 
 **Network:** The sandbox has internet access. The bot needs it to install tools and fetch data.
 
-**To decide during the build:** limits on time, memory and processes, and whether to block the private network from the sandbox.
+**Private network:** The sandbox can reach the private network too. The owner chose this on 2026-11-11 for simplicity.
+
+**Risk:** Page content can carry a prompt injection. An injected command can then reach every private service that the host can reach. A network namespace that drops private ranges can close this gap later.
+
+**Limits:** Each command runs in a `systemd-run` scope with `MemoryMax=2G`, `CPUQuota=200%` and `TasksMax=256`. A command stops after 10 minutes. The workspace has a 5 GB cap. All limits are configuration.
 
 ## D14. Approvals: model flag plus domain rules (2026-11-11)
 
@@ -98,7 +102,9 @@ Each decision has a date, the decision and the reason.
 
 ## D15. The bare loop: a scheduled fixer and a pinned bare (2026-11-11)
 
-**Decision:** `deck` files each `bare` failure as an issue on `mrwick1/bare` with the label `bare-mcp`. A small cron job runs once a day. It picks two or three open labelled issues and starts an agent to fix each one in a pull request. `deck` pins a `bare` release. The owner chooses when to update it.
+**Decision:** `deck` files each `bare` failure as an issue on `mrwick1/bare` with the label `bare-mcp`. A scheduled agent task runs once a day on the owner's machine. It picks up to three open labelled issues and starts one agent for each, in its own worktree. Each agent opens a fix pull request. The owner reviews each pull request. Nothing merges on its own.
+
+**Order:** Issues that block a `deck` task come first, then the oldest. The task skips an issue that has an open pull request or the label `in-progress`. It adds `in-progress` when it starts an issue. `deck` pins a `bare` release. The owner chooses when to update it.
 
 **Reason:** Fixes arrive without manual work. A small daily batch keeps the cost and the review load low. A pinned `bare` keeps `deck` stable.
 
