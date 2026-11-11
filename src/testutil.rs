@@ -53,3 +53,47 @@ pub async fn fake_model(script: Vec<(u16, String)>) -> (String, Arc<Mutex<Vec<Va
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (url, seen)
 }
+
+use std::collections::VecDeque;
+use std::path::PathBuf;
+
+use futures_util::future::BoxFuture;
+
+use crate::tools::BrowserHost;
+
+/// A unique empty temp folder.
+pub fn temp_dir() -> PathBuf {
+    let d = std::env::temp_dir().join(format!("deck-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// Fake browser: replies come from a queue; `hang` makes every call wait forever.
+#[derive(Default)]
+pub struct FakeHost {
+    pub replies: Mutex<VecDeque<Value>>,
+    pub calls: Mutex<Vec<(String, Value)>>,
+    pub outs: Mutex<Vec<PathBuf>>,
+    pub hang: bool,
+}
+
+impl BrowserHost for FakeHost {
+    fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, anyhow::Result<Value>> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push((name.to_owned(), args));
+            if self.hang {
+                std::future::pending::<()>().await;
+            }
+            Ok(self
+                .replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| serde_json::json!({"ok": true})))
+        })
+    }
+
+    fn out_dirs(&self) -> Vec<PathBuf> {
+        self.outs.lock().unwrap().clone()
+    }
+}

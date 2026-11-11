@@ -35,6 +35,18 @@ CREATE TABLE events(
 );
 ";
 
+const SCHEMA_V2: &str = "
+CREATE TABLE files(
+    id INTEGER PRIMARY KEY,
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -50,6 +62,16 @@ pub struct Message {
     /// JSON text.
     pub content: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FileRow {
+    pub id: i64,
+    pub chat_id: i64,
+    pub path: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
 }
 
 #[derive(Clone)]
@@ -91,6 +113,11 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if version < 1 {
         conn.execute_batch(&format!(
             "BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;"
+        ))?;
+    }
+    if version < 2 {
+        conn.execute_batch(&format!(
+            "BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"
         ))?;
     }
     Ok(())
@@ -164,7 +191,6 @@ impl Store {
         .await
     }
 
-    #[allow(dead_code)]
     pub async fn add_message(
         &self,
         chat_id: i64,
@@ -184,6 +210,53 @@ impl Store {
                 content: content_json,
                 created_at,
             })
+        })
+        .await
+    }
+
+    pub async fn add_file(
+        &self,
+        chat_id: i64,
+        path: String,
+        name: String,
+        mime: String,
+        size: i64,
+    ) -> anyhow::Result<FileRow> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT INTO files(chat_id, path, name, mime, size, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![chat_id, path, name, mime, size, now()],
+            )?;
+            Ok(FileRow {
+                id: c.last_insert_rowid(),
+                chat_id,
+                path,
+                name,
+                mime,
+                size,
+            })
+        })
+        .await
+    }
+
+    pub async fn get_file(&self, id: i64) -> anyhow::Result<Option<FileRow>> {
+        self.run(move |c| {
+            c.query_row(
+                "SELECT id, chat_id, path, name, mime, size FROM files WHERE id = ?1",
+                [id],
+                |r| {
+                    Ok(FileRow {
+                        id: r.get(0)?,
+                        chat_id: r.get(1)?,
+                        path: r.get(2)?,
+                        name: r.get(3)?,
+                        mime: r.get(4)?,
+                        size: r.get(5)?,
+                    })
+                },
+            )
+            .optional()
         })
         .await
     }
@@ -230,7 +303,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
     }
 
     #[test]

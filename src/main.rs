@@ -6,6 +6,7 @@ mod model;
 mod store;
 #[cfg(test)]
 mod testutil;
+mod tools;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
