@@ -114,6 +114,17 @@ impl Agent {
         chat_id: i64,
         user_text: String,
     ) -> anyhow::Result<Result<(i64, JoinHandle<()>), StartError>> {
+        // Run in a task, so a dropped request cannot stop between the reserved slot,
+        // the stored message and the new run.
+        let this = self.clone();
+        tokio::spawn(async move { this.start_inner(chat_id, user_text).await }).await?
+    }
+
+    async fn start_inner(
+        self: &Arc<Self>,
+        chat_id: i64,
+        user_text: String,
+    ) -> anyhow::Result<Result<(i64, JoinHandle<()>), StartError>> {
         if !self.store.chat_exists(chat_id).await? {
             return Ok(Err(StartError::NoChat));
         }
@@ -404,6 +415,45 @@ mod tests {
             .into_iter()
             .map(|e| e.kind)
             .collect()
+    }
+
+    /// A client that drops the request must not leave the chat busy forever.
+    #[tokio::test]
+    async fn dropped_start_does_not_lock_the_chat() {
+        let f = fixture(
+            vec![text_reply("one"), text_reply("two")],
+            FakeHost::default(),
+            5,
+        )
+        .await;
+        {
+            let fut = f.agent.start(f.chat, "first".into());
+            tokio::pin!(fut);
+            // Poll until the user message is stored, then drop the future, as axum
+            // does when the client goes away.
+            loop {
+                let polled =
+                    std::future::poll_fn(|cx| std::task::Poll::Ready(fut.as_mut().poll(cx))).await;
+                if polled.is_ready() {
+                    break;
+                }
+                let stored = f.store.list_messages(f.chat).await.unwrap().unwrap();
+                if !stored.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        }
+        let mut started = false;
+        for _ in 0..200 {
+            if let Ok(Ok((_, h))) = f.agent.start(f.chat, "second".into()).await {
+                h.await.unwrap();
+                started = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(started, "the chat stayed busy after a dropped start");
     }
 
     #[tokio::test]
