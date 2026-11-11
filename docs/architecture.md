@@ -1,6 +1,6 @@
 # Architecture
 
-This is the first design. Parts marked "open" are listed in [open-questions.md](open-questions.md).
+This is the first design. The decisions behind it are in [decisions.md](decisions.md).
 
 ```
 user (web app) ──HTTPS + live stream──> deck service
@@ -9,7 +9,7 @@ user (web app) ──HTTPS + live stream──> deck service
                                           │
                                           ├── browser tools ──> bare-mcp ──> bare (headless)
                                           ├── file tools ──> workspace folder
-                                          ├── shell tool ──> sandbox (open)
+                                          ├── shell tool ──> bwrap sandbox (D13)
                                           ├── memory store
                                           └── routines (scheduler)
 ```
@@ -53,7 +53,7 @@ The service calls a model endpoint with an API key from its configuration. The o
 ### Workspace and shell
 
 - Each bot has a workspace folder for its files.
-- A shell tool, if added, runs in a sandbox (open: container or other).
+- The shell tool runs each command in a `bwrap` sandbox that sees only the workspace (D13).
 
 ### Memory
 
@@ -67,6 +67,6 @@ The service calls a model endpoint with an API key from its configuration. The o
 
 ## Data
 
-- One local database for chats, runs, memory and routines (open: SQLite or other).
+- One local database for chats, runs, memory and routines in SQLite (D12).
 - Files in the workspace folder.
 - Secrets in the configuration or a vault, never in the database in plain text.
