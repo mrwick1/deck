@@ -1,1 +1,2 @@
+mod config;
 fn main() {}

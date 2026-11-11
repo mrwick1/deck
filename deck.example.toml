@@ -1,0 +1,24 @@
+# Address deck listens on.
+listen = "127.0.0.1:8790"
+# Folder for the SQLite file (deck.db) and, later, the workspace.
+data_dir = "./data"
+# Peers allowed to set the Remote-User header.
+trusted_proxies = ["127.0.0.1"]
+# Users allowed in. An empty list accepts any Remote-User value.
+allowed_users = []
+
+[model]
+# OpenAI-compatible endpoint.
+base_url = "http://127.0.0.1:8317/v1"
+# Name of the environment variable that holds the key. Never the key itself.
+api_key_env = "DECK_MODEL_KEY"
+# Model for the agent loop.
+agent_model = "claude-sonnet-5-5"
+# Model for small tasks.
+small_model = "claude-haiku-5-5"
+
+[bare]
+# Command that starts the bare MCP server.
+command = "bare-mcp"
+# Arguments for that command.
+args = []
