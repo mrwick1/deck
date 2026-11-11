@@ -75,7 +75,7 @@ mod tests {
     #[tokio::test]
     async fn untrusted_peer_is_401() {
         assert_eq!(
-            status(app("10.9.9.9", &[]), Some("a")).await,
+            status(app("::1", &[]), Some("a")).await,
             StatusCode::UNAUTHORIZED
         );
     }
