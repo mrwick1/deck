@@ -17,5 +17,4 @@ All ten first questions were answered on 2026-11-11. Each answer is a decision i
 
 ## Still open
 
-- Resource limits in the shell sandbox, and whether it may reach the private network (D13).
-- Which agent the daily cron starts, and how it picks the two or three issues (D15).
+None. The two follow-up points (sandbox limits and the daily fixer) were answered on 2026-11-11 in D13 and D15.
