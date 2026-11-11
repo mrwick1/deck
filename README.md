@@ -4,7 +4,16 @@
 
 ## Status
 
-Design only. There is no code yet. Start with [docs/vision.md](docs/vision.md).
+M1 in progress. Start with [docs/vision.md](docs/vision.md).
+
+## Development
+
+Copy `deck.example.toml` to `deck.toml`. Edit it for your setup.
+Set `DECK_MODEL_KEY` in the environment. Never write the key in a file.
+Run `cargo run` to start the server. It reads `deck.toml`, or the file in `DECK_CONFIG`.
+The server trusts the `Remote-User` header only from the `trusted_proxies` addresses.
+Run `cargo test` to run the tests.
+Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
 
 ## Rules
 
