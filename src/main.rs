@@ -9,6 +9,7 @@ mod store;
 #[cfg(test)]
 mod testutil;
 mod tools;
+mod web;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
