@@ -56,7 +56,7 @@ struct NewChat {
     title: Option<String>,
 }
 
-/// Build the API router. Every route sits behind the auth middleware.
+/// Build the router: the API and the web app. Every route sits behind the auth middleware.
 pub fn router(config: Arc<Config>, store: Store, agent: Arc<Agent>) -> Router {
     Router::new()
         .route("/api/me", get(me))
@@ -68,6 +68,7 @@ pub fn router(config: Arc<Config>, store: Store, agent: Arc<Agent>) -> Router {
         .route("/api/chats/{id}/events", get(events))
         .route("/api/runs/{id}/cancel", post(cancel_run))
         .route("/api/files/{id}", get(get_file))
+        .fallback(crate::web::serve)
         .layer(middleware::from_fn_with_state(config, require_user))
         .with_state(AppState { store, agent })
 }
@@ -253,6 +254,35 @@ mod tests {
         let status = res.status();
         let bytes = res.into_body().collect().await.unwrap().to_bytes();
         (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn serves_the_web_app_behind_auth() {
+        let app = app();
+        for uri in ["/", "/chats/1/some/spa/path"] {
+            let req = |auth: bool| {
+                let mut r = Request::builder().uri(uri);
+                if auth {
+                    r = r.header("Remote-User", "test");
+                }
+                r.body(Body::empty()).unwrap()
+            };
+            let res = app.clone().oneshot(req(true)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{uri}");
+            assert_eq!(res.headers()["content-type"], "text/html", "{uri}");
+            assert_eq!(res.headers()["cache-control"], "no-cache", "{uri}");
+            let res = app.clone().oneshot(req(false)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_api_path_is_a_json_404() {
+        let (s, b) = call(&app(), "GET", "/api/nope", "").await;
+        assert_eq!(
+            (s, b.as_str()),
+            (StatusCode::NOT_FOUND, r#"{"error":"not found"}"#)
+        );
     }
 
     #[tokio::test]
