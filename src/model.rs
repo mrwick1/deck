@@ -47,10 +47,6 @@ impl ModelClient {
         }
     }
 
-    pub fn has_key(&self) -> bool {
-        self.key.is_some()
-    }
-
     /// Stream one chat completion. Tool calls arrive whole, after the text.
     pub fn stream(
         &self,

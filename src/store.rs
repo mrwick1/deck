@@ -255,6 +255,7 @@ impl Store {
         .await
     }
 
+    #[cfg(test)]
     pub async fn run_status(&self, run_id: i64) -> anyhow::Result<Option<String>> {
         self.run(move |c| {
             c.query_row("SELECT status FROM runs WHERE id = ?1", [run_id], |r| {

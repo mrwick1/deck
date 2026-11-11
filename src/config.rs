@@ -45,6 +45,7 @@ pub struct Model {
     pub base_url: String,
     pub api_key_env: String,
     pub agent_model: String,
+    #[allow(dead_code)] // Unused until small tasks land.
     pub small_model: String,
 }
 
