@@ -3,6 +3,7 @@ mod auth;
 mod bare;
 mod config;
 mod model;
+mod prompt;
 mod store;
 #[cfg(test)]
 mod testutil;
