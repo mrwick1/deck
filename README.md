@@ -4,7 +4,7 @@
 
 ## Status
 
-M1 in progress. Start with [docs/vision.md](docs/vision.md).
+M1 is done. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 
@@ -18,7 +18,8 @@ Run `npm ci` in `web/` once. Run `npm run check` and `npm test` there before you
 To build one binary, run `npm run build` in `web/`, then `cargo build --release`. The binary embeds `web/dist`.
 Without `web/dist`, `cargo build` embeds a placeholder page.
 `bare-mcp` must be on `PATH`, or set `bare.command` in `deck.toml`. The agent starts it on the first browser tool call.
-Run `cargo test -- --ignored` to run the live test that starts the real `bare-mcp`.
+Run `cargo test -- --ignored` to run the live tests. They start the real `bare-mcp`, so it must be on `PATH`.
+`tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
 
 ## Rules
