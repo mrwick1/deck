@@ -20,5 +20,6 @@ Design only. There is no code yet. Start with [docs/vision.md](docs/vision.md).
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |
 | [docs/feedback-loop.md](docs/feedback-loop.md) | How `deck` makes `bare` better |
 | [docs/rakazo-lessons.md](docs/rakazo-lessons.md) | What we learned from Rakazo |
+| [docs/inspiration.md](docs/inspiration.md) | What we take from other open-source agents |
 | [docs/bare-gaps.md](docs/bare-gaps.md) | What `bare-mcp` must add for `deck` |
 | [docs/open-questions.md](docs/open-questions.md) | Design questions and their answers |

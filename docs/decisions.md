@@ -82,9 +82,9 @@ Each decision has a date, the decision and the reason.
 
 ## D13. The shell runs in bubblewrap from v1 (2026-11-11)
 
-**Decision:** The bot has a shell tool in v1. Each command runs in a `bwrap` sandbox. The sandbox sees only the bot's workspace folder.
+**Decision:** The bot has a shell tool in v1. Each command runs in a `bwrap` sandbox. The sandbox mounts `/usr`, `/etc` and `/opt` read-only and the bot's workspace folder read-write. It does not mount `/home`, `/data` or other user data, so keys, vaults and repositories stay hidden.
 
-**Reason:** The owner wants a shell from the start. `bwrap` is lighter and faster than a container.
+**Reason:** The owner wants a shell from the start. `bwrap` is lighter and faster than a container. Installed tools need the system folders. The mount layout follows Codex CLI (see [inspiration.md](inspiration.md)), without the user folders.
 
 **Network:** The sandbox has internet access. The bot needs it to install tools and fetch data.
 
