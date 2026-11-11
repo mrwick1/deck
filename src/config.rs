@@ -6,20 +6,41 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)] // `model` and `bare` are unused until later PRs.
 pub struct Config {
     pub listen: SocketAddr,
     pub data_dir: PathBuf,
+    /// Folder the agent may send files from. Defaults to `data_dir/workspace`.
+    pub workspace_dir: Option<PathBuf>,
     pub trusted_proxies: Vec<IpAddr>,
     #[serde(default)]
     pub allowed_users: Vec<String>,
     pub model: Model,
     pub bare: Bare,
+    #[serde(default)]
+    pub agent: Agent,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)] // Unused until the agent loop lands.
+pub struct Agent {
+    #[serde(default = "default_max_steps")]
+    pub max_steps: usize,
+}
+
+fn default_max_steps() -> usize {
+    30
+}
+
+impl Default for Agent {
+    fn default() -> Self {
+        Self {
+            max_steps: default_max_steps(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Model {
     pub base_url: String,
     pub api_key_env: String,
@@ -29,7 +50,6 @@ pub struct Model {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)] // Unused until the browser lands.
 pub struct Bare {
     pub command: String,
     #[serde(default)]
@@ -39,6 +59,12 @@ pub struct Bare {
 impl Config {
     pub fn parse(text: &str) -> anyhow::Result<Self> {
         Ok(toml::from_str(text)?)
+    }
+
+    pub fn workspace(&self) -> PathBuf {
+        self.workspace_dir
+            .clone()
+            .unwrap_or_else(|| self.data_dir.join("workspace"))
     }
 
     pub fn load() -> anyhow::Result<Self> {
@@ -61,6 +87,17 @@ mod tests {
         assert_eq!(c.listen.to_string(), "127.0.0.1:8790");
         assert_eq!(c.trusted_proxies.len(), 1);
         assert!(c.allowed_users.is_empty());
+        assert_eq!(c.agent.max_steps, 30);
+        assert_eq!(c.workspace(), PathBuf::from("./data/workspace"));
+    }
+
+    #[test]
+    fn workspace_and_max_steps_override() {
+        let text =
+            format!("workspace_dir = \"/w\"\n{EXAMPLE}").replace("max_steps = 30", "max_steps = 5");
+        let c = Config::parse(&text).unwrap();
+        assert_eq!(c.workspace(), PathBuf::from("/w"));
+        assert_eq!(c.agent.max_steps, 5);
     }
 
     #[test]
