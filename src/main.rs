@@ -1,7 +1,10 @@
 mod api;
 mod auth;
 mod config;
+mod model;
 mod store;
+#[cfg(test)]
+mod testutil;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
