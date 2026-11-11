@@ -84,12 +84,17 @@ impl BrowserHost for FakeHost {
             if self.hang {
                 std::future::pending::<()>().await;
             }
-            Ok(self
+            let reply = self
                 .replies
                 .lock()
                 .unwrap()
                 .pop_front()
-                .unwrap_or_else(|| serde_json::json!({"ok": true})))
+                .unwrap_or_else(|| serde_json::json!({"ok": true}));
+            // Like the real client: remember the capture folder of each report.
+            if let Some(out) = reply["out"].as_str() {
+                self.outs.lock().unwrap().push(out.into());
+            }
+            Ok(reply)
         })
     }
 

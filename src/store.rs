@@ -74,6 +74,14 @@ pub struct FileRow {
     pub size: i64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredEvent {
+    pub id: i64,
+    pub kind: String,
+    /// JSON text.
+    pub payload: String,
+}
+
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
@@ -210,6 +218,84 @@ impl Store {
                 content: content_json,
                 created_at,
             })
+        })
+        .await
+    }
+
+    pub async fn chat_exists(&self, chat_id: i64) -> anyhow::Result<bool> {
+        self.run(move |c| {
+            Ok(
+                c.query_row("SELECT 1 FROM chats WHERE id = ?1", [chat_id], |_| Ok(()))
+                    .optional()?
+                    .is_some(),
+            )
+        })
+        .await
+    }
+
+    pub async fn create_run(&self, chat_id: i64) -> anyhow::Result<i64> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT INTO runs(chat_id, status, started_at) VALUES (?1, 'running', ?2)",
+                params![chat_id, now()],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await
+    }
+
+    pub async fn finish_run(&self, run_id: i64, status: String) -> anyhow::Result<()> {
+        self.run(move |c| {
+            c.execute(
+                "UPDATE runs SET status = ?1, ended_at = ?2 WHERE id = ?3",
+                params![status, now(), run_id],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn run_status(&self, run_id: i64) -> anyhow::Result<Option<String>> {
+        self.run(move |c| {
+            c.query_row("SELECT status FROM runs WHERE id = ?1", [run_id], |r| {
+                r.get(0)
+            })
+            .optional()
+        })
+        .await
+    }
+
+    pub async fn add_event(
+        &self,
+        run_id: i64,
+        kind: String,
+        payload: String,
+    ) -> anyhow::Result<i64> {
+        self.run(move |c| {
+            c.execute(
+                "INSERT INTO events(run_id, kind, payload, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![run_id, kind, payload, now()],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await
+    }
+
+    /// Events of all runs of a chat with id greater than `after`, oldest first.
+    pub async fn list_events(&self, chat_id: i64, after: i64) -> anyhow::Result<Vec<StoredEvent>> {
+        self.run(move |c| {
+            c.prepare(
+                "SELECT e.id, e.kind, e.payload FROM events e JOIN runs r ON r.id = e.run_id \
+                 WHERE r.chat_id = ?1 AND e.id > ?2 ORDER BY e.id",
+            )?
+            .query_map(params![chat_id, after], |r| {
+                Ok(StoredEvent {
+                    id: r.get(0)?,
+                    kind: r.get(1)?,
+                    payload: r.get(2)?,
+                })
+            })?
+            .collect()
         })
         .await
     }
