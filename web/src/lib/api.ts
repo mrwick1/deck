@@ -53,8 +53,16 @@ export const createChat = (title: string) =>
   call<Chat>("/api/chats", post({ title }));
 export const listMessages = (id: number) =>
   call<StoredMessage[]>(`/api/chats/${id}/messages`);
-export const sendMessage = (id: number, text: string) =>
-  call<{ run_id: number }>(`/api/chats/${id}/messages`, post({ text }));
+export interface SendOptions {
+  mode?: "steer" | "queue";
+  priority?: number;
+}
+/** A plain chat answers with the run. The bot chat answers with the task and what happened to the message. */
+export const sendMessage = (id: number, text: string, o: SendOptions = {}) =>
+  call<{ run_id?: number; task_id?: string; kind?: string; held?: string | null }>(
+    `/api/chats/${id}/messages`,
+    post({ text, ...o }),
+  );
 export const cancelRun = (runId: number) =>
   call<void>(`/api/runs/${runId}/cancel`, { method: "POST" });
 export const answerApproval = (id: string, approved: boolean) =>
@@ -62,3 +70,66 @@ export const answerApproval = (id: string, approved: boolean) =>
 export const eventsUrl = (chatId: number, after: number) =>
   `/api/chats/${chatId}/events?after=${after}`;
 export const fileUrl = (id: number) => `/api/files/${id}`;
+
+export interface BotTask {
+  id: string;
+  title: string;
+  priority: number;
+  state: "queued" | "running" | "waiting" | "done" | "failed" | "cancelled" | "held";
+  detail: string | null;
+  source: string;
+}
+export interface BotScreenStats {
+  viewers: number;
+  worker: boolean;
+  captures: number;
+  delivered: number;
+  unchanged: number;
+}
+export interface BotStatus {
+  bot_id: string;
+  chat_id: number;
+  computer: "saved" | "waking" | "awake" | "saving" | "failed";
+  automation_paused: boolean;
+  budget_hold: boolean;
+  budget_reason: string | null;
+  working: BotTask | null;
+  waiting: BotTask | null;
+  queued: number;
+  tasks: BotTask[];
+  unresolved: number;
+  idle_secs: number;
+  idle_left_ms: number | null;
+  pending_events: number;
+  last_error: string | null;
+  screen: BotScreenStats;
+}
+export interface InboxItem {
+  kind: "budget_hold" | "unknown_outcome" | "waiting_task" | "held_task";
+  id: string;
+  title: string;
+  detail: string;
+  task_id: string | null;
+}
+export const botStatusUrl = "/api/bot/stream";
+export const botScreenUrl = "/api/bot/screen";
+export const botFrameUrl = (seq: number) => `/api/bot/screen/latest?seq=${seq}`;
+export const getBot = () => call<BotStatus>("/api/bot");
+const act = (path: string, body?: unknown) =>
+  call<void>(`/api/bot/${path}`, body === undefined ? { method: "POST" } : post(body));
+export const botStop = () =>
+  call<{ confirmed: string[]; unconfirmed: string[] }>("/api/bot/stop", {
+    method: "POST",
+  });
+export const botPause = (paused: boolean) => act("automation", { paused });
+export const botSleep = () => act("sleep");
+export const botWake = () => act("wake");
+export const botHold = (reason: string) => act("budget-hold", { reason });
+export const botApprove = () => act("budget-hold/approve");
+export const botCancelTask = (id: string) => act(`tasks/${id}/cancel`);
+export const botRetryTask = (id: string) => act(`tasks/${id}/retry`);
+export const botPriority = (id: string, priority: number) =>
+  act(`tasks/${id}/priority`, { priority });
+export const getInbox = () => call<InboxItem[]>("/api/bot/inbox");
+export const botDecide = (id: string, decision: string, note = "") =>
+  act(`inbox/commands/${id}`, { decision, note });
