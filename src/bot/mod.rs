@@ -126,6 +126,8 @@ pub struct Bot {
     inner: Mutex<Inner>,
     /// One start, restore or save at a time.
     lifecycle: tokio::sync::Mutex<()>,
+    /// Serialize hold changes with the decision to claim new work.
+    dispatch_gate: tokio::sync::Mutex<()>,
     kick: Notify,
     changed: watch::Sender<u64>,
     stopping: AtomicBool,
@@ -167,6 +169,7 @@ impl Bot {
             awake,
             inner: Mutex::default(),
             lifecycle: tokio::sync::Mutex::new(()),
+            dispatch_gate: tokio::sync::Mutex::new(()),
             kick: Notify::new(),
             changed: watch::channel(0).0,
             stopping: AtomicBool::new(false),
@@ -381,12 +384,21 @@ impl Bot {
     // ---------- dispatch and the end of a run ----------
 
     async fn dispatch(self: &Arc<Self>, task: Task, resume: bool) -> anyhow::Result<()> {
+        let gate = self.dispatch_gate.lock().await;
+        let flags = self.store.bot_flags(&self.id, "Bot").await?;
+        if flags.automation_paused || flags.budget_hold {
+            if resume {
+                self.inner.lock().unwrap().resume = Some(task.id);
+            }
+            return Ok(());
+        }
         // Claim the computer first, so an idle save cannot start while the wake runs.
         self.inner.lock().unwrap().current = Some(Current {
             task_id: task.id.clone(),
             run_id: None,
         });
         self.inner.lock().unwrap().idle_since = None;
+        drop(gate);
         if let Err(e) = self.ensure_awake().await {
             let why = format!("the computer did not wake: {e:#}");
             self.store
@@ -812,6 +824,7 @@ impl Bot {
     // ---------- holds ----------
 
     pub async fn set_paused(&self, paused: bool) -> R<()> {
+        let _gate = self.dispatch_gate.lock().await;
         internal(self.store.set_paused(&self.id, paused).await)?;
         self.touch();
         self.kick();
@@ -821,12 +834,14 @@ impl Bot {
     /// Set the budget hold. Spending accounting is not built yet: the owner or a later accounting
     /// component sets it. Nothing but `approve_budget` clears it.
     pub async fn hold_budget(&self, reason: String) -> R<()> {
+        let _gate = self.dispatch_gate.lock().await;
         internal(self.store.set_budget_hold(&self.id, Some(reason)).await)?;
         self.touch();
         Ok(())
     }
 
     pub async fn approve_budget(&self) -> R<()> {
+        let _gate = self.dispatch_gate.lock().await;
         internal(self.store.set_budget_hold(&self.id, None).await)?;
         internal(self.store.requeue_held(&self.id).await)?;
         self.touch();
@@ -1445,6 +1460,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatch_rechecks_holds_before_claiming_the_computer() {
+        let t = setup(vec![text("never")], 5000, true).await;
+        t.bot.set_paused(true).await.unwrap();
+        let a = t.bot.submit("a".into(), Mode::Queue, 1).await.unwrap();
+        let task = t.g.store.task(&a.task_id).await.unwrap().unwrap();
+        // Model a coordinator pass that selected work before the owner set a hold.
+        t.bot.dispatch(task.clone(), false).await.unwrap();
+        assert_eq!(wakes(&t), 0);
+        assert_eq!(state(&t, &a.task_id).await, "queued");
+        assert!(t.bot.inner.lock().unwrap().current.is_none());
+        t.bot.hold_budget("limit".into()).await.unwrap();
+        t.bot.set_paused(false).await.unwrap();
+        t.bot.dispatch(task, false).await.unwrap();
+        assert_eq!(wakes(&t), 0);
+        assert_eq!(state(&t, &a.task_id).await, "queued");
+    }
+
+    #[tokio::test]
     async fn pause_and_budget_hold_keep_the_computer_asleep_until_cleared() {
         let t = setup(vec![text("a"), text("b")], 5000, true).await;
         t.bot.set_paused(true).await.unwrap();
@@ -1462,8 +1495,8 @@ mod tests {
             (wakes(&t), state(&t, &a.task_id).await.as_str()),
             (0, "queued")
         );
-        t.bot.set_paused(false).await.unwrap();
         t.bot.hold_budget("limit".into()).await.unwrap();
+        t.bot.set_paused(false).await.unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert_eq!(wakes(&t), 0);
         // Only an explicit approval clears the hold.

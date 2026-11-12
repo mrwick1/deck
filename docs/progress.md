@@ -12,6 +12,8 @@ Stages 1–3 are complete for one configured bot with synthetic tasks. The integ
 | 2 | Guest executor, durable command records, cancellation, artifacts and restore fencing | [Stage 2 results](stage2-results.md) |
 | 3 | Server integration, queue, controls, idle save, wake, event batching and subscribed screen capture | [Stage 3 results](stage3-results.md) |
 
+CI exposed a pause race during task selection. Dispatch now rechecks holds when it claims work. A regression failed before the fix. The updated branch must pass CI before merge.
+
 The parent checked the UI in bare. The strict real-VM run used the real server and a scripted model. It completed browser, shell and file work, saved the idle computer and restored it for the next task. Deterministic tests cover stop, steer, holds and uncertain outcomes.
 
 ### Current resource baseline

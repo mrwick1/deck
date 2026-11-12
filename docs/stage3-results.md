@@ -129,3 +129,11 @@ The coordinator's failed-save behavior is covered by a fake failure. Real corrup
 ## Test environment requirements
 
 The two Rust detached-process cancellation tests require a writable delegated cgroup. They check this prerequisite and report a skip on hosts without it. The Python containment tests have the same prerequisite. The parent ran the Rust tests on a host with delegation. A pass on a host without delegation does not establish detached-process containment.
+
+## CI pause-race correction
+
+CI exposed a stale hold read during task selection. A coordinator pass could read automation enabled, then claim work after the owner had paused automation. A new regression reproduced the wake while paused before the fix. Dispatch now checks persisted holds while sharing a lock with hold updates. It claims work before releasing that lock. If a waiting-task resume is blocked, the resume request remains pending.
+
+The hold test also enabled automation before setting its budget hold. It now sets the budget hold first so no dispatch window exists between those operations. These changes do not cancel work already claimed before a hold. Running tasks retain the existing model-boundary budget check.
+
+After the correction, 131 Rust unit tests and three non-live integration tests pass. Formatting and clippy pass. The new regression failed before the correction and passed after it. This correction did not repeat the real-VM or browser smoke.
