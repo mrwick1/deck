@@ -316,3 +316,106 @@ The parent verified that the second full attempt remains failed in its raw summa
 Method `memory-v2-host-paging-context` changes only future memory experiments. A host-wide swap-out threshold crossing is retained in a `host_context` trace record, summary and evidence status. The summary marks such runs as host-paging-contended. The workload can continue unless another guard fires. VM/guest swap, OOM and cgroup limits, host CPU/memory pressure and low available memory still stop the run. The cycle benchmark policy is unchanged. See D52.
 
 Two regressions failed before this revision and pass after it. One verifies that host paging alone does not stop the run while actual VM swap, pressure and low memory do. The other verifies that the paging window remains recorded. All 132 Python tests pass. This policy change is not a clean-performance claim. A new attempt must use a fresh output directory and retain all contention windows.
+
+## Full run 3 under method `memory-v2-host-paging-context` (stopped by CPU pressure in boot 3)
+
+Run 3 used revision `c848a57`, method version `memory-v2-host-paging-context` (D52) and no code change. It ran `--boots 3 --workload-s 1800 --max-wall-s 7200` with the default pace (6 s) and sample cadence (10 s). Guest: 2 vCPUs, 2 GiB, codec `none`, base `a90de2e085a7ad52`. Each boot is a fresh overlay and a cold boot. One VM ran at a time. No retry followed.
+
+**The run is incomplete.** Boots 1 and 2 completed the full 1,800 s workload and all gates. Boot 3 stopped after 1,057.8 s of its workload on the `cpu_pressure` guard. Boot 3 ran no save, restore, first bare action or post-restore markers. This is not a completion claim for the 3-boot design. The earlier failed runs (1,551 s and 497.6 s) stay failed.
+
+Raw evidence is in the private directory `~/.cache/deck/memorybench-v2-full-20261112-203712` (outside Git): `trace.jsonl`, `samples.jsonl`, `summary.json`, `evidence-status.json`, `boot-N/` with logs and disks.
+
+### Preflight and drift
+
+- No QEMU process ran. The diff of `scripts/vm-prototype` and `docs` between `c848a57` and HEAD was empty.
+- One 60 s host window was evaluated with the memorybench guards (not the raw cycle rule): 1,040 swap-out pages (limit 16,384), memory pressure 0.15%, CPU pressure 0.39%, 14.5 GiB available, VM swap 0. No stop reason, no paging window.
+- Reused the parent test pass (132 tests) and the pinned 60 s smoke. This run added only a compile check and `--help`. It ran no new tests and no build during the measurement.
+
+### Stop
+
+The stop window was 61.7 s in boot 3: **CPU pressure 29.4%** against the 25% limit. In the same window: memory pressure 2.1%, swap-out 17,741 pages (above the 16,384-page paging threshold, so recorded as context), 12.2 GiB available, VM swap 0. Guest swap, guest OOM and cgroup `oom`, `oom_kill`, `max` were 0. The harness killed the VM and kept the failed summary. The process that caused the CPU pressure is unproven. The other host work is not attributed.
+
+### Durations and operations
+
+| Boot | Workload window | Elapsed (launch to end) | Operations | Requests | Downloads | Result |
+|---|---|---|---|---|---|---|
+| 1 | 1,804.8 s | 1,869.8 s | 264 | 759 | 33 | complete, deadline |
+| 2 | 1,803.7 s | 3,733.8 s (cumulative) | 264 | 759 | 33 | complete, deadline |
+| 3 | 1,057.8 s | 4,831.1 s (cumulative) | 155 | 441 | 19 | stopped, `cpu_pressure` |
+
+Boots 1 and 2 each did 99 navigate and 33 each of snapshot, read, download, new tab and extra session. Bare errors: 0 in all boots. Tabs and sessions stayed at most 3. Downloads stayed at most 32 MiB (16 files retained, 32 MiB). Retained downloads matched their hashes (16 checked, 0 bad) in boots 1 and 2. Median operation times were equal across boots (navigate 0.52 s, snapshot 0.21 s, download 0.73 to 0.75 s, new tab 2.04 s, extra session 1.73 s). These are observational: paging and CPU pressure windows occurred.
+
+### Gates (boots 1 and 2)
+
+| Item | Boot 1 | Boot 2 |
+|---|---|---|
+| Terminal pixels same before and after (pinned 640x797) | yes | yes |
+| Save call total | 5.09 s (migrate 4.83 s) | 4.73 s (migrate 4.49 s) |
+| State file bytes | 685,873,661 | 553,989,464 |
+| Restore to first guest echo | 1.37 s | 1.22 s |
+| First bare action after restore (`eval location.href`) | 0.364 s | 0.222 s |
+| Sessions after restore | 2 | 2 |
+| Post-restore markers (nano process, disk marker, shell file, download SHA, bare tab URL, login, cookie; notes file not written) | all pass | all pass |
+| VM, scope and helpers left | none | none |
+
+Save and restore times and state bytes are observational only. Host paging was flagged in this run, so they are not clean-performance claims. Boot 1 and boot 2 state sizes differ by 132 MiB. The cause is unmeasured.
+
+### Sampling and observer cost
+
+| Boot | Samples | Span | Gap median / max | PID reuse |
+|---|---|---|---|---|
+| 1 | 176 | 1,793 s | 10.23 s / 10.44 s | none |
+| 2 | 176 | 1,792.7 s | 10.23 s / 10.63 s | none |
+| 3 | 103 | 1,043.8 s | 10.23 s / 10.41 s | none |
+
+Observer (sampler thread) CPU, from cumulative readings at each workload end: about 9.6 s in boot 1, 8.2 s in boot 2 and 5.3 s in boot 3, which is about 0.5% of one core in each. The boot 1 figure may include setup. No sampler error and no retention error.
+
+### Memory readings
+
+The late window is the samples after 600 s. The slope is per minute. The standard error assumes independent samples. The samples are autocorrelated, so the error is not a confidence interval. "Growing" is the harness label.
+
+| Metric | Boot 1: first, last, late slope | Boot 2: first, last, late slope | Boot 3 (1,044 s only): first, last, late slope |
+|---|---|---|---|
+| Host QEMU RSS (MiB) | 661.6, 759.0, +1.93 (SE 0.05) | 535.1, 638.8, +2.30 (SE 0.06) | 524.1, 607.3, +1.31 (SE 0.06, 44 samples) |
+| Host QEMU PSS (MiB) | 652.8, 750.3, +1.94 | 526.2, 630.0, +2.30 | 515.3, 597.5, +1.11 |
+| Host cgroup anonymous (MiB) | 626.9, 725.8, +1.94 | 500.6, 604.4, +2.30 | 489.8, 574.3, +1.40 |
+| Guest used, total minus available (MiB) | 335.4, 349.1, -0.05 (no trend) | 337.7, 333.7, +0.05 (no trend) | 332.5, 344.3, +0.39 (SE 0.16) |
+| Guest page cache (MiB) | 343.6, 414.3, +1.52 | 214.3, 287.4, +1.49 | 215.0, 274.2, +1.73 |
+| Guest anonymous pages (MiB) | 37.0, 42.5, +0.04 | 36.8, 42.2, +0.04 | 37.4, 43.0, +0.18 |
+| Bare RSS (MiB) | 22.2, 27.4, +0.02 (no trend) | 22.6, 27.8, -0.01 (no trend) | 22.6, 29.9, +0.24 (SE 0.10) |
+| Bare PSS (MiB) | 18.9, 24.0, +0.03 (no trend) | 19.1, 24.3, +0.01 (no trend) | 19.1, 25.5, +0.20 |
+| Bare output file (KB) | 3.2, 649, +21.4 KB/min | 3.2, 649, +21.5 KB/min | 3.2, 383, +21.6 KB/min |
+
+Host RSS, PSS and guest page cache first rise 8.5 to 9.0 MiB per minute in the first five minutes in all three boots. Then they slow to 1.3 to 2.3 MiB per minute. They do not stop growing within 30 minutes. **No host plateau is shown.** Guest used memory and bare RSS and PSS show no significant late trend in boots 1 and 2. Boot 3 has a shorter late window (44 samples) and shows a small positive slope. It ran under the highest host load and ended early. Do not read it as a difference between boots.
+
+The bare output file grew 851 bytes per request in boots 1 and 2 (862 in boot 3), linearly with requests. The file lives in the guest runtime tmpfs and belongs to the Deck wrapper, not the bare engine. It is 0.65 MB at the end. That is small against the host growth, so it does not explain the host curve.
+
+Host RSS and PSS are host-side numbers. Guest cache, available memory, anonymous pages, bare process memory and the runtime output file are guest-side numbers. The two sides are separate. Guest used and cache are not disjoint, so their sum is no accounting identity. Hypothesis, to verify: host RSS follows guest pages that the guest touched, and QEMU does not return freed pages without a balloon. Raw RSS growth is not a leak. This observational run cannot show a cause. Boot-to-boot start values differ (host RSS 661.6 MiB against 535.1 MiB at the first sample), so absolute levels do not compare across boots.
+
+### Host paging context
+
+The run recorded **3 paging windows** (swap-out above 16,384 pages in a 61 s window), all as `host_context` records, and `host_paging_contended` is true.
+
+| Boot | Window | Swap-out pages | CPU pressure | Memory pressure | Available |
+|---|---|---|---|---|---|
+| 1 | one 61.7 s window | 22,075 | 15.2% | 0.33% | 10.1 GiB |
+| 3 | 61.4 s | 29,191 | 0.29% | 2.9% | 11.7 GiB |
+| 3 | 61.7 s (the stop window) | 17,741 | 29.4% | 2.1% | 12.2 GiB |
+
+Range of the paging windows: 17,741 to 29,191 pages (69 to 114 MiB). VM swap was 0 in all windows. Other pressure was elevated in two: CPU pressure 15.2% (boot 1, under the limit) and 29.4% (boot 3, over the limit and the stop reason). Memory pressure stayed under 3%. Boot 2 had no paging window. The cause of the host paging is unproven. Because boots 1 and 3 were contended, no clean latency comparison and no causal leak claim holds from this run. The labels apply to all boots.
+
+### Cleanup and integrity
+
+- The harness reported no VM, no scope and no helper left in each boot. A later check found no QEMU, fixture or harness process.
+- The base digest was equal before and after (`a90de2e085a7ad52`, size 1,493,565,440 bytes).
+- `evidence-status.json`: no sampler error, no retention error, stop reason `cpu_pressure`. The failed summary was kept. No watcher, monitor or scheduled job was started.
+
+### Not tested
+
+- A complete 3-boot experiment (boot 3 stopped at 1,057.8 s), boot 3 save, restore, first bare action and markers, and an uncontended host.
+- A host plateau, a leak cause, and clean latency or save and restore comparison.
+- The server, executor, chat, journal, holds, real models and sites, concurrent capacity.
+- Old tiled layout curves. They stay separate from the pinned layout curves.
+- Bounded workload completion is not an optimization gain.
+
+Run history addition: **Run 3** completed boots 1 and 2 under the D52 method. Boot 3 stopped at 1,057.8 s on `cpu_pressure`. No retry followed.
