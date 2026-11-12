@@ -1,11 +1,19 @@
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
+import {
+  BotBar,
+  BotHome,
+  BotScreen,
+  InboxPanel,
+  SendOptions,
+} from "@/components/BotBar";
 import { ComposerDock, DockContext } from "@/components/ComposerDock";
 import { LivePanel, LivePill } from "@/components/LiveView";
 import { StepGroup, StepRow } from "@/components/StepRow";
 import { Button } from "@/components/ui/button";
 import { Welcome } from "@/components/Welcome";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useBot } from "@/lib/bot";
 import { useDeck } from "@/lib/useDeck";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { MenuIcon } from "lucide-react";
@@ -22,9 +30,32 @@ const THREAD = {
 };
 
 export default function App() {
-  const { runtime, title, page, connected, dock } = useDeck();
+  const { status: bot, inbox, refreshInbox } = useBot();
+  const [mode, setMode] = useState<"steer" | "queue">("steer");
+  const [priority, setPriority] = useState(1);
+  const {
+    runtime,
+    chatId,
+    openHome,
+    openChat,
+    title,
+    page,
+    browserActive,
+    connected,
+    dock,
+  } = useDeck({
+    chatId: bot?.chat_id ?? null,
+    mode,
+    priority,
+    home: true,
+  });
   const running = dock.running;
   const [drawer, setDrawer] = useState(false);
+  const [screen, setScreen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const inChat = bot !== null && chatId === bot.chat_id;
+  // The screen shows while the owner asks for it, or when a task waits for the owner.
+  const showScreen = inChat && bot.computer === "awake" && (screen || browserActive || !!bot.waiting);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -96,10 +127,46 @@ export default function App() {
                   )}
                 </AnimatePresence>
               </header>
-              <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
-                <LivePill page={page} running={running} />
-                <Thread components={THREAD} />
-              </div>
+              {bot && chatId !== null && (
+                <BotBar
+                  status={bot}
+                  inboxCount={inbox.length}
+                  screenOpen={showScreen}
+                  onScreen={() => setScreen((v) => !v)}
+                  onInbox={() => setInboxOpen((v) => !v)}
+                  onHome={openHome}
+                />
+              )}
+              {bot && inboxOpen && (
+                <InboxPanel
+                  items={inbox}
+                  refresh={refreshInbox}
+                  onClose={() => setInboxOpen(false)}
+                />
+              )}
+              {showScreen && <BotScreen />}
+              {bot && chatId === null && (
+                <BotHome
+                  status={bot}
+                  inboxCount={inbox.length}
+                  onOpen={() => openChat(bot.chat_id)}
+                />
+              )}
+              {(!bot || chatId !== null) && (
+                <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+                  <LivePill page={page} running={running} />
+                  <Thread components={THREAD} />
+                </div>
+              )}
+              {inChat && (
+                <SendOptions
+                  mode={mode}
+                  priority={priority}
+                  setMode={setMode}
+                  setPriority={setPriority}
+                  working={!!bot.working}
+                />
+              )}
             </main>
             <LivePanel page={page} running={running} />
           </div>

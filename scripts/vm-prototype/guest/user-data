@@ -1,0 +1,4 @@
+#cloud-config
+# Stage 1 first-boot provisioning. The seed disk carries setup-guest.sh and bare-mcp.
+runcmd:
+  - [bash, -c, "mkdir -p /mnt/seed && mount -o ro /dev/disk/by-label/cidata /mnt/seed && bash /mnt/seed/setup-guest.sh 2>&1 | tee /var/log/stage1-setup.log > /dev/ttyS0"]

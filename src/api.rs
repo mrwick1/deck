@@ -15,6 +15,7 @@ use serde_json::json;
 
 use crate::agent::{Agent, StartError};
 use crate::auth::{User, require_user};
+use crate::bot::Bot;
 use crate::config::Config;
 use crate::store::{Chat, Message, Store};
 
@@ -22,6 +23,7 @@ use crate::store::{Chat, Message, Store};
 pub struct AppState {
     pub store: Store,
     pub agent: Arc<Agent>,
+    pub bot: Option<Arc<Bot>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,8 +59,20 @@ struct NewChat {
 }
 
 /// Build the router: the API and the web app. Every route sits behind the auth middleware.
+#[cfg(test)]
 pub fn router(config: Arc<Config>, store: Store, agent: Arc<Agent>) -> Router {
-    Router::new()
+    router_with(config, store, agent, None)
+}
+
+/// Same as `router`, with the bot runtime when `[vm]` is configured.
+pub fn router_with(
+    config: Arc<Config>,
+    store: Store,
+    agent: Arc<Agent>,
+    bot: Option<Arc<Bot>>,
+) -> Router {
+    let cfg2 = config.clone();
+    let mut r = Router::new()
         .route("/api/me", get(me))
         .route("/api/chats", get(list_chats).post(create_chat))
         .route(
@@ -69,8 +83,23 @@ pub fn router(config: Arc<Config>, store: Store, agent: Arc<Agent>) -> Router {
         .route("/api/runs/{id}/cancel", post(cancel_run))
         .route("/api/files/{id}", get(get_file))
         .fallback(crate::web::serve)
-        .layer(middleware::from_fn_with_state(config, require_user))
-        .with_state(AppState { store, agent })
+        .with_state(AppState {
+            store,
+            agent,
+            bot: bot.clone(),
+        })
+        .layer(middleware::from_fn_with_state(config, require_user));
+    if let Some(b) = bot {
+        // Event senders use a bearer token, so this route sits outside the user check.
+        r = r
+            .merge(
+                crate::bot::api::routes()
+                    .with_state(b.clone())
+                    .layer(middleware::from_fn_with_state(cfg2, require_user)),
+            )
+            .merge(crate::bot::api::event_routes().with_state(b));
+    }
+    r
 }
 
 async fn me(Extension(User(user)): Extension<User>) -> Json<serde_json::Value> {
@@ -110,6 +139,9 @@ async fn list_messages(
 #[derive(Deserialize)]
 struct NewMessage {
     text: Option<String>,
+    /// Bot chat only: `steer` (default) or `queue`.
+    mode: Option<String>,
+    priority: Option<i64>,
 }
 
 async fn post_message(
@@ -120,6 +152,20 @@ async fn post_message(
     let text = body.text.ok_or(ApiError::BadRequest("text is required"))?;
     if !(1..=20_000).contains(&text.chars().count()) {
         return Err(ApiError::BadRequest("text must be 1 to 20000 characters"));
+    }
+    // The bot's chat goes through the durable queue, so a message cannot start a second run.
+    if let Some(b) = st.bot.as_ref().filter(|b| b.chat_id() == id) {
+        let mode = crate::bot::api::parse_mode(body.mode.as_deref())
+            .map_err(|_| ApiError::BadRequest("mode must be steer or queue"))?;
+        let r = b
+            .submit(text, mode, body.priority.unwrap_or(crate::bot::db::NORMAL))
+            .await
+            .map_err(|e| match e {
+                crate::bot::BotError::Invalid(m) => ApiError::BadRequest(m),
+                crate::bot::BotError::NotFound => ApiError::NotFound,
+                crate::bot::BotError::Conflict(_) => ApiError::Conflict,
+            })?;
+        return Ok((StatusCode::ACCEPTED, Json(serde_json::to_value(r).unwrap())));
     }
     match st.agent.start(id, text).await? {
         Ok((run_id, _)) => Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id })))),

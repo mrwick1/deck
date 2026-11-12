@@ -47,7 +47,12 @@ export interface PendingApproval {
 const fail = (e: unknown) => toast.error((e as Error).message);
 
 /** The chats, the open chat and its live run, as an assistant-ui runtime. */
-export function useDeck() {
+export function useDeck(bot?: {
+  chatId: number | null;
+  mode: "steer" | "queue";
+  priority: number;
+  home: boolean;
+}) {
   const [chats, setChats] = useState<api.Chat[]>([]);
   const [chatId, setChatId] = useState<number | null>(null);
   const [history, setHistory] = useState<Item[]>([]);
@@ -61,6 +66,14 @@ export function useDeck() {
   const seed = useRef<{ chatId: number; text: string; runId: number } | null>(
     null,
   );
+
+  // Start on the overview when configured. Opening a bot then selects its chat.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (bot?.chatId == null || opened.current) return;
+    opened.current = true;
+    if (!bot.home) setChatId(bot.chatId);
+  }, [bot?.chatId, bot?.home]);
 
   useEffect(() => {
     api
@@ -152,19 +165,33 @@ export function useDeck() {
         if (chatId === null) {
           const chat = await api.createChat(text.slice(0, 60));
           const { run_id } = await api.sendMessage(chat.id, text);
-          seed.current = { chatId: chat.id, text, runId: run_id };
+          seed.current = { chatId: chat.id, text, runId: run_id! };
           setChats((c) => [chat, ...c]);
           setChatId(chat.id);
           return;
         }
-        const { run_id } = await api.sendMessage(chatId, text);
-        setHistory((h) => [...h, { kind: "user", text }]);
-        const v = {
-          ...viewRef.current,
-          run: { runId: run_id, items: [], status: "running" as const },
-        };
-        viewRef.current = v;
-        setView(v);
+        const isBot = bot?.chatId === chatId;
+        const r = await api.sendMessage(
+          chatId,
+          text,
+          isBot ? { mode: bot.mode, priority: bot.priority } : {},
+        );
+        // A steering message is stored by the run. The others show at once.
+        if (!(isBot && r.kind === "steered")) {
+          setHistory((h) => [...h, { kind: "user", text }]);
+        } else {
+          toast.success("Sent to the working task");
+        }
+        if (r.held) toast.info(`Queued. It waits: ${r.held}.`);
+        // The bot's run starts when its turn comes; the event stream shows it then.
+        if (r.run_id !== undefined) {
+          const v = {
+            ...viewRef.current,
+            run: { runId: r.run_id, items: [], status: "running" as const },
+          };
+          viewRef.current = v;
+          setView(v);
+        }
       } catch (e) {
         const err = e as api.ApiError;
         toast.error(
@@ -173,7 +200,7 @@ export function useDeck() {
         throw e;
       }
     },
-    [chatId],
+    [chatId, bot?.chatId, bot?.mode, bot?.priority],
   );
 
   const onCancel = useCallback(async () => {
@@ -243,8 +270,12 @@ export function useDeck() {
   const title = chats.find((c) => c.id === chatId)?.title ?? "deck";
   return {
     runtime,
+    chatId,
+    openHome: () => setChatId(null),
+    openChat: setChatId,
     title,
     page,
+    browserActive: running && (view.run?.items.some((it) => it.kind === "step" && !it.done && it.name.startsWith("browser_")) ?? false),
     connected: chatId === null || connected,
     dock: { running, startedAt: view.run?.startedAt, approval, answer },
   };

@@ -1,6 +1,50 @@
-# Progress and plan: bare tools for the deck agent
+# Deck progress and plan
 
-This file is the plan and the state of the work. Update it when a step ends.
+Update this file when a stage or verification step ends.
+
+## One-bot runtime: 2026-11-12
+
+Stages 1–3 are complete for one configured bot with synthetic tasks. The integration branch contains the code and evidence. Upstream merge is pending. No deployment is required for local use.
+
+| Stage | Verified result | Evidence |
+| --- | --- | --- |
+| 1 | Full Arch desktop, bare, artifacts and five saved-state cycles | [Stage 1 results](vm-stage1-results.md) |
+| 2 | Guest executor, durable command records, cancellation, artifacts and restore fencing | [Stage 2 results](stage2-results.md) |
+| 3 | Server integration, queue, controls, idle save, wake, event batching and subscribed screen capture | [Stage 3 results](stage3-results.md) |
+
+CI exposed a pause race during task selection. Dispatch now rechecks holds when it claims work. A regression failed before the fix. The updated branch must pass CI before merge.
+
+The parent checked the UI in bare. The strict real-VM run used the real server and a scripted model. It completed browser, shell and file work, saved the idle computer and restored it for the next task. Deterministic tests cover stop, steer, holds and uncertain outcomes.
+
+### Current resource baseline
+
+These are single-run observations, not capacity estimates or before/after performance claims. CPU is a percentage of one core. The server memory is shared Deck overhead.
+
+| State | VM memory | VM CPU | Server memory | Server CPU |
+| --- | --- | --- | --- | --- |
+| Working | 531 MiB | 5.57% | 20.9 MiB | 0.60% |
+| Awake, idle | 534 MiB | 4.39% | 21.3 MiB | 0.07% |
+| Saved | 0 | No process | 21.4 MiB | 0.00% |
+
+No model calls or captures occurred in the idle and saved windows. Capture stopped after the viewer disconnected. A restored task completed in about 3 seconds. The workload was small and synthetic.
+
+### Next: optimize one integrated bot
+
+1. Measure one owned workload at a time. Keep working, awake-idle and saved results separate.
+2. Profile residual guest CPU while awake and idle. Identify the process and timer before changing the desktop.
+3. Measure active command polling, output handling and artifact transfer. Remove work only where evidence justifies it.
+4. Measure screen capture cost with and without a viewer. Preserve zero capture without a caller.
+5. Inspect the web bundle warning and split optional code only if it improves loading without changing behavior.
+
+Keep the full desktop, durable recovery and control gates. Record each change and its before/after workload in [the optimization plan](optimization-plan.md). Multi-bot load tests follow this pass. Horizontal scaling will also need independent ownership, storage and capacity controls.
+
+### Open product and verification work
+
+Automatic spending accounting, real accounts and service events, memory integration and conversational provisioning remain open. Fresh guest provisioning and real failure halfway through a save remain untested. Some UI actions retain deterministic coverage rather than real-VM browser coverage. See the stage reports for exact limits.
+
+## Browser tools workstream
+
+The following history and plan describe the separate browser-tools workstream. They do not establish the integrated VM runtime state.
 
 ## Goal
 
@@ -48,9 +92,9 @@ Give the `deck` agent every browser tool that it needs, in `bare-mcp`. Read page
 - A local login with a `${NAME}` secret, in 9.4 s. The password is not in the run events, the log or the data folder.
 - The eval set (`evals/`): 17 of 17 tasks pass with the deck prompt of deck #20.
 
-## In progress
+## Browser tools checkpoint
 
-Nothing. Every branch is merged, and `bare-mcp` runs bare main `052736a7`.
+The browser-tools checkpoint reported merged branches and bare main `052736a7`. This is historical state. It does not identify the browser binary in every VM image.
 
 ## Next
 

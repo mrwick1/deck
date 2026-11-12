@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Send one JSON-RPC line (stdin) to the session bare-mcp and print the reply with the same id."""
+import json, os, sys, time
+d = os.environ["XDG_RUNTIME_DIR"] + "/bare"
+req = sys.stdin.read().strip()
+rid = json.loads(req).get("id")
+pos = os.path.getsize(d + "/out")
+with open(d + "/in", "w") as f:
+    f.write(req + "\n")
+end = time.time() + float(sys.argv[1] if len(sys.argv) > 1 else 60)
+buf = b""
+while rid is not None and time.time() < end:
+    with open(d + "/out", "rb") as f:
+        f.seek(pos)
+        buf = f.read()
+    for line in buf.split(b"\n"):
+        if line and json.loads(line).get("id") == rid:
+            print(line.decode()); sys.exit(0)
+    time.sleep(0.05)
+sys.exit(0 if rid is None else 3)

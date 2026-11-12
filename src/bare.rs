@@ -102,14 +102,19 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Conn<R, W> {
         let r = self
             .request("tools/call", json!({"name": name, "arguments": args}))
             .await?;
-        let text = r["content"][0]["text"]
-            .as_str()
-            .ok_or_else(|| anyhow!("bare-mcp result has no text"))?;
-        if r["isError"].as_bool() == Some(true) {
-            return Err(anyhow!("bare-mcp tool error: {text}"));
-        }
-        Ok(serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_owned())))
+        tool_value(&r)
     }
+}
+
+/// The value of an MCP tool result: a JSON report in `content[0].text` is parsed; other text stays a string.
+pub fn tool_value(r: &Value) -> anyhow::Result<Value> {
+    let text = r["content"][0]["text"]
+        .as_str()
+        .ok_or_else(|| anyhow!("bare-mcp result has no text"))?;
+    if r["isError"].as_bool() == Some(true) {
+        return Err(anyhow!("bare-mcp tool error: {text}"));
+    }
+    Ok(serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_owned())))
 }
 
 type Pipes = Conn<tokio::process::ChildStdout, tokio::process::ChildStdin>;

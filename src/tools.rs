@@ -8,6 +8,7 @@ use futures_util::future::BoxFuture;
 use serde_json::{Value, json};
 
 use crate::bare::Bare;
+use crate::bot::hub::Hub;
 use crate::store::Store;
 
 const MAX_FILE: u64 = 25 * 1024 * 1024;
@@ -63,6 +64,8 @@ pub struct Outcome {
     /// Text returned to the model.
     pub content: String,
     pub file: Option<SentFile>,
+    /// The agent asked the owner a question: the run ends and the task waits.
+    pub wait: Option<String>,
 }
 
 pub struct Tools {
@@ -72,6 +75,8 @@ pub struct Tools {
     files_dir: PathBuf,
     /// The secrets file of the owner, from the config. The model never sees its path or values.
     secrets: Option<PathBuf>,
+    /// The computer of the bot. When set, shell and files run there, and no host path is used.
+    guest: Option<Arc<Hub>>,
 }
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
@@ -83,7 +88,7 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 }
 
 /// The tool schemas for the model: each bare-mcp tool as `browser_<name>`, without the arguments that deck controls, and `send_file`.
-pub fn schemas(bare: &[Value]) -> Vec<Value> {
+pub fn schemas(bare: &[Value], computer: bool) -> Vec<Value> {
     let mut out: Vec<Value> = bare
         .iter()
         .filter_map(|t| {
@@ -107,10 +112,28 @@ pub fn schemas(bare: &[Value]) -> Vec<Value> {
         .collect();
     out.push(tool(
         "send_file",
-        "Send a file into the chat. Use it for screenshots and any file the user asked for.",
+        if computer {
+            "Send a file into the chat. Give the path of a screenshot from a browser tool, or a file in your workspace."
+        } else {
+            "Send a file into the chat. Use it for screenshots and any file the user asked for."
+        },
         json!({"path": {"type":"string"}, "caption": {"type":"string"}}),
         &["path"],
     ));
+    if computer {
+        out.push(tool(
+            "shell",
+            "Run a shell script on your computer as the desktop user. The folder is your workspace. Files that you write to $DECK_OUT come back as files that send_file can send. The reply has the exit code and the end of the output.",
+            json!({"script": {"type":"string"}, "timeout_secs": {"type":"integer","minimum":1,"maximum":3600}}),
+            &["script"],
+        ));
+        out.push(tool(
+            "ask_owner",
+            "Ask the owner a question and wait for the answer. Your task keeps the computer while it waits.",
+            json!({"question": {"type":"string"}}),
+            &["question"],
+        ));
+    }
     out
 }
 
@@ -180,7 +203,17 @@ impl Tools {
             workspace,
             files_dir: data_dir.join("files"),
             secrets: None,
+            guest: None,
         }
+    }
+
+    pub fn with_guest(mut self, hub: Arc<Hub>) -> Self {
+        self.guest = Some(hub);
+        self
+    }
+
+    pub fn has_guest(&self) -> bool {
+        self.guest.is_some()
     }
 
     /// The names in the secrets file, for the prompt. Values are never read into the model's context.
@@ -207,6 +240,27 @@ impl Tools {
     pub async fn execute(&self, chat_id: i64, name: &str, args: &Value) -> Outcome {
         let r = match name {
             "send_file" => self.send_file(chat_id, args).await,
+            "shell" if self.guest.is_some() => {
+                self.shell(args).await.map(|content| (content, None))
+            }
+            "ask_owner" if self.guest.is_some() => {
+                return match args["question"].as_str().filter(|q| !q.trim().is_empty()) {
+                    Some(q) => Outcome {
+                        ok: true,
+                        content: json!({"ok": true, "waiting": "the owner was asked"}).to_string(),
+                        file: None,
+                        wait: Some(q.chars().take(2000).collect()),
+                    },
+                    None => Outcome {
+                        ok: false,
+                        content:
+                            json!({"ok": false, "error": "argument question must be a string"})
+                                .to_string(),
+                        file: None,
+                        wait: None,
+                    },
+                };
+            }
             _ => self
                 .browser(name, args)
                 .await
@@ -217,13 +271,28 @@ impl Tools {
                 ok: true,
                 content,
                 file,
+                wait: None,
             },
             Err(e) => Outcome {
                 ok: false,
                 content: json!({"ok": false, "error": format!("{e:#}")}).to_string(),
                 file: None,
+                wait: None,
             },
         }
+    }
+
+    async fn shell(&self, args: &Value) -> anyhow::Result<String> {
+        let script = args["script"]
+            .as_str()
+            .ok_or_else(|| anyhow!("argument script must be a string"))?;
+        if script.len() > 12_000 {
+            return Err(anyhow!(
+                "the script is longer than 12000 bytes: write it to a file in pieces"
+            ));
+        }
+        let hub = self.guest.as_ref().expect("checked by the caller");
+        hub.shell(script, args["timeout_secs"].as_u64()).await
     }
 
     /// The bare-mcp tools, for the schemas of a run.
@@ -242,6 +311,10 @@ impl Tools {
             _ => return Err(anyhow!("the arguments must be an object")),
         };
         a.retain(|k, _| !HIDDEN_ARGS.contains(&k.as_str()));
+        // The computer sets paths, secrets and download folders on its own side.
+        if self.guest.is_some() {
+            return self.relay(bare_name, a).await;
+        }
         // Screenshots and downloads land in the workspace, so send_file can send them.
         if bare_name == "screenshot" {
             let dir = self.workspace.join("shots");
@@ -274,6 +347,10 @@ impl Tools {
                 *f = json!(real);
             }
         }
+        self.relay(bare_name, a).await
+    }
+
+    fn no_upload_steps(bare_name: &str, a: &serde_json::Map<String, Value>) -> anyhow::Result<()> {
         if bare_name == "step"
             && a.get("steps")
                 .and_then(Value::as_str)
@@ -283,6 +360,15 @@ impl Tools {
                 "upload is not allowed in steps: use browser_act with op upload"
             ));
         }
+        Ok(())
+    }
+
+    async fn relay(
+        &self,
+        bare_name: &str,
+        a: serde_json::Map<String, Value>,
+    ) -> anyhow::Result<String> {
+        Self::no_upload_steps(bare_name, &a)?;
         Ok(match self.host.call(bare_name, Value::Object(a)).await? {
             Value::String(text) if text.chars().count() > MAX_TEXT => {
                 text.chars().take(MAX_TEXT).collect::<String>() + "…[truncated]"
@@ -309,7 +395,20 @@ impl Tools {
             .as_str()
             .ok_or_else(|| anyhow!("argument path must be a string"))?;
         let caption = args["caption"].as_str().unwrap_or("");
-        let real = std::fs::canonicalize(path).map_err(|_| anyhow!("path not allowed"))?;
+        let real = match &self.guest {
+            // The path is a guest path unless it names a file in the host artifact store.
+            // A host file system lookup of a guest path could reveal a host file.
+            Some(hub) => match std::fs::canonicalize(path) {
+                Ok(p)
+                    if std::fs::canonicalize(hub.artifacts_root())
+                        .is_ok_and(|r| p.starts_with(r)) =>
+                {
+                    p
+                }
+                _ => hub.publish(path).await?,
+            },
+            None => std::fs::canonicalize(path).map_err(|_| anyhow!("path not allowed"))?,
+        };
         if !self.allowed(&real) {
             return Err(anyhow!("path not allowed"));
         }
@@ -650,7 +749,7 @@ mod tests {
             json!({"name":"run_steps","description":"x","inputSchema":{"type":"object","properties":{}}}),
             json!({"name":"snapshot","description":"Read","inputSchema":{"type":"object","properties":{"session":{"type":"string"},"window":{"type":"boolean"}}}}),
         ];
-        let s = schemas(&bare);
+        let s = schemas(&bare, false);
         let names: Vec<&str> = s
             .iter()
             .map(|t| t["function"]["name"].as_str().unwrap())

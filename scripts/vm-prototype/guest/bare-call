@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Relay one bare-mcp request to the session bare-mcp. Runs as a Deck executor command.
+
+argv[1] is {"method": "tools/list" | "tools/call", "params": {...}, "timeout": seconds}.
+The reply goes to $DECK_OUT/reply.json, so the host fetches it as a checked artifact.
+Files that the reply names (screenshots, downloads) are copied next to it.
+Paths of the guest never reach the model: the host maps them to its own artifact paths.
+"""
+import json, os, shutil, sys, time, uuid
+
+MAX_FILE = 8 << 20
+MAX_COPIES = 12
+PROTOCOL = "2025-06-18"
+
+
+def session_dir():
+    return os.path.join(os.environ["XDG_RUNTIME_DIR"], "bare")
+
+
+class Rpc:
+    def __init__(self, d):
+        self.d = d
+
+    def call(self, method, params=None, wait=60.0, notify=False):
+        rid = None if notify else int(time.time() * 1000) * 1000 + uuid.uuid4().int % 1000
+        msg = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            msg["params"] = params
+        if rid is not None:
+            msg["id"] = rid
+        pos = os.path.getsize(os.path.join(self.d, "out"))
+        with open(os.path.join(self.d, "in"), "w") as f:
+            f.write(json.dumps(msg) + "\n")
+        if rid is None:
+            return None
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            with open(os.path.join(self.d, "out"), "rb") as f:
+                f.seek(pos)
+                buf = f.read()
+            for line in buf.split(b"\n"):
+                if line.strip():
+                    try:
+                        v = json.loads(line)
+                    except ValueError:
+                        continue
+                    if v.get("id") == rid:
+                        return v
+            time.sleep(0.05)
+        raise TimeoutError(f"bare-mcp did not answer {method}")
+
+
+def handshake(rpc, d):
+    marker = os.path.join(d, "init")
+    if os.path.exists(marker):
+        return
+    rpc.call("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "deck-relay", "version": "1"}}, wait=30)
+    rpc.call("notifications/initialized", notify=True)
+    open(marker, "w").close()
+
+
+def prepare(params, out, workspace):
+    """Fix the arguments that Deck controls. The model's values for them were removed on the host."""
+    args = dict(params.get("arguments") or {})
+    name = params.get("name")
+    if name == "screenshot":
+        args["path"] = os.path.join(out, f"shot-{uuid.uuid4().hex[:8]}.png")
+    secrets = os.path.expanduser("~/.config/deck/secrets.env")
+    if name in ("open", "ensure_session") and os.path.isfile(secrets):
+        args["secrets_file"] = secrets
+    if name == "open":
+        dl = os.path.join(workspace, "downloads")
+        os.makedirs(dl, exist_ok=True)
+        args["downloads_dir"] = dl
+    if isinstance(args.get("files"), list):
+        root = os.path.realpath(workspace)
+        real = []
+        for f in args["files"]:
+            p = os.path.realpath(os.path.join(root, f)) if isinstance(f, str) else ""
+            if not (p.startswith(root + os.sep) and os.path.isfile(p)):
+                raise ValueError(f"upload path not allowed: {f}: give a path relative to the workspace")
+            real.append(p)
+        args["files"] = real
+    return {**params, "arguments": args}
+
+
+def collect(report, out, since, workspace):
+    """Copy files that the report names, and new downloads, into $DECK_OUT. Returns {guest path: artifact name}."""
+    paths = []
+    if isinstance(report, dict):
+        for st in report.get("steps") or []:
+            n = st.get("note") if isinstance(st, dict) else None
+            if isinstance(n, str) and n.startswith("/"):
+                paths.append(n)
+    dl = os.path.join(workspace, "downloads")
+    if os.path.isdir(dl):
+        for n in sorted(os.listdir(dl)):
+            p = os.path.join(dl, n)
+            if os.path.isfile(p) and os.stat(p).st_mtime >= since:
+                paths.append(p)
+    files = {}
+    for p in paths:
+        if len(files) >= MAX_COPIES or p in files or os.path.dirname(p) == out:
+            continue
+        try:
+            if os.path.islink(p) or not os.path.isfile(p) or os.path.getsize(p) > MAX_FILE:
+                continue
+            base = "".join(c if c.isalnum() or c in "._-" else "_" for c in os.path.basename(p)).lstrip(".-") or "file"
+            name = f"{len(files)}-{base}"[:128]
+            shutil.copyfile(p, os.path.join(out, name))
+            files[p] = name
+        except OSError:
+            continue
+    return files
+
+
+def main():
+    req = json.loads(sys.argv[1])
+    out = os.environ["DECK_OUT"]
+    workspace = os.environ["DECK_WORKSPACE"]
+    d = session_dir()
+    reply = {"ok": False, "out": out}
+    try:
+        if not os.path.exists(os.path.join(d, "in")):
+            raise RuntimeError("bare-mcp is not running in the desktop session")
+        rpc = Rpc(d)
+        handshake(rpc, d)
+        timeout = float(req.get("timeout", 120))
+        method, params = req["method"], req.get("params") or {}
+        if method == "tools/call":
+            params = prepare(params, out, workspace)
+        since = time.time() - 1
+        v = rpc.call(method, params, wait=timeout)
+        if "error" in v:
+            reply.update(error=f"bare-mcp error: {v['error']}")
+        else:
+            reply.update(ok=True, result=v.get("result"))
+            if method == "tools/call":
+                text = (v.get("result", {}).get("content") or [{}])[0].get("text", "")
+                try:
+                    report = json.loads(text)
+                except ValueError:
+                    report = None
+                reply["files"] = collect(report, out, since, workspace)
+    except Exception as e:  # the host reads the error from the reply
+        reply.update(ok=False, error=f"{type(e).__name__}: {e}")
+    with open(os.path.join(out, "reply.json"), "w") as f:
+        json.dump(reply, f)
+
+
+if __name__ == "__main__":
+    main()
