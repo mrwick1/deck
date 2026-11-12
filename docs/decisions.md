@@ -533,3 +533,9 @@ The overview is the landing view. Chat opens when the owner opens the bot. Captu
 One hundred thirty Rust unit tests, three non-live integration tests, sixty-two Python tests, twenty-two web tests, type checking, build, formatting and clippy pass. Live browser integration tests remain ignored; dedicated parent UI checks ran separately. The strict smoke contains explicit idle and capture assertions. An earlier UI-proxy run is not a resource baseline because its proxy delayed viewer disconnects.
 
 Stage 3 is accepted for one configured bot with synthetic events and a scripted model. This is not a declaration that the full product vision is complete. Automatic spending accounting, fresh provisioning, real accounts and event sources, memory integrations and real halfway-save failure remain unverified or deferred. No deployment or production merge occurred. Implementation report: `docs/stage3-results.md` on the implementation branch.
+
+## D51. Optimize the integrated single bot before capacity testing (2026-11-12)
+
+**Decision:** Complete the three-stage integration, then profile and optimize one bot. Measure working, awake-idle and saved states separately. Keep progress and performance evidence current. Defer concurrent capacity testing until this pass ends.
+
+**Reason:** The integrated lifecycle gives performance work a useful workload. Lower single-bot overhead improves the basis for scaling. Distributed ownership and resource controls still need separate validation.

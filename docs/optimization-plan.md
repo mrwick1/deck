@@ -65,7 +65,7 @@ Implement overlay, service and compression work on the existing harness first. K
 
 The parent reviews each implementation diff and reproduces critical checks. Preserve raw local measurements outside Git. Commit only sanitized evidence. Keep all VM correctness gates and the bare-only policy intact.
 
-Status: the harness pass is implemented and reviewed. Shared overlays, service trimming and optional codecs have recorded experiments. Capture behavior is audited and benchmarked. The parent ran fast checks and inspected raw results but did not repeat the live optimization matrix. Idle sleep, event batching and UI capture subscriptions remain pending their executor, queue and integration dependencies. See the implementation branch report `docs/vm-optimization-results.md`.
+Status: the harness pass is implemented and reviewed. Shared overlays, service trimming and optional codecs have recorded experiments. Capture behavior is audited and benchmarked. The parent ran fast checks and inspected raw results but did not repeat the live optimization matrix. Idle sleep, generic event batching and UI capture subscriptions are now integrated in Stage 3. Real service event sources remain deferred. See the implementation branch report `docs/vm-optimization-results.md`.
 
 ## Carryover checklist
 
@@ -92,7 +92,7 @@ Measure the actual integrated bot in three states:
 | Awake but idle | No repeated model calls, status polling or screen capture without a caller. Use a configurable idle interval before saving. Measure residual host and guest work. |
 | Saved | No VM or dedicated capture process. Keep only necessary host records and wake subscriptions. Measure remaining per-bot host overhead separately from shared Deck. |
 
-The next implementation priority is the real one-bot lifecycle through the server, executor and durable task ownership. Automatic idle sleep must respect running and unknown work, automation pause and budget holds. Event batching follows durable event ingestion. Keep the full desktop requirement.
+The one-bot lifecycle is now integrated through the server, executor and durable task ownership. The next priority is controlled profiling of that path. Automatic idle sleep must respect running and unknown work, automation pause and budget holds. Event batching follows durable event ingestion. Keep the full desktop requirement.
 
 The current measurements are baselines. They do not establish an optimized integrated bot. Keep multi-bot correctness tests, but postpone concurrent load tests. Do not run another broad benchmark matrix before the lifecycle integration exists.
 
@@ -104,3 +104,11 @@ One configured bot now uses the guest tools through the server. The persistent q
 The parent fixed active-command inbox labeling, unresolved-work queue gating, pause gating on waiting-task resume and conservative browser-relay cancellation. Full test and build checks pass. These results close the four integration checkboxes above for the synthetic single-bot scope.
 
 Automatic spending accounting, real accounts and event sources, memory integrations, fresh provisioning and real halfway-save failure remain open. Optional codec selection stays unchanged. Final observations are single-run data, not a new performance matrix or a concurrent-capacity claim.
+
+## Post-integration performance pass
+
+The owner approved this pass after Stage 3. Update [progress.md](progress.md) with each measured result. Use the strict Stage 3 resource windows as an initial observation, not proof of a speedup.
+
+Profile residual awake-idle guest CPU first. Then inspect active command polling, artifact transfer, viewer capture cost and the web bundle. Change one cause at a time. Record the baseline revision, workload, run count, variation and correctness checks. Keep saved-state codecs unchanged until measurements justify a default change.
+
+This pass optimizes one useful bot before concurrent load tests. It does not replace future work on task ownership and resource control across machines.

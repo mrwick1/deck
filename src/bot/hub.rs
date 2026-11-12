@@ -310,6 +310,16 @@ for line in sys.stdin:
     print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": r}), flush=True)
 "#;
 
+    pub fn delegated_cgroup_available() -> bool {
+        let executor = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/vm-prototype/guest/deck_executor.py");
+        std::process::Command::new("python3")
+            .args(["-I", "-c", "import runpy, sys; sys.exit(0 if runpy.run_path(sys.argv[1])['cgroup_root']() else 1)"])
+            .arg(executor)
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+
     pub fn spawn_guest() -> Guest {
         let dir = temp_dir();
         let (sock, state, ws, rt, data) = (
@@ -474,6 +484,10 @@ for line in sys.stdin:
 
     #[tokio::test]
     async fn stop_confirms_a_setsid_descendant_is_gone_or_lists_the_command() {
+        if !delegated_cgroup_available() {
+            eprintln!("skipping detached-process containment: no delegated cgroup");
+            return;
+        }
         let g = spawn_guest();
         g.hub.set_task("t1");
         g.hub.connect(None).await.unwrap();

@@ -4,7 +4,7 @@
 
 ## Status
 
-M1 is done. Start with [docs/vision.md](docs/vision.md).
+M1 and the three-stage one-bot desktop prototype are complete. Performance work follows. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 

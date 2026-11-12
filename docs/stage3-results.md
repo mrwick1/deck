@@ -125,3 +125,7 @@ A final waiting-task regression failed first: answering a waiting task could res
 Final checks: 130 Rust unit tests and three non-live integration tests pass. The Python suite has 62 tests. Web type checking, 22 unit tests and the production build pass. Formatting, clippy, Python compilation, shell syntax and diff checks pass. The web build still reports a large-bundle warning; bundle splitting was not part of this stage.
 
 The coordinator's failed-save behavior is covered by a fake failure. Real corruption or failure halfway through a migration remains untested. Fresh provisioning, real accounts/models, automatic spending accounting and memory integration remain open. No deployment or production merge occurred.
+
+## Test environment requirements
+
+The two Rust detached-process cancellation tests require a writable delegated cgroup. They check this prerequisite and report a skip on hosts without it. The Python containment tests have the same prerequisite. The parent ran the Rust tests on a host with delegation. A pass on a host without delegation does not establish detached-process containment.

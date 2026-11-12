@@ -1262,6 +1262,10 @@ mod tests {
 
     #[tokio::test]
     async fn stop_cancels_the_task_and_kills_a_setsid_descendant() {
+        if !hub::tests::delegated_cgroup_available() {
+            eprintln!("skipping detached-process containment: no delegated cgroup");
+            return;
+        }
         let t = setup(
             vec![call(
                 "shell",
