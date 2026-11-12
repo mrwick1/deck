@@ -146,3 +146,9 @@ This partial run shows stable bare process memory after warm-up, continued host 
 ## Memory smoke: desktop comparison unresolved
 
 Two fresh one-minute smoke attempts passed workload bounds but stopped at the pre-save terminal-pixel check. Refocusing did not resolve the mismatch. Save/restore after this workload is still unvalidated; the long experiment remains incomplete. All 128 Python tests pass in the implementation report. The next diagnostic must retain pre/post workload screenshots and compositor trees, determine whether layout, focus, cursor or content changed, and test a correction without dropping the volatile-state gate.
+
+## Memory smoke: parent validation passed
+
+Screenshots and compositor trees identified tiling geometry as the earlier pixel mismatch. The parent inspected those images, reproduced all 131 Python tests, then ran one fresh smoke with the fixed terminal. Workload bounds, save/restore, unsaved terminal pixels and process, browser session, file/download hashes, base integrity and cleanup all passed. No sampler, retention or stop error was recorded.
+
+This closes the short smoke gap. It does not complete the three independent 30-minute memory runs. The fixed terminal changes browser geometry, so future memory curves need a separate baseline. The next action is one fresh full attempt under unchanged resource guards.

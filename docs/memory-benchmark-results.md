@@ -6,7 +6,7 @@ Date: 2026-11-12.
 
 The experiment is **incomplete**. The planned design is three independent boots of 30 minutes each. Only boot 1 ran, and it stopped after 1,551 s of its 1,800 s workload. A stop rule fired on host-wide swap-out. The VM reported no swapped memory; attribution of the host paging is unproven. The harness then ended the run, as designed. It did not retry.
 
-No save, restore, first-bare-action or post-restore marker data exist. No claim about variation between boots is possible. The numbers below describe one boot for 26 minutes. They are not a plateau claim and not a capacity claim.
+The incomplete long run produced no save, restore, first-bare-action or post-restore marker data. A later parent smoke validated those paths; see the final validation section. No claim about variation between boots is possible. The numbers below describe one boot for 26 minutes. They are not a plateau claim and not a capacity claim.
 
 ## Purpose
 
@@ -225,3 +225,13 @@ The constant was then set to the observed 640x797 and the 131 tests pass. **This
 ## Outlier: 147 s host-side bare close
 
 No retained log under the benchmark directories records a 147 s bare close. The matching numbers found there belong to other measurements (sample times, cycles, screen capture totals). The cause of the outlier is **unknown**: launch, wait, network and tool timeout are not separable from the data kept. This report makes no claim about the bare engine.
+
+## Parent validation after the geometry fix
+
+A fresh parent-run smoke used one boot and a 60-second workload with the pinned terminal. The unchanged host-pressure preflight passed. The setup, pre-save and post-restore terminal pixel comparisons passed at 640x797. The same nano process, empty on-disk notes, disk and shell markers, browser URL/login/cookie and downloaded-file checks all passed. Retained workload downloads also passed their hashes. Save left no VM or scope; final cleanup left no owned helper. The base digest remained unchanged.
+
+The raw summary reports `ok: true`, no failed gates, no stop reason, no sampler error and no retention error. The whole restore call to the guest-agent echo took 2.58 seconds. The separate first bare action after that call took 0.28 seconds. These are single smoke observations, not a performance result.
+
+The parent inspected the diagnostic screenshots and reproduced all 131 Python tests before the live run. This validates the previously untested 640x797 fixture handling and the save/restore path on this VM. Portability to another compositor configuration remains untested. The fixed terminal changes the browser layout; do not combine its future memory curves with the earlier tiled-layout baseline.
+
+The full three-boot memory experiment remains pending. Server, executor, chat, journal, holds, real models and concurrent capacity remain untested here. Earlier failed attempts and their budgets remain recorded above.
