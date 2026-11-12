@@ -67,3 +67,7 @@ Raw evidence remains in private runtime directories. Server logs and host databa
 The existing 62 Python tests pass. The new script compiles and its help starts no VM. Four real-VM scenarios exercised the wrapper. The release binary and web build succeeded. The web build retains its bundle warning. No production runtime behavior changed, so the Rust suite was not repeated for this instrumentation.
 
 Not tested: sustained browser load, CPU-heavy shell work, large artifact throughput, real model latency/cost, real service traffic, memory pressure, long soak, crash recovery under load or concurrent bots. These remain separate workload tests. This baseline does not establish capacity or a performance gain.
+
+## Review follow-up
+
+Evidence gaps and workload alignment now have fixes and regression coverage. Further idle attribution and synchronized tool measurements are in [benchmark-investigation.md](benchmark-investigation.md). Keep the original measurements and exclusions above unchanged.

@@ -50,6 +50,14 @@ def sample(pid):
         return None
 
 
+def observe(stop, collect, errors, interval=1):
+    try:
+        while not stop.wait(interval):
+            collect()
+    except BaseException as e:
+        errors.append(repr(e))
+
+
 def run(a):
     root = Path(a.output).resolve()
     repo = Path(__file__).resolve().parents[2]
@@ -97,18 +105,19 @@ def run(a):
         return result
     subprocess.Popen, stage3.Api.call, stage3.window = popen, call, window
     stop = threading.Event()
-    def observe():
-        while not stop.wait(1):
-            pids = set()
-            for child in list(owned):
-                if child.poll() is None:
-                    pids.update(v.tree_pids(child.pid))
-            for runtime in root.glob('run-*'):
-                if (vm := v.read_vm(v.Paths(runtime))) and v.proc_ok(v.Paths(runtime), vm['pid']):
-                    pids.update(v.tree_pids(vm['pid']))
-            log('sample', processes=[s for pid in sorted(pids) if (s := sample(pid))],
-                host_load=os.getloadavg(), host_meminfo=Path('/proc/meminfo').read_text())
-    observer = threading.Thread(target=observe, daemon=True)
+    def collect():
+        pids = set()
+        for child in list(owned):
+            if child.poll() is None:
+                pids.update(v.tree_pids(child.pid))
+        for runtime in root.glob('run-*'):
+            if (vm := v.read_vm(v.Paths(runtime))) and v.proc_ok(v.Paths(runtime), vm['pid']):
+                pids.update(v.tree_pids(vm['pid']))
+        log('sample', processes=[s for pid in sorted(pids) if (s := sample(pid))],
+            host_load=os.getloadavg(), host_meminfo=Path('/proc/meminfo').read_text())
+    observer_errors = []
+    evidence_errors = []
+    observer = threading.Thread(target=observe, args=(stop, collect, observer_errors), daemon=True)
     observer.start()
     results = []
     try:
@@ -117,15 +126,32 @@ def run(a):
             stage3.Model.calls = 0
             sys.argv = ['stage3.py', '--base', a.base, '--deck', a.deck, '--dir', str(runtime),
                         '--fixture-port', '29641', '--server-port', '29642', '--model-port', '29643']
+            if getattr(a, 'workload', None):
+                sys.argv += ['--benchmark-work', a.workload]
             log('round_begin', round=n)
-            stage3.main()
-            result = json.loads((runtime / 'results.json').read_text())
-            results.append(result)
-            log('round_end', round=n, result=result)
-            if server_dirs:
-                source = server_dirs[-1]
-                shutil.copy2(source / 'server.log', runtime / 'server.log')
-                shutil.copytree(source / 'data', runtime / 'host-data')
+            source_count = len(server_dirs)
+            try:
+                stage3.main()
+            finally:
+                try:
+                    result_path = runtime / 'results.json'
+                    result = json.loads(result_path.read_text()) if result_path.exists() else {'ok': False, 'error': 'scenario produced no result'}
+                    results.append(result)
+                    log('round_end', round=n, result=result)
+                    if len(server_dirs) > source_count:
+                        source = server_dirs[-1]
+                        runtime.mkdir(parents=True, exist_ok=True)
+                        if (source / 'server.log').exists():
+                            shutil.copy2(source / 'server.log', runtime / 'server.log')
+                        if (source / 'data').exists():
+                            shutil.copytree(source / 'data', runtime / 'host-data', dirs_exist_ok=True)
+                except Exception as e:
+                    evidence_errors.append(repr(e))
+                    log('evidence_error', round=n, error=repr(e))
+            if observer_errors:
+                raise RuntimeError(f'observer failed: {observer_errors}')
+            if evidence_errors:
+                raise RuntimeError(f'evidence retention failed: {evidence_errors}')
             if not result['ok']:
                 raise RuntimeError(f'round {n} failed')
     except BaseException as e:
@@ -135,8 +161,19 @@ def run(a):
         stop.set()
         observer.join()
         subprocess.Popen, stage3.Api.call, stage3.window = original_popen, original_call, original_window
+        for child in owned:
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(2)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
         log('cleanup', processes=[{'pid': c.pid, 'returncode': c.poll()} for c in owned])
         (root / 'summary.json').write_text(json.dumps(results, indent=2))
+        (root / 'evidence-status.json').write_text(json.dumps({'observer_errors': observer_errors, 'retention_errors': evidence_errors}, indent=2))
+    if observer_errors or evidence_errors:
+        raise RuntimeError(f'invalid evidence: observer={observer_errors}, retention={evidence_errors}')
     print(f'Evidence: {root}')
 
 
@@ -145,5 +182,6 @@ if __name__ == '__main__':
     ap.add_argument('--base', required=True)
     ap.add_argument('--deck', required=True, help='release binary built from the benchmark revision')
     ap.add_argument('--output', required=True, help='new private directory outside Git')
+    ap.add_argument('--workload', choices=['wait', 'cpu'], help='synchronize sampling with a marked tool interval')
     ap.add_argument('--rounds', type=int, default=3, choices=range(1, 11))
     run(ap.parse_args())

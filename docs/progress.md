@@ -126,3 +126,7 @@ The browser-tools checkpoint reported merged branches and bare main `052736a7`. 
 - A test agent runs all suites of the integration branch in a new, empty build folder before the merge.
 - After each merge, `bare-mcp` is repinned from that clean build. The old binary stays as a backup.
 - The eval set measures each change with the real model.
+
+## Evidence and attribution follow-up
+
+The evidence-gap fixes have three passing regressions. All 65 Python tests pass. Repeated guest idle snapshots, a separate host-thread sample and a software CPU profile point toward VM event-loop overhead, but do not prove a specific timer or device cause. Closing the editor did not eliminate variation. Two marker-aligned synthetic tool tests passed with complete retained evidence. See [the investigation report](benchmark-investigation.md). No production tuning or capacity claim follows from these data.
