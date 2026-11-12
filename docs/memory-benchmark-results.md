@@ -235,3 +235,76 @@ The raw summary reports `ok: true`, no failed gates, no stop reason, no sampler 
 The parent inspected the diagnostic screenshots and reproduced all 131 Python tests before the live run. This validates the previously untested 640x797 fixture handling and the save/restore path on this VM. Portability to another compositor configuration remains untested. The fixed terminal changes the browser layout; do not combine its future memory curves with the earlier tiled-layout baseline.
 
 The full three-boot memory experiment remains pending. Server, executor, chat, journal, holds, real models and concurrent capacity remain untested here. Earlier failed attempts and their budgets remain recorded above.
+
+## Full run 2 on the pinned terminal (stopped by the host guard)
+
+Run 2 used revision `229cd9c`, the pinned 640x797 terminal and the unchanged harness. It ran `--boots 3 --workload-s 1800 --max-wall-s 7200` with the default pace (6 s) and sample cadence (10 s). Guest: 2 vCPUs, 2 GiB, codec `none`, the same frozen base. No code, guard or threshold changed. No retry followed.
+
+**The run is incomplete.** The existing `swap_out` rule stopped boot 1 after **497.6 s** of its 1,800 s workload. Boots 2 and 3 did not start. No 1,800 s workload completed in this run. Save, restore, the first bare action after the workload and the post-restore markers did not run. Between-boot variation is unmeasured.
+
+### Preflight and drift
+
+- No QEMU process ran. The diff of `scripts/vm-prototype` and `docs` between `229cd9c` and HEAD was empty.
+- One 60 s host window passed the existing limits: 1,009 swap-out pages, memory pressure 0.18% of the window, CPU pressure 5.2%, 14.1 GiB available, VM swap 0. No stop reason.
+- The parent test pass of the same code (131 tests, plus the pinned-layout smoke) was reused. This run added only a compile check. It ran no new tests.
+
+### Boot 1 before the stop
+
+| Item | Value |
+|---|---|
+| Workload window | 497.6 s (elapsed 539 s from launch to boot end) |
+| Stop | `swap_out`, window 61.4 s: 22,968 pages (89.7 MiB) against the 16,384-page limit |
+| Other readings in that window | memory pressure 2.1%, CPU pressure 9.4%, 12.4 GiB available, VM swap 0 |
+| Guest swap, guest OOM, cgroup `oom`, `oom_kill`, `max`, `high` | none |
+| Operations | 73 (navigate 28, snapshot 9, read 9, download 9, new tab 9, extra session 9) |
+| Bare requests | 209; bare errors 0; error file 0 bytes |
+| Downloads | 9 (18 MiB), none deleted, 18 MiB retained (cap 32 MiB); sessions at most 3 |
+| Samples | 49 in the load window; gap median 10.23 s, maximum 10.42 s; no sampler or retention error; no PID reuse |
+| Observer CPU | 2.79 s over 497.6 s (0.56% of one core) |
+
+The host available memory was above 13 GiB at the stop. The VM could not swap, because its cgroup sets `MemorySwapMax=0`. Other host work ran, and its share of the paging is unproven.
+
+### Memory readings (first five minutes only)
+
+All slopes cover the early window. No steady window exists. Labels are indicative.
+
+| Metric | First | Last | Early slope per minute |
+|---|---|---|---|
+| Host QEMU RSS (MiB) | 531.2 | 589.8 | 8.5 |
+| Host QEMU PSS (MiB) | 524.4 | 580.1 | 7.8 |
+| Host cgroup anonymous (MiB) | 497.3 | 555.8 | 8.7 |
+| Guest used, total minus available (MiB) | 339.1 | 344.2 | 2.0 |
+| Guest page cache (MiB) | 219.8 | 261.8 | 6.4 |
+| Guest anonymous pages (MiB) | 37.6 | 42.4 | 0.8 |
+| Guest slab (MiB) | 47.5 | 47.0 | no trend |
+| Guest shared memory (MiB) | 24.1 | 26.2 | no trend |
+| Bare RSS (MiB) | 26.1 | 31.2 | 0.6 |
+| Bare PSS (MiB) | 21.6 | 26.7 | 0.7 |
+| Bare output file | 3.0 KB | 175 KB | 21.2 KB |
+
+The bare output file grew 843 bytes per request. The guest runtime tmpfs grew with it. This file belongs to the Deck wrapper, not to the bare engine. The bare RSS and PSS rose about 5 MiB early. The run ended before the point where the first run showed no further trend, so no plateau claim holds. Raw RSS is not a leak.
+
+### Compared with run 1
+
+- Layout differs. Run 1 used tiled terminal and bare windows. Run 2 pins the terminal at 640x797 and opens bare windows at the full output width. Do not merge their curves.
+- In the first minutes, host RSS slope (8.5 against 7.9 MiB per minute), guest cache slope (6.4 against 6.4) and bare RSS slope (0.6 against 0.7) are close. The windows are short and the layouts differ. This is no evidence about the layout effect.
+- Hypothesis, to verify: host QEMU growth follows guest pages that the guest touched. Without a balloon, QEMU need not release freed guest pages. This does not mean host RSS must stay high forever. Guest used memory and cache are not disjoint, so the sum of their slopes proves no cause.
+
+### Cleanup and integrity
+
+- The harness reported no VM left and no QEMU on the host. A later check found no QEMU, fixture or harness process and no VM scope.
+- The base digest was equal before and after (`a90de2e085a7ad52`).
+- The trace, samples, summary, guest disk and logs are in a new private directory outside Git. Old failed and smoke directories were not touched.
+
+### Not tested
+
+- Any full 1,800 s workload, boots 2 and 3, and between-boot variation.
+- State bytes, save and restore phase times, the first bare action after the workload and all pre and post markers, on a full-length boot. The 60 s smoke covers these only for a short workload.
+- A host plateau, the server, executor, chat, journal, holds, real models and sites, concurrent capacity.
+- The effect of the guest sample on the curves.
+
+### Negative finding and next candidate
+
+The unchanged host-wide `swap_out` rule stopped two full attempts (1,551 s and 497.6 s) with VM swap at 0 and over 13 GiB free. On this busy host the rule measures other work. The full experiment cannot finish under it. A stop rule on the VM's own swap and cgroup events, with host paging kept as context, is the next candidate. It needs a decision before any change. It is a proposal, not a user requirement. The other option is a run on a quiet host.
+
+Run history addition: **Run 2** stopped at 497.6 s of boot 1 on `swap_out`. No retry followed.
