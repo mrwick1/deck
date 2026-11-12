@@ -27,7 +27,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(path, init);
   } catch {
-    throw new ApiError(0, 'Cannot reach the server');
+    throw new ApiError(0, "Cannot reach the server");
   }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
@@ -42,19 +42,21 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const post = (body: unknown): RequestInit => ({
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
 
-export const getMe = () => call<{ user: string }>('/api/me');
-export const listChats = () => call<Chat[]>('/api/chats');
-export const createChat = (title: string) => call<Chat>('/api/chats', post({ title }));
-export const listMessages = (id: number) => call<StoredMessage[]>(`/api/chats/${id}/messages`);
+export const getMe = () => call<{ user: string }>("/api/me");
+export const listChats = () => call<Chat[]>("/api/chats");
+export const createChat = (title: string) =>
+  call<Chat>("/api/chats", post({ title }));
+export const listMessages = (id: number) =>
+  call<StoredMessage[]>(`/api/chats/${id}/messages`);
 export const sendMessage = (id: number, text: string) =>
   call<{ run_id: number }>(`/api/chats/${id}/messages`, post({ text }));
 export const cancelRun = (runId: number) =>
-  call<void>(`/api/runs/${runId}/cancel`, { method: 'POST' });
+  call<void>(`/api/runs/${runId}/cancel`, { method: "POST" });
 export const answerApproval = (id: string, approved: boolean) =>
   call<void>(`/api/approvals/${id}`, post({ approved }));
 export const eventsUrl = (chatId: number, after: number) =>

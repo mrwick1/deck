@@ -473,7 +473,7 @@ mod tests {
             .collect();
         assert_eq!(order, ["run_started", "text", "run_finished"]);
         assert!(text.contains("id: 1\n"));
-        assert!(text.contains(r#"data: {"run_id":1,"text":"pong"}"#));
+        assert!(text.contains(r#""run_id":1,"text":"pong"}"#));
         // `after` skips what the client already has.
         let req = Request::builder()
             .uri("/api/chats/1/events?after=2")

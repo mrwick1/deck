@@ -1,8 +1,11 @@
-import { useExternalStoreRuntime, type AppendMessage } from '@assistant-ui/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
-import * as api from './api';
-import { toThreadMessages } from './convert';
+import {
+  useExternalStoreRuntime,
+  type AppendMessage,
+} from "@assistant-ui/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import * as api from "./api";
+import { toThreadMessages } from "./convert";
 import {
   applyEvent,
   initialState,
@@ -13,13 +16,33 @@ import {
   type Item,
   type Page,
   type ViewState,
-} from './events';
+} from "./events";
 
 const SUGGESTIONS = [
-  { title: 'Take a screenshot', label: 'of a page', prompt: 'Take a screenshot of example.com and send it to me.' },
-  { title: 'Read a page', label: 'and summarize it', prompt: 'Open news.ycombinator.com and list the top five stories.' },
-  { title: 'Check a site', label: 'for a change', prompt: 'Open example.com and tell me what the page says.' },
+  {
+    title: "Take a screenshot",
+    label: "of a page",
+    prompt: "Take a screenshot of example.com and send it to me.",
+  },
+  {
+    title: "Read a page",
+    label: "and summarize it",
+    prompt: "Open news.ycombinator.com and list the top five stories.",
+  },
+  {
+    title: "Check a site",
+    label: "for a change",
+    prompt: "Open example.com and tell me what the page says.",
+  },
 ];
+
+/** A step that waits for the user's yes or no. */
+export interface PendingApproval {
+  id: string;
+  name: string;
+  args: unknown;
+  reason?: string;
+}
 
 const fail = (e: unknown) => toast.error((e as Error).message);
 
@@ -35,7 +58,9 @@ export function useDeck() {
   const [page, setPage] = useState<Page | undefined>();
   const viewRef = useRef(view);
   // A chat created by its first message. Its effect starts from that message.
-  const seed = useRef<{ chatId: number; text: string; runId: number } | null>(null);
+  const seed = useRef<{ chatId: number; text: string; runId: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     api
@@ -66,8 +91,8 @@ export function useDeck() {
     const s = seed.current?.chatId === chatId ? seed.current : null;
     seed.current = null;
     if (s) {
-      setHistory([{ kind: 'user', text: s.text }]);
-      put({ lastId: 0, run: { runId: s.runId, items: [], status: 'running' } });
+      setHistory([{ kind: "user", text: s.text }]);
+      put({ lastId: 0, run: { runId: s.runId, items: [], status: "running" } });
     } else {
       setHistory([]);
       setLoading(true);
@@ -77,14 +102,14 @@ export function useDeck() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onEvent = (ev: DeckEvent) => {
       put(applyEvent(viewRef.current, ev));
-      if (ev.kind !== 'run_finished') return;
+      if (ev.kind !== "run_finished") return;
       // Replay can finish many runs at once. One reload covers them.
       clearTimeout(timer);
       timer = setTimeout(async () => {
         await reload();
         const run = viewRef.current.run;
         // A failed or cancelled run stays, so its last message shows the status.
-        if (live && run?.status === 'done') {
+        if (live && run?.status === "done") {
           put({ ...viewRef.current, run: null });
         }
       }, 150);
@@ -106,15 +131,21 @@ export function useDeck() {
     if (view.run?.page) setPage(view.run.page);
   }, [view.run?.page]);
 
-  const items = useMemo(() => visibleItems(history, view.run), [history, view.run]);
-  const messages = useMemo(() => toThreadMessages(items, view.run), [items, view.run]);
-  const running = view.run?.status === 'running';
+  const items = useMemo(
+    () => visibleItems(history, view.run),
+    [history, view.run],
+  );
+  const messages = useMemo(
+    () => toThreadMessages(items, view.run),
+    [items, view.run],
+  );
+  const running = view.run?.status === "running";
 
   const onNew = useCallback(
     async (m: AppendMessage) => {
       const text = m.content
-        .map((p) => (p.type === 'text' ? p.text : ''))
-        .join('')
+        .map((p) => (p.type === "text" ? p.text : ""))
+        .join("")
         .trim();
       if (!text) return;
       try {
@@ -127,13 +158,18 @@ export function useDeck() {
           return;
         }
         const { run_id } = await api.sendMessage(chatId, text);
-        setHistory((h) => [...h, { kind: 'user', text }]);
-        const v = { ...viewRef.current, run: { runId: run_id, items: [], status: 'running' as const } };
+        setHistory((h) => [...h, { kind: "user", text }]);
+        const v = {
+          ...viewRef.current,
+          run: { runId: run_id, items: [], status: "running" as const },
+        };
         viewRef.current = v;
         setView(v);
       } catch (e) {
         const err = e as api.ApiError;
-        toast.error(err.status === 409 ? 'A run is already active' : err.message);
+        toast.error(
+          err.status === 409 ? "A run is already active" : err.message,
+        );
         throw e;
       }
     },
@@ -146,7 +182,13 @@ export function useDeck() {
   }, []);
 
   const onRespondToToolApproval = useCallback(
-    async ({ approvalId, approved }: { approvalId: string; approved: boolean }) => {
+    async ({
+      approvalId,
+      approved,
+    }: {
+      approvalId: string;
+      approved: boolean;
+    }) => {
       await api.answerApproval(approvalId, approved).catch(fail);
     },
     [],
@@ -164,13 +206,46 @@ export function useDeck() {
     adapters: {
       threadList: {
         threadId: chatId === null ? undefined : String(chatId),
-        threads: chats.map((c) => ({ status: 'regular', id: String(c.id), title: c.title })),
+        threads: chats.map((c) => ({
+          status: "regular",
+          id: String(c.id),
+          title: c.title,
+        })),
         onSwitchToNewThread: () => setChatId(null),
         onSwitchToThread: (id) => setChatId(Number(id)),
       },
     },
   });
 
-  const title = chats.find((c) => c.id === chatId)?.title ?? 'deck';
-  return { runtime, title, page, running, connected: chatId === null || connected };
+  const approval = useMemo<PendingApproval | undefined>(() => {
+    for (const it of view.run?.items ?? []) {
+      if (
+        it.kind === "step" &&
+        it.approval &&
+        it.approval.approved === undefined
+      ) {
+        return {
+          id: it.approval.id,
+          name: it.name,
+          args: it.args,
+          reason: it.approval.reason,
+        };
+      }
+    }
+  }, [view.run?.items]);
+
+  const answer = useCallback(
+    (approvalId: string, approved: boolean) =>
+      onRespondToToolApproval({ approvalId, approved }),
+    [onRespondToToolApproval],
+  );
+
+  const title = chats.find((c) => c.id === chatId)?.title ?? "deck";
+  return {
+    runtime,
+    title,
+    page,
+    connected: chatId === null || connected,
+    dock: { running, startedAt: view.run?.startedAt, approval, answer },
+  };
 }

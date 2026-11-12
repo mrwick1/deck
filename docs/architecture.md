@@ -75,6 +75,8 @@ The service calls a model endpoint with an API key from its configuration. The o
 
 The web app reads the events of a chat from `GET /api/chats/{id}/events` (server-sent events).
 
+Each event carries `run_id` and `at`, the time in epoch milliseconds. The web app uses `at` to show how long steps take.
+
 The service sends these events today:
 
 | Event | Data |

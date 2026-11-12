@@ -1,12 +1,13 @@
-import { fileUrl } from '@/lib/api';
-import type { Page } from '@/lib/events';
-import { cn } from '@/lib/utils';
-import { GlobeIcon, LockIcon } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
-import { useState } from 'react';
-import { Drawer } from 'vaul';
+import { ImageZoom } from "@/components/assistant-ui/elements/image";
+import { fileUrl } from "@/lib/api";
+import type { Page } from "@/lib/events";
+import { cn } from "@/lib/utils";
+import { GlobeIcon, LockIcon } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
+import { Drawer } from "vaul";
 
-const spring = { type: 'spring', stiffness: 380, damping: 34 } as const;
+const spring = { type: "spring", stiffness: 380, damping: 34 } as const;
 
 function host(url: string) {
   try {
@@ -22,41 +23,63 @@ function LiveDot({ on }: { on: boolean }) {
       {on && (
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/70 motion-reduce:animate-none" />
       )}
-      <span className={cn('relative inline-flex size-2 rounded-full', on ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
+      <span
+        className={cn(
+          "relative inline-flex size-2 rounded-full",
+          on ? "bg-emerald-500" : "bg-muted-foreground/40",
+        )}
+      />
     </span>
   );
 }
 
 /** The page the bot is on: an address bar and the latest capture. */
 function Screen({ page, running }: { page: Page; running: boolean }) {
-  const secure = page.url.startsWith('https:');
+  const secure = page.url.startsWith("https:");
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="bg-muted/60 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs">
         {secure ? (
-          <LockIcon className="text-muted-foreground size-3.5 shrink-0" aria-label="Secure" />
+          <LockIcon
+            className="text-muted-foreground size-3.5 shrink-0"
+            aria-label="Secure"
+          />
         ) : (
-          <GlobeIcon className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+          <GlobeIcon
+            className="text-muted-foreground size-3.5 shrink-0"
+            aria-hidden
+          />
         )}
         <span className="min-w-0 flex-1 truncate" title={page.url}>
           {page.url}
         </span>
         <LiveDot on={running} />
       </div>
-      {page.title && <p className="truncate px-1 text-sm font-medium">{page.title}</p>}
+      {page.title && (
+        <p className="truncate px-1 text-sm font-medium">{page.title}</p>
+      )}
       <div className="bg-muted/40 relative aspect-[16/10] w-full shrink-0 overflow-hidden rounded-xl border">
         <AnimatePresence initial={false}>
           {page.fileId !== undefined ? (
-            <motion.img
+            <motion.div
               key={page.fileId}
-              src={fileUrl(page.fileId)}
-              alt={`Capture of ${page.title || host(page.url)}`}
               initial={{ opacity: 0, scale: 1.01 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25 }}
-              className="absolute inset-0 size-full object-contain"
-            />
+              className="absolute inset-0 [&>[role=button]]:size-full"
+            >
+              <ImageZoom
+                src={fileUrl(page.fileId)}
+                alt={`Capture of ${page.title || host(page.url)}`}
+              >
+                <img
+                  src={fileUrl(page.fileId)}
+                  alt={`Capture of ${page.title || host(page.url)}`}
+                  className="size-full object-contain"
+                />
+              </ImageZoom>
+            </motion.div>
           ) : (
             <motion.div
               key="none"
@@ -65,7 +88,9 @@ function Screen({ page, running }: { page: Page; running: boolean }) {
               exit={{ opacity: 0 }}
               className="text-muted-foreground absolute inset-0 flex items-center justify-center p-6 text-center text-sm"
             >
-              <span className={cn(running && 'shimmer')}>No capture of this page yet</span>
+              <span className={cn(running && "shimmer")}>
+                No capture of this page yet
+              </span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -75,7 +100,13 @@ function Screen({ page, running }: { page: Page; running: boolean }) {
 }
 
 /** Desktop: a side panel. It slides in when the chat has a page. */
-export function LivePanel({ page, running }: { page?: Page; running: boolean }) {
+export function LivePanel({
+  page,
+  running,
+}: {
+  page?: Page;
+  running: boolean;
+}) {
   return (
     <AnimatePresence initial={false}>
       {page && (
@@ -90,7 +121,7 @@ export function LivePanel({ page, running }: { page?: Page; running: boolean }) 
           <div className="flex w-[420px] flex-col gap-3 p-4">
             <div className="flex items-center gap-2 text-sm font-medium">
               <LiveDot on={running} />
-              {running ? 'Live' : 'Last page'}
+              {running ? "Live" : "Last page"}
             </div>
             <Screen page={page} running={running} />
           </div>
@@ -119,8 +150,12 @@ export function LivePill({ page, running }: { page?: Page; running: boolean }) {
             aria-label={`Live view: ${host(page.url)}`}
           >
             <LiveDot on={running} />
-            <span className="font-medium">{running ? 'Live' : 'Last page'}</span>
-            <span className="text-muted-foreground min-w-0 truncate">{host(page.url)}</span>
+            <span className="font-medium">
+              {running ? "Live" : "Last page"}
+            </span>
+            <span className="text-muted-foreground min-w-0 truncate">
+              {host(page.url)}
+            </span>
           </motion.button>
         )}
       </AnimatePresence>
@@ -131,10 +166,13 @@ export function LivePill({ page, running }: { page?: Page; running: boolean }) {
             aria-describedby={undefined}
             className="bg-background fixed inset-x-0 bottom-0 z-50 flex max-h-[92dvh] flex-col rounded-t-2xl border-t px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none"
           >
-            <div className="bg-muted-foreground/30 mx-auto mb-3 h-1.5 w-10 shrink-0 rounded-full" aria-hidden />
+            <div
+              className="bg-muted-foreground/30 mx-auto mb-3 h-1.5 w-10 shrink-0 rounded-full"
+              aria-hidden
+            />
             <Drawer.Title className="mb-3 flex items-center gap-2 text-sm font-medium">
               <LiveDot on={running} />
-              {running ? 'Live' : 'Last page'}
+              {running ? "Live" : "Last page"}
             </Drawer.Title>
             {page && <Screen page={page} running={running} />}
           </Drawer.Content>

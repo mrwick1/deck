@@ -24,6 +24,7 @@ import type {
   ImageMessagePart,
   ImageMessagePartComponent,
 } from "@assistant-ui/react";
+import { ZoomableImage } from "@/components/ZoomableImage";
 import { cn } from "@/lib/utils";
 import { hostOf, safeHref } from "../utils/href";
 
@@ -479,16 +480,14 @@ function ImageZoom({ src, alt = "Image preview", children }: ImageZoomProps) {
             onClick={handleClose}
             aria-label="Zoomed image"
           >
-            <img
+            {/* deck: zoom and pan as in T3 Code. */}
+            <div
               data-slot="image-zoom-content"
-              src={src}
-              alt={alt}
-              className="aui-image-zoom-content fade-in zoom-in-95 animate-in max-h-[90%] max-w-[90%] cursor-zoom-out object-contain duration-200"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleClose();
-              }}
-            />
+              className="fade-in zoom-in-95 animate-in duration-200 [--media-width:92vw]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ZoomableImage src={src} name={alt} onError={handleClose} />
+            </div>
             <button
               ref={closeRef}
               type="button"
