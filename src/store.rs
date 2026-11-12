@@ -47,6 +47,54 @@ CREATE TABLE files(
 );
 ";
 
+/// The executor journal lives beside the chat data, outside any VM saved state.
+const SCHEMA_V3: &str = "
+CREATE TABLE executor_bots(
+    bot_id TEXT PRIMARY KEY,
+    epoch INTEGER NOT NULL,
+    guest_id TEXT
+);
+CREATE TABLE executor_commands(
+    command_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES executor_bots(bot_id),
+    task_id TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    argv TEXT NOT NULL,
+    deadline_ms INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('intent','sent','running','succeeded','failed','cancelled','timed_out','not_delivered','unknown')),
+    detail TEXT,
+    dispatch_epoch INTEGER,
+    cancel_state TEXT NOT NULL DEFAULT 'none' CHECK(cancel_state IN ('none','requested','accepted','confirmed','unconfirmed')),
+    exit_code INTEGER,
+    signal INTEGER,
+    stdout TEXT NOT NULL DEFAULT '',
+    stderr TEXT NOT NULL DEFAULT '',
+    truncated INTEGER NOT NULL DEFAULT 0,
+    artifacts TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    sent_at TEXT,
+    finished_at TEXT
+);
+CREATE TABLE executor_events(
+    id INTEGER PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    command_id TEXT,
+    epoch INTEGER,
+    kind TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE executor_artifacts(
+    command_id TEXT NOT NULL REFERENCES executor_commands(command_id),
+    handle TEXT NOT NULL,
+    name TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    host_path TEXT NOT NULL,
+    PRIMARY KEY(command_id, handle)
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -88,7 +136,7 @@ pub struct Store {
 }
 
 /// Current time as an RFC 3339 UTC string.
-fn now() -> String {
+pub(crate) fn now() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
@@ -128,6 +176,11 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             "BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"
         ))?;
     }
+    if version < 3 {
+        conn.execute_batch(&format!(
+            "BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"
+        ))?;
+    }
     Ok(())
 }
 
@@ -154,7 +207,7 @@ impl Store {
         Self::from_conn(Connection::open_in_memory()?)
     }
 
-    async fn run<T: Send + 'static>(
+    pub(crate) async fn run<T: Send + 'static>(
         &self,
         f: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     ) -> anyhow::Result<T> {
@@ -390,7 +443,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
     }
 
     #[test]

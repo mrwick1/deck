@@ -80,6 +80,25 @@ class Helpers(unittest.TestCase):
         self.assertNotIn("-incoming", cmd)
         self.assertIn("defer", v.qemu_cmd(p, "run", 18080, incoming=True))
 
+    def test_executor_port_is_a_private_unix_socket_in_run_mode_only(self):
+        p = v.Paths("/tmp/rt")
+        run = " ".join(v.qemu_cmd(p, "run", 18080))
+        self.assertIn(f"socket,id=exec,path={p.exec},server=on,wait=off", run)
+        self.assertIn("virtserialport,chardev=exec,name=org.deck.executor.0", run)
+        self.assertNotIn("tcp", run.split("-chardev socket,id=exec")[1].split(" -")[0])
+        self.assertNotIn("executor", " ".join(v.qemu_cmd(p, "setup", 18080, seed_iso="/tmp/s.iso")))
+
+    def test_install_executor_validates_before_touching_the_guest(self):
+        p = v.Paths("/tmp/does-not-exist-rt")
+        for bad in ("", "a b", "../x", "x" * 65):
+            with self.assertRaises(SystemExit):
+                v.install_executor(p, bad)
+
+    def test_executor_files_exist_and_seed_carries_them(self):
+        for f in v.EXECUTOR_FILES:
+            self.assertTrue((v.HERE / "guest" / f).is_file(), f)
+        self.assertIn("deck-executor", (v.HERE / "guest" / "setup-guest.sh").read_text())
+
     def test_setup_mode_only_adds_seed(self):
         p = v.Paths("/tmp/rt")
         cmd = v.qemu_cmd(p, "setup", 18080, seed_iso="/tmp/s.iso")
@@ -396,7 +415,7 @@ class CaptureAndCli(unittest.TestCase):
     def test_help_has_no_side_effects(self):
         with tempfile.TemporaryDirectory() as d:
             env = {**os.environ, "DECK_VM_DIR": str(Path(d) / "rt"), "XDG_CACHE_HOME": str(Path(d) / "cache")}
-            for argv in ([], ["setup"], ["freeze-base"], ["overlay"], ["verify-base"], ["stop"], ["clean"]):
+            for argv in ([], ["setup"], ["freeze-base"], ["overlay"], ["verify-base"], ["stop"], ["clean"], ["install-executor"]):
                 r = subprocess.run([sys.executable, "-I", str(Path(v.__file__)), *argv, "--help"], env=env, capture_output=True, text=True)
                 self.assertEqual(r.returncode, 0, (argv, r.stderr))
             self.assertEqual(os.listdir(d), [])

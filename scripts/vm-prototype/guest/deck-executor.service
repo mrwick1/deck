@@ -1,0 +1,13 @@
+[Unit]
+Description=Deck guest executor
+
+[Service]
+User=deck
+Group=deck
+ExecStart=/usr/bin/python3 -I /usr/local/bin/deck-executor
+Restart=always
+RestartSec=1
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

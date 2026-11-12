@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import shlex
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -53,6 +55,7 @@ class Paths:
         self.vm = self.run / "vm.json"
         self.qmp = self.run / "qmp.sock"
         self.qga = self.run / "qga.sock"
+        self.exec = self.run / "exec.sock"  # host end of the guest executor's virtio-serial port
         self.pidfile = self.run / "qemu.pid"
         self.console = self.run / "console.log"
         self.statefile = self.state / "vm.state"
@@ -86,6 +89,10 @@ def qemu_cmd(p, mode, fixture_port, incoming=False, seed_iso=None):
         "-serial", f"file:{p.console}",
         "-pidfile", str(p.pidfile), "-no-reboot",
     ]
+    if mode == "run":
+        # The executor channel. A unix socket in the runtime directory, owned by this user. No network path.
+        cmd += ["-chardev", f"socket,id=exec,path={p.exec},server=on,wait=off",
+                "-device", "virtserialport,chardev=exec,name=org.deck.executor.0"]
     if mode == "setup":
         cmd += ["-drive", f"file={seed_iso},media=cdrom,readonly=on,if=virtio"]
     if incoming:
@@ -443,6 +450,15 @@ class Qga:
     def sh(self, script, **kw):
         return self.exec(["/bin/sh", "-c", script], **kw)
 
+    def push(self, guest_path, data):
+        """Write bytes to a guest file as root. Bootstrap only: ordinary commands use the executor."""
+        h = self.call("guest-file-open", path=guest_path, mode="w")
+        try:
+            for i in range(0, len(data), 32768):
+                self.call("guest-file-write", handle=h, **{"buf-b64": base64.b64encode(data[i:i + 32768]).decode()})
+        finally:
+            self.call("guest-file-close", handle=h)
+
     def pull(self, guest_path, host_path):
         h = self.call("guest-file-open", path=guest_path, mode="r")
         sha = hashlib.sha256()
@@ -467,7 +483,7 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
     vm = read_vm(p)
     if vm and proc_ok(p, vm["pid"]):
         raise RuntimeError("VM already running; refusing to replace its control sockets")
-    for f in (p.qmp, p.qga, p.pidfile):
+    for f in (p.qmp, p.qga, p.exec, p.pidfile):
         f.unlink(missing_ok=True)
     if mode == "run" and not p.disk.exists():
         sys.exit("no disk: run setup first")
@@ -489,6 +505,43 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
     pid = int(p.pidfile.read_text())
     p.vm.write_text(json.dumps({"pid": pid, "launcher_pid": proc.pid, "mode": mode, "started": time.time()}))
     return pid
+
+
+EXECUTOR_FILES = {"deck_executor.py": "/usr/local/bin/deck-executor",
+                  "deck-executor.service": "/etc/systemd/system/deck-executor.service",
+                  "70-deck-executor.rules": "/etc/udev/rules.d/70-deck-executor.rules"}
+
+
+def install_executor(p, bot_id):
+    """Bootstrap the executor into a running guest through the root test channel, then bind it to one bot.
+
+    The guest identity is made here and stays on the guest disk. It is printed so the host can pin it.
+    Refuses to rebind a guest that already has an identity.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", bot_id):
+        sys.exit("bot ID must be 1 to 64 characters of A-Za-z0-9_-")
+    qga = Qga(p.qga)
+    code, out, _ = qga.sh("test -e /home/deck/.local/state/deck-executor/identity.json && echo bound")
+    if "bound" in out:
+        sys.exit("this guest already has an executor identity; refusing to rebind it")
+    for src, dst in EXECUTOR_FILES.items():
+        qga.push(dst, (HERE / "guest" / src).read_bytes())
+    guest_id = uuid.uuid4().hex
+    ident = json.dumps({"bot_id": bot_id, "guest_id": guest_id, "max_epoch": 0})
+    code, _, err = qga.sh("chmod 755 /usr/local/bin/deck-executor && "
+                          "runuser -u deck -- sh -c 'umask 077 && mkdir -p ~/.local/state/deck-executor ~/workspace "
+                          "&& cat > ~/.local/state/deck-executor/identity.json' && "
+                          "udevadm control --reload && udevadm trigger --subsystem-match=virtio-ports --action=add && udevadm settle && "
+                          "systemctl daemon-reload && systemctl enable --now deck-executor.service", stdin=ident, timeout=60)
+    if code != 0:
+        sys.exit(f"executor install failed: {err.strip()[:300]}")
+    info = {"bot_id": bot_id, "guest_id": guest_id}
+    (p.root / "executor.json").write_text(json.dumps(info))
+    return info
+
+
+def cmd_install_executor(a, p):
+    print(json.dumps(install_executor(p, a.bot)))
 
 
 def cmd_setup(a, p):
@@ -514,7 +567,7 @@ def cmd_setup(a, p):
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir()
     g = HERE / "guest"
-    for f in ("user-data", "setup-guest.sh", "sway-config", "bare-session", "bare-rpc", "as-deck"):
+    for f in ("user-data", "setup-guest.sh", "sway-config", "bare-session", "bare-rpc", "as-deck", *EXECUTOR_FILES):
         shutil.copy(g / f, stage / f)
     shutil.copy(bare, stage / "bare-mcp")
     (stage / "meta-data").write_text("instance-id: deck-stage1\nlocal-hostname: deck-stage1\n")
@@ -705,7 +758,7 @@ def cmd_clean(a, p):
         sys.exit("VM still running; stop or kill it first")
     if a.disk and is_frozen_base(p.disk):
         sys.exit(f"{p.disk} is a frozen base; refusing to delete it")
-    for f in (p.vm, p.qmp, p.qga, p.pidfile, p.statefile, p.statemeta):
+    for f in (p.vm, p.qmp, p.qga, p.exec, p.pidfile, p.statefile, p.statemeta):
         f.unlink(missing_ok=True)
     if a.disk:
         p.disk.unlink(missing_ok=True)
@@ -749,6 +802,9 @@ def main(argv=None):
     s = sub.add_parser("exec", help="run a shell script in the guest")
     s.add_argument("script")
     s.set_defaults(f=cmd_exec)
+    s = sub.add_parser("install-executor", help="bootstrap the guest executor into the running VM and bind it to one bot")
+    s.add_argument("--bot", required=True)
+    s.set_defaults(f=cmd_install_executor)
     s = sub.add_parser("capture", help="capture the desktop")
     s.add_argument("--tag")
     s.set_defaults(f=cmd_capture)

@@ -3,6 +3,7 @@ mod api;
 mod auth;
 mod bare;
 mod config;
+mod executor;
 mod model;
 mod prompt;
 mod store;
@@ -18,6 +19,10 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("executor") {
+        return executor::cli::run(&args[1..]).await;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("deck=info".parse()?))
         .init();
