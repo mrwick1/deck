@@ -249,6 +249,18 @@ class BaseAndOverlay(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "base .*missing"):
             v.check_disk(a)
 
+    def test_storage_counts_each_distinct_base_once(self):
+        first = self.frozen()
+        p = self.provisioned("second")
+        qwrite(p.disk, 0x22)
+        second = v.freeze_base(p, self.bases)
+        a = self.overlay("a", v.base_path(self.bases, first["id"]))
+        b = self.overlay("b", v.base_path(self.bases, second["id"]))
+        c = self.overlay("c", v.base_path(self.bases, first["id"]))
+        expected = sum(v.allocated_bytes(x.disk) for x in (a, b, c)) + sum(
+            v.allocated_bytes(v.base_path(self.bases, x["id"])) for x in (first, second))
+        self.assertEqual(v.storage_report(a, b, c)["total_bytes"], expected)
+
     def test_legacy_standalone_disk_still_passes(self):
         p = v.Paths(self.root / "legacy")
         p.mk()
@@ -313,6 +325,45 @@ class Codec(unittest.TestCase):
         self.assertEqual(r["none"]["state_bytes"], [10])
         self.assertTrue(r["none"]["markers_ok"])
         self.assertFalse(r["lz4"]["markers_ok"])
+
+    def test_missing_codec_tool_is_refused_before_restore_starts(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            p.mk()
+            p.disk.write_bytes(b"disk")
+            p.statefile.write_text("saved")
+            p.statemeta.write_text(json.dumps({"disk": v.disk_fingerprint(p.disk), "codec": "zstd-1"}))
+            with patch.object(v.shutil, "which", return_value=None), patch.object(v, "start_qemu") as start:
+                with self.assertRaisesRegex(SystemExit, "zstd.*required"):
+                    v.restore_vm(p, 18080)
+            start.assert_not_called()
+            self.assertEqual(p.statefile.read_text(), "saved")
+
+    def test_invalid_codec_does_not_delete_existing_saved_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            p.mk()
+            p.statefile.write_text("saved")
+            with self.assertRaisesRegex(SystemExit, "codec"):
+                v.save_vm(p, codec="unknown")
+            self.assertEqual(p.statefile.read_text(), "saved")
+
+    def test_stalled_restore_times_out_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            p.mk()
+            p.disk.write_bytes(b"disk")
+            p.statefile.write_text("saved")
+            p.statemeta.write_text(json.dumps({"disk": v.disk_fingerprint(p.disk), "codec": "none"}))
+            q = unittest.mock.MagicMock()
+            q.cmd.return_value = {"status": "paused"}
+            with patch.object(v, "start_qemu", return_value=123), patch.object(v, "Qmp", return_value=q), \
+                    patch.object(v, "cgroup_dir", return_value=None), patch.object(v, "tree_rss_kib", return_value=0), \
+                    patch.object(v.time, "monotonic", side_effect=[0, 61]), patch.object(v, "kill_vm") as kill:
+                with self.assertRaisesRegex(TimeoutError, "restore"):
+                    v.restore_vm(p, 18080)
+                kill.assert_called_once_with(p)
+            q.close.assert_called_once()
 
     def test_restore_uses_the_codec_recorded_at_save(self):
         with tempfile.TemporaryDirectory() as d:

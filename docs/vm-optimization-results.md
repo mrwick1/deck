@@ -72,7 +72,7 @@ Decision: keep the trim. Memory, boot time and state size improved in both pairs
 
 ## 5. Saved-state compression
 
-QEMU 11.1 offers no native compression for a file save here. The capability list of the running VM showed `xbzrle`, `multifd` and `mapped-ram` all off, and the plan does not enable them. The harness therefore pipes the migration stream through an installed tool (`exec:` URI): `zstd-N` (levels 1 to 19) and `lz4`. No dependency was added. The tool must be installed on the host.
+The benchmark did not enable native migration compression. The capability list showed `xbzrle`, `multifd` and `mapped-ram` off. This observation does not establish whether other file-save configurations support native compression. The harness therefore pipes the migration stream through an installed tool (`exec:` URI): `zstd-N` (levels 1 to 19) and `lz4`. No dependency was added. The tool must be installed on the host.
 
 The codec is stored in the state record. Restore reads it from there. An unknown codec is refused before QEMU starts.
 
@@ -126,3 +126,14 @@ Reported apart: the host sees the QEMU resident size (about 555 MiB trimmed, 587
 - Not tested: a wake storm, many overlays at once, base replacement with live overlays, the legacy standalone disk recovery path on a live VM, a saved state restored after the host `zstd` binary disappears.
 - The new owned-process `helpers_gone` check has a unit test but no live rerun.
 - Capture subscription control, idle sleep and batching belong to later stages. No scheduler or subscription framework exists here.
+
+
+## Parent review
+
+The parent inspected the implementation and raw result records. The parent ran the fast checks without starting another VM benchmark matrix. Twenty-nine unit tests pass, along with Python compilation, shell syntax and diff checks.
+
+The review added regression coverage and fixes for counting more than one distinct backing image, refusing a missing codec tool before guest startup, and preserving an existing state when a codec is invalid. Restore now has a bounded polling deadline and stops its owned VM if that deadline expires. Save polling also has a bounded deadline.
+
+The missing-tool and stalled-restore paths were verified with mocks. They were not rerun on a live VM. The performance figures above remain delegated experiment results inspected by the parent; the parent did not independently reproduce these optimization benchmarks. Earlier Stage 1 baseline reproduction remains separate.
+
+Compression stays optional. No default codec change is approved by this report. Idle sleep, event batching and view subscriptions remain pending integration.

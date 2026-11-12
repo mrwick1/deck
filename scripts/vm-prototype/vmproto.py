@@ -115,10 +115,14 @@ def state_uri(codec, path, direction):
     if codec == "none":
         return f"file:{path}"
     if codec == "lz4":
+        if not shutil.which("lz4"):
+            sys.exit("lz4 is required for this saved-state codec")
         return f"exec:lz4 -q -f - {q}" if direction == "save" else f"exec:lz4 -q -d -c {q}"
     level = codec.removeprefix("zstd-")
     if not (codec.startswith("zstd-") and level.isdigit() and 1 <= int(level) <= 19):
         sys.exit(f"unknown state codec {codec!r}")
+    if not shutil.which("zstd"):
+        sys.exit("zstd is required for this saved-state codec")
     return f"exec:zstd -q -f -{level} -o {q}" if direction == "save" else f"exec:zstd -q -d -c {q}"
 
 
@@ -246,7 +250,7 @@ def allocated_tree(path):
 
 def storage_report(*runtimes):
     """Allocated bytes of each disk, saved state and every distinct base. Virtual sizes are not counted."""
-    parts = {}
+    parts, seen_bases = {}, set()
     for p in runtimes:
         if p.disk.exists():
             parts[f"{p.root.name}/disk"] = allocated_bytes(p.disk)
@@ -254,7 +258,10 @@ def storage_report(*runtimes):
             parts[f"{p.root.name}/state"] = allocated_tree(p.state)
         meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
         if meta.get("kind") == "overlay":
-            parts["base"] = allocated_bytes(meta["base"]["path"])
+            base = Path(meta["base"]["path"]).resolve()
+            if base not in seen_bases:
+                parts["base" if not seen_bases else f"base:{base}"] = allocated_bytes(base)
+                seen_bases.add(base)
     return {"parts": parts, "total_bytes": sum(parts.values())}
 
 
@@ -546,6 +553,7 @@ def cmd_start(a, p):
 
 def save_vm(p, qga=None, sync=True, codec="none"):
     """Quiesce, migrate RAM and devices to a file, quit QEMU. Returns timings, CPU time and sampled peak RSS."""
+    uri = state_uri(codec, p.statefile, "save")
     vm = read_vm(p)
     if not vm or not proc_ok(p, vm["pid"]):
         sys.exit("no matching VM process")
@@ -559,14 +567,18 @@ def save_vm(p, qga=None, sync=True, codec="none"):
     p.statefile.unlink(missing_ok=True)
     p.statemeta.unlink(missing_ok=True)
     rss_before = tree_rss_kib(pid)
-    uri = state_uri(codec, p.statefile, "save")
     cg = cgroup_dir(pid)
     cpu0 = cpu_usec(cg)
     peak, last = rss_before, 0
     base = disk_base_id(p)
     q = Qmp(p.qmp)
     q.cmd("migrate", uri=uri)
+    deadline = time.monotonic() + 60
     while True:
+        if time.monotonic() >= deadline:
+            q.cmd("migrate_cancel")
+            q.close()
+            raise TimeoutError("save did not complete within 60 seconds")
         st = q.cmd("query-migrate")
         if st["status"] == "completed":
             break
@@ -610,7 +622,12 @@ def restore_vm(p, fixture_port):
     cg = cgroup_dir(pid)
     peak, last = tree_rss_kib(pid), 0
     q.cmd("migrate-incoming", uri=uri)
+    deadline = time.monotonic() + 60
     while True:
+        if time.monotonic() >= deadline:
+            q.close()
+            kill_vm(p)
+            raise TimeoutError("restore did not complete within 60 seconds")
         st = q.cmd("query-status")
         if st["status"] == "running":
             break
