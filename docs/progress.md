@@ -158,3 +158,9 @@ This closes the short smoke gap. It does not complete the three independent 30-m
 The second full attempt stopped in boot 1 after 497.6 seconds on host-wide paging. It remains incomplete; boots 2 and 3 did not run. The parent verified its failed summary and retained evidence.
 
 D52 versions future memory runs separately: host-wide paging is context, while VM, OOM, limit, pressure and low-memory guards remain safety stops. Paging windows are explicit and cannot support clean latency comparisons. All 132 Python tests pass. The next attempt uses this revised method, not a retroactive pass for earlier data.
+
+## Memory v2 observation complete; planned repetition incomplete
+
+The parent verified the failed raw summary: boots 1 and 2 completed 30-minute workloads and passed save/restore, desktop, session and file gates. Boot 3 stopped at 1,057.8 seconds on CPU pressure and did not reach save. The three-boot completion claim does not hold. No sampler or retention error was recorded; the base stayed unchanged and no QEMU remained.
+
+Bare process memory showed no significant late trend in the two complete boots. Host VM memory and guest cache kept growing; no host plateau or leak cause was established. Paging context prevents clean latency comparisons. The report retains the failed run and layout-specific data. No further long memory rerun is scheduled on this host. The shorter idle attribution experiment is next; the missing third full repetition remains explicit.

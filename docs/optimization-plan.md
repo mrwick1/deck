@@ -124,3 +124,7 @@ The two-round design discussion and preparation reviews set this order. They did
 Only one live VM experiment runs at a time. Preparation can run in parallel. Use dynamically discovered guest user/runtime paths. Keep thresholds exploratory and report unavailable counters. Stop on correctness, evidence or resource failures. Do not add global cache eviction, generic QEMU flag sweeps, a backend rewrite or concurrent capacity testing to this pass.
 
 A sleep/wake CPU quotient alone cannot set the idle timeout. Response latency, memory pressure, write volume and future event frequency also matter. Cache dropping does not guarantee lower host RSS or smaller migration files.
+
+## Memory pass disposition
+
+The versioned memory run produced two complete boots and one partial boot, then stopped on host CPU pressure. Preserve the incomplete planned repetition. Use the observations to bound hypotheses, not to claim capacity, a host plateau or uncontended performance. Proceed to the already planned short idle attribution without another long memory rerun. Keep CPU-pressure safety stops; do not relax them to complete the dataset.
