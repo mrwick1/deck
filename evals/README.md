@@ -36,6 +36,8 @@ The runner does these steps:
 
 `--keep` keeps the temp folder, with `deck.log`. The runner also keeps the folder when it stops on an error.
 
+`--secrets-file PATH` adds the `NAME=value` lines of a file to the run's secrets file. Blank lines and `#` comments are skipped. The runner never prints the values. `--state-dir PATH` sets `state_dir` under `[bare]` in the run's config. Without it, the key is not written.
+
 ## Results
 
 Each run writes `evals/results/<timestamp>.jsonl`. Git ignores this folder. Each line is one task:
@@ -71,21 +73,34 @@ A task passes when the run ends with `done` and every check in `[task.check]` ho
 | `logins_ok` | The least number of good logins on the fixture site. |
 | `posted` | `path`, an optional `count` of POSTs, and the `fields` of the last POST to that path. |
 | `uploaded` | `path`, `filename` and an optional `text` of an uploaded file. |
+| `downloaded` | Only with `make_files = true`. Each of the three made files has a copy with the same SHA-256 under `workspace/downloads/`, at any depth and under any name. |
 
 `{{name}}` in a prompt or a check is a value of the run. In a regex, the runner escapes the value. The values are:
 
 - `base`: the URL of the fixture site.
 - `account`, `tracking`, `welcome`, `sku`: random codes that the fixture pages show.
 - `upload_text`: the text of `report.txt` in the workspace.
+- `run_id`: 6 random hex characters. The runner makes a new one for each run.
+- `file_txt`, `file_pdf`, `file_png`: the names of the three files that a `make_files` task gets.
 
 Public sites change. Their checks match the shape of an answer, such as a version or an issue URL, not a live value.
 
 ## Add a task
 
-1. Add a `[[task]]` to `tasks.toml` with `id`, `prompt`, `timeout_s` and `[task.check]`. Set `fixture = true` for a task on the fixture site.
+1. Add a `[[task]]` to `tasks.toml` with `id`, `prompt`, `timeout_s` and `[task.check]`. Set `fixture = true` for a task on the fixture site. Set `make_files = true` to write the three files `eval-<run_id>.txt`, `.pdf` and `.png` into `workspace/` before the task runs. The text file and the PDF hold the run id. The PNG is a small gradient image.
 2. For a fixture task, add a page to `fixtures/`. Add a route to `fixture_server.py` only when the page needs server logic.
 3. Public tasks only read. They never log in, post or buy.
 4. Run the task with `--only <id>`. Check that it passes for the right reason.
 5. Run `python3 -m unittest` in `evals/`.
 
 Run the fixture site alone with `python3 evals/fixture_server.py`. It prints its URL and the values of the run.
+
+## Private tasks
+
+A task for a private site stays out of the repo. Keep its task file, its secrets file and its browser state in a folder outside the repo. Pass them with `--tasks`, `--secrets-file` and `--state-dir`:
+
+```sh
+python3 evals/run.py --tasks ~/private/evals.toml --secrets-file ~/private/secrets.env --state-dir ~/private/bare-state
+```
+
+Do not commit these files. Do not put their values in the repo.

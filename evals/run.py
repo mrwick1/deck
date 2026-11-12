@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Run the deck eval tasks against a real model and score them.
 
-Usage: python3 evals/run.py [--only id,id] [--skip-public] [--fixture-only] [--deck PATH] [--compare OLD.jsonl [NEW.jsonl]]
+Usage: python3 evals/run.py [--only id,id] [--skip-public] [--fixture-only] [--deck PATH] [--tasks PATH]
+                            [--secrets-file PATH] [--state-dir PATH] [--compare OLD.jsonl [NEW.jsonl]]
 Env: DECK_EVAL_BASE_URL (model endpoint), DECK_MODEL_KEY (model key),
      optional DECK_EVAL_AGENT_MODEL, DECK_EVAL_SMALL_MODEL, DECK_EVAL_BARE.
 """
 
 import argparse
 import collections
+import hashlib
 import json
 import os
 import queue
@@ -16,6 +18,7 @@ import secrets
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -24,11 +27,12 @@ import time
 import tomllib
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-CHECK_KEYS = {"answer", "forbid_tools", "require_tools", "trace", "logins_ok", "posted", "uploaded"}
+CHECK_KEYS = {"answer", "forbid_tools", "require_tools", "trace", "logins_ok", "posted", "uploaded", "downloaded"}
 ERROR_PREFIXES = ("error", "not ready", "script error")
 SECRET_NAME = "EVAL_PASSWORD"
 
@@ -48,7 +52,71 @@ def load_tasks(path):
         unknown = set(t["check"]) - CHECK_KEYS
         if unknown:
             raise ValueError(f"task {t['id']}: unknown check keys {sorted(unknown)}")
+        if "downloaded" in t["check"] and not t.get("make_files"):
+            raise ValueError(f"task {t['id']}: downloaded needs make_files = true")
     return tasks
+
+
+def make_pdf(text):
+    """A one-page PDF with one line of text. The xref offsets are exact."""
+    stream = f"BT /F1 18 Tf 36 100 Td ({text}) Tj ET".encode()
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (i, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    out += b"".join(b"%010d 00000 n \n" % off for off in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)
+
+
+def make_png(w, h):
+    """A plain RGB PNG with a gradient."""
+    rows = b"".join(b"\x00" + b"".join(bytes((x * 8, y * 8, 128)) for x in range(w)) for y in range(h))
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def run_files(run_id):
+    """The three files that a make_files task gets. Returns {value name: (file name, bytes)}."""
+    text = f"deck eval file {run_id}"
+    return {
+        "file_txt": (f"eval-{run_id}.txt", text.encode() + b"\n"),
+        "file_pdf": (f"eval-{run_id}.pdf", make_pdf(text)),
+        "file_png": (f"eval-{run_id}.png", make_png(32, 32)),
+    }
+
+
+def download_hashes(folder):
+    """The SHA-256 of every file under folder, at any depth."""
+    return {hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(folder).rglob("*") if p.is_file()}
+
+
+def read_secret_file(path):
+    """The NAME=value lines of a private file. Blank lines and # comments are skipped. Never echoes a value."""
+    lines = []
+    for n, raw in enumerate(Path(path).read_text().splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, sep, _ = line.partition("=")
+        if not sep or not re.fullmatch(r"[A-Za-z_]\w*", name):
+            raise ValueError(f"{path}: line {n} is not NAME=value")
+        lines.append(line)
+    return lines
 
 
 def fill(text, values, escape=False):
@@ -103,11 +171,12 @@ def error_lines(content, ok=True):
     return out
 
 
-def score(check, values, run, fixture):
+def score(check, values, run, fixture, made=None, downloads=None):
     """Return the reasons a run fails its check. An empty list is a pass.
 
     run: {"status", "answer", "calls": [{"name", "args", "result"}]}
     fixture: {"posts": [...], "logins_ok": n} or None for public tasks.
+    made: {file name: SHA-256} of the files that make_files wrote. downloads: SHA-256 set of workspace/downloads.
     """
     reasons = []
     if run["status"] != "done":
@@ -131,6 +200,11 @@ def score(check, values, run, fixture):
         text = "\n".join(json.dumps(c["args"]) + "\n" + (c.get("result") or "") for c in run["calls"])
         if not re.search(fill(check["trace"], values, escape=True), text):
             reasons.append(f"no tool call or result matches /{check['trace']}/")
+    if "downloaded" in check:
+        for key in ("file_txt", "file_pdf", "file_png"):
+            name = values[key]
+            if (made or {}).get(name) not in (downloads or ()):
+                reasons.append(f"no download matches {name}")
     if fixture is None:
         if {"logins_ok", "posted", "uploaded"} & set(check):
             reasons.append("fixture check without fixture state")
@@ -249,7 +323,7 @@ def toml_str(s):
     return json.dumps(str(s))
 
 
-def write_config(tmp, port, secrets_file, max_steps):
+def write_config(tmp, port, secrets_file, max_steps, state_dir=None):
     example = tomllib.loads((REPO / "deck.example.toml").read_text())
     model = example["model"]
     text = f"""listen = "127.0.0.1:{port}"
@@ -268,6 +342,7 @@ small_model = {toml_str(os.environ.get("DECK_EVAL_SMALL_MODEL", model["small_mod
 command = {toml_str(os.environ.get("DECK_EVAL_BARE", example["bare"]["command"]))}
 args = []
 secrets_file = {toml_str(secrets_file)}
+{f"state_dir = {toml_str(state_dir)}" if state_dir else ""}
 
 [agent]
 max_steps = {max_steps}
@@ -422,6 +497,8 @@ def main():
     ap.add_argument("--tasks", default=str(HERE / "tasks.toml"))
     ap.add_argument("--max-steps", type=int, default=30)
     ap.add_argument("--keep", action="store_true", help="keep the temp folder (config, deck log, data)")
+    ap.add_argument("--secrets-file", metavar="PATH", help="NAME=value lines to add to the run's secrets (never printed)")
+    ap.add_argument("--state-dir", metavar="PATH", help="bare state directory for this run (the [bare] state_dir key)")
     ap.add_argument("--compare", nargs="+", metavar="JSONL",
                     help="OLD [NEW]: with NEW, compare two files and exit; else compare OLD with this run")
     args = ap.parse_args()
@@ -432,6 +509,10 @@ def main():
     if args.compare and len(args.compare) > 2:
         ap.error("--compare takes OLD or OLD NEW")
 
+    try:
+        extra_secrets = read_secret_file(args.secrets_file) if args.secrets_file else []
+    except (OSError, ValueError) as e:
+        ap.error(str(e))
     tasks = load_tasks(args.tasks)
     if args.only:
         ids = set(args.only.split(","))
@@ -477,11 +558,15 @@ def main():
         upload_text = f"deck eval report {secrets.token_hex(8)}"
         (tmp / "workspace" / "report.txt").write_text(upload_text + "\n")
         secrets_file = tmp / "secrets.env"
-        write_private(secrets_file, f"{SECRET_NAME}={password}\n")
-        values = dict(state.vars, base=base, upload_text=upload_text, password=password)
+        write_private(secrets_file, "".join(f"{line}\n" for line in [f"{SECRET_NAME}={password}", *extra_secrets]))
+        run_id = secrets.token_hex(3)
+        files = run_files(run_id)
+        made = {name: hashlib.sha256(data).hexdigest() for name, data in files.values()}
+        values = dict(state.vars, base=base, upload_text=upload_text, password=password, run_id=run_id,
+                      **{key: name for key, (name, _) in files.items()})
 
         port = free_port()
-        config, model = write_config(tmp, port, secrets_file, args.max_steps)
+        config, model = write_config(tmp, port, secrets_file, args.max_steps, args.state_dir)
         log = open(tmp / "deck.log", "w")
         proc = start_deck(binary, config, log)
         api = Api(f"http://127.0.0.1:{port}")
@@ -492,8 +577,12 @@ def main():
             for task in tasks:
                 fixture = task.get("fixture")
                 print(f"- {task['id']} ...", end="", flush=True)
+                if task.get("make_files"):
+                    for name, data in files.values():
+                        (tmp / "workspace" / name).write_bytes(data)
                 run, info = run_task(api, task, values, state if fixture else None)
-                reasons = score(task["check"], values, run, state.snapshot() if fixture else None)
+                reasons = score(task["check"], values, run, state.snapshot() if fixture else None,
+                                made=made, downloads=download_hashes(tmp / "workspace" / "downloads"))
                 if info["error"]:
                     reasons.append(f"error: {info['error'][:200]}")
                 rec = result_record(task, run, info, reasons, model)
