@@ -22,18 +22,22 @@ Give the `deck` agent every browser tool that it needs, in `bare-mcp`. Read page
 | 2026-11-12 | `console`, `network`, `diagnose`, `downloads`, `storage`; select, check, hover, double click, upload, back, forward; dialogs; new tabs; iframes and shadow slots in the snapshot | bare #386 |
 | 2026-11-12 | Fixes from a sweep of 20 real sites: cut marker and `offset`, a quick settle, `press` on a ref, focus checks, visible `find` matches, names of form fields, `open` waits for a ready page, full URLs | bare #386 |
 | 2026-11-12 | Smaller replies: `act` gives only the changed lines (80–99 % smaller); full snapshots are 37–58 % smaller | bare #386 |
-| 2026-11-12 | `deck` saves downloads in the workspace and sends uploads only from it | this branch |
+| 2026-11-12 | `deck` saves downloads in the workspace and sends uploads only from it | deck #13 |
+| 2026-11-12 | Full-page screenshots (up to 8000 px); the RegExp `v` flag, so crates.io renders; `adoptedStyleSheets`, and `snapshot` and `read` walk shadow roots, so archive.org shows its content | bare #390 |
 
 ## Checks with a real model
 
 - Hacker News: top 3 stories with points, then the first comment author. The model used snapshot, read, act and find. It took no screenshot.
 - Wikipedia: a search, two facts, and a screenshot of the infobox, sent into the chat in 14 s.
+- A local CSV download: the model downloaded it, sent it into the chat and gave the correct total.
+- crates.io: the version, the all-time downloads and the license of `serde`, and a full-page screenshot sent into the chat, in 13.7 s. All three facts were correct.
 
 ## In progress
 
-- A screenshot of a tall element is cut at the viewport (bare#384).
-- The RegExp `v` flag: crates.io renders nothing without it.
-- `adoptedStyleSheets` and `CSSStyleSheet.replaceSync`: archive.org needs them.
+- `eval` awaits a Promise and shows the message of a thrown error (bare#387).
+- A 9.6 s stall before a request (bare#388). archive.org `open` still takes 12.7 s.
+- crates.io: `focus({ focusVisible })` stops the page, the `<noscript>` banner shows, and the readme and the chart are empty (bare#391).
+- A second sweep of real sites.
 
 ## Next
 
@@ -44,7 +48,6 @@ Give the `deck` agent every browser tool that it needs, in `bare-mcp`. Read page
 
 ## Open gaps
 
-- `archive.org`: the snapshot is empty, although the shadow root has content.
 - Dialogs and tabs that a timer opens after `act` returns are not seen.
 - Window mode is not tested with the new tools.
 - A link click that the site covers with a loader fails as `covered`.
