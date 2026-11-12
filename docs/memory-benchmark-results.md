@@ -4,7 +4,7 @@ Date: 2026-11-12.
 
 ## Result in short
 
-The experiment is **incomplete**. The planned design is three independent boots of 30 minutes each. Only boot 1 ran, and it stopped after 1,551 s of its 1,800 s workload. A stop rule fired on host-wide swap-out that the VM did not cause. The harness then ended the run, as designed. It did not retry.
+The experiment is **incomplete**. The planned design is three independent boots of 30 minutes each. Only boot 1 ran, and it stopped after 1,551 s of its 1,800 s workload. A stop rule fired on host-wide swap-out. The VM reported no swapped memory; attribution of the host paging is unproven. The harness then ended the run, as designed. It did not retry.
 
 No save, restore, first-bare-action or post-restore marker data exist. No claim about variation between boots is possible. The numbers below describe one boot for 26 minutes. They are not a plateau claim and not a capacity claim.
 
@@ -98,8 +98,8 @@ Guest swap use stayed at zero. No guest OOM kill occurred. No cgroup event count
 
 1. **The bare process stopped growing after the first minutes.** Its RSS and PSS rose about 4 MiB in the early window and then showed no significant trend. Its anonymous PSS is about 10 MiB. Bare is a single small process in this guest, so it is not the main memory consumer.
 2. **Host QEMU memory kept growing at about 2.8 MiB per minute through the stop.** This run cannot show a plateau. The host RSS rose by 97 MiB in 26 minutes.
-3. **Hypothesis, to verify: the host growth follows guest memory that the guest touched, not a bare leak.** The guest page cache grew 2.1 MiB per minute and guest used memory grew 0.6 MiB per minute. Their sum, 2.7 MiB per minute, is close to the host anonymous growth of 2.9 MiB per minute. Without a balloon, QEMU keeps a guest page resident after the guest touches it, even when the guest later frees it. Host RSS therefore tracks the high-water mark of touched guest pages. If this is right, host RSS would level off near the guest RAM size plus QEMU overhead. This run is too short to check that.
-4. **The bare output file grows with requests.** It grows about 850 bytes per request and lives in tmpfs. Over a long session it counts toward guest `Shmem` and runtime memory. At this rate one million requests add about 0.8 GiB. This is an extrapolation, not a measurement. Whether bare should bound or rotate this file is an open question for the bare project.
+3. **Hypothesis, to verify: the host growth follows guest memory that the guest touched, not a bare leak.** The guest page cache grew 2.1 MiB per minute and guest used memory grew 0.6 MiB per minute. Their sum, 2.7 MiB per minute, is close to the host anonymous growth of 2.9 MiB per minute. Without ballooning, freeing a guest page does not guarantee that its host memory is released. Host RSS can reflect previously touched guest pages. Guest available-memory estimates and cache counters are not disjoint components; their similar combined slope does not establish a causal accounting identity. If this is right, host RSS would level off near the guest RAM size plus QEMU overhead. This run is too short to check that.
+4. **The bare output file grows with requests.** It grows about 850 bytes per request and lives in tmpfs. Over a long session it counts toward guest `Shmem` and runtime memory. At this rate one million requests add about 0.8 GiB. This is an extrapolation, not a measurement. This file belongs to Deck’s bare-session transport wrapper. Bounding it is a Deck transport question, not evidence of a bare-engine leak. Naive truncation can break reply offsets and must not be added without protocol tests.
 5. **Retention worked.** The retained downloads reached the 32 MiB cap and never exceeded it. Deleting old owned files did not stop the page cache from growing.
 6. **No memory counter shows a failure.** There was no swap, no OOM, no cgroup limit event and no memory pressure. The cgroup limit is 3,500 MiB and peaked near 663 MiB.
 
@@ -116,7 +116,7 @@ A rule from `cyclebench` stops the run when host-wide swap-out exceeds 16,384 pa
 | Host CPU pressure | 17.9% of the window |
 | Host one-minute load | 13 to 17 on 16 CPUs |
 
-Other work on the host caused the load and the paging: builds and a model server that this experiment does not own. The VM could not swap, because its cgroup sets `MemorySwapMax=0`. Earlier windows also showed background paging of up to 8,013 pages (31 MiB). The VM stayed healthy to the end.
+Other work ran on the host, including builds and a model server that this experiment does not own. These observations do not establish which work caused the paging. The VM could not swap, because its cgroup sets `MemorySwapMax=0`. Earlier windows also showed background paging of up to 8,013 pages (31 MiB). The VM stayed healthy to the end.
 
 The threshold was not changed after the fact. The run stopped, kept its evidence and ended without a retry.
 

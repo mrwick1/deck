@@ -136,3 +136,9 @@ The evidence-gap fixes have three passing regressions. All 65 Python tests pass.
 The runtime-only saved-state experiment completed three fresh boots and five cycles per boot. All 15 cycles passed desktop, browser, file and transfer checks. The parent reproduced the raw summary and all 87 Python tests. No sampler or retention error was recorded. The base digest stayed unchanged and no QEMU process remained. See [cycle-benchmark-results.md](cycle-benchmark-results.md).
 
 No server-path speedup is claimed. Restores were warm in the host page cache. The sampler has material CPU overhead. Migration bandwidth and the post-agent restore gap are hypotheses for controlled follow-up. The next live experiment is sustained memory growth; idle attribution follows it.
+
+## Memory pass: incomplete first run
+
+The first memory experiment stopped on the existing host-wide swap guard after 1,551 of 1,800 planned workload seconds in boot 1. Boots 2 and 3 did not start. The raw summary correctly reports failure, with no sampler or retention error and an unchanged base. Parent checks reproduce all 126 Python tests. See [memory-benchmark-results.md](memory-benchmark-results.md).
+
+This partial run shows stable bare process memory after warm-up, continued host VM/cache growth and reply-file growth. It does not establish a host-memory plateau or a leak. The Deck reply spool requires bounded-transport investigation, not an engine-leak claim. Save/restore after the memory workload remains untested. Run one short smoke before a fresh full attempt. Keep the original guard and incomplete evidence; do not relax the threshold to obtain a pass.
