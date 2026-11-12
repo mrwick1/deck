@@ -263,6 +263,52 @@ class PreSaveTerminal(unittest.TestCase):
         self.assertFalse(r["same"])
 
 
+class TerminalLayout(unittest.TestCase):
+    """Fake desktop. Tiled windows share 1280 px. A floating terminal keeps its size. The pixels depend on the rect, the text and the focus."""
+    class D:
+        def __init__(self, floats=True):
+            self.bares, self.text, self.focused, self.floating, self.pin_works = 0, "NOTE", True, False, floats
+        def rect(self):
+            if self.floating:
+                return "0,0 640x797"
+            return f"0,0 {1280 // (1 + self.bares)}x800"
+        def deck(self, s, **kw):
+            if "floating enable" in s and self.pin_works:
+                self.floating = True
+            if "focus" in s:
+                self.focused = True
+            return 0, self.rect() if "get_tree" in s else "", ""
+        def pixels(self):
+            return f"{self.rect()}|{self.text}|{self.focused}"
+
+    def setup(self, **kw):
+        d = self.D(**kw)
+        with patch.object(mb.s1, "foot_crop_hash", lambda _g: d.pixels()):
+            mb.pin_terminal(d)
+            d.bares, d.focused = 1, True
+            return d, d.pixels()
+
+    def gate(self, d, ref):
+        with patch.object(mb.s1, "foot_crop_hash", lambda _g: d.pixels()):
+            return mb.pre_save_terminal(d, ref, sleep=lambda s: None)
+
+    def test_bare_windows_opened_by_the_workload_do_not_change_the_terminal_pixels(self):
+        d, ref = self.setup()
+        d.bares, d.focused = 2, False
+        r = self.gate(d, ref)
+        self.assertTrue(r["same"])
+        self.assertEqual(r["rect"], "0,0 640x797")
+
+    def test_text_lost_during_the_workload_still_fails_the_pixel_gate(self):
+        d, ref = self.setup()
+        d.bares, d.focused, d.text = 2, False, ""
+        self.assertFalse(self.gate(d, ref)["same"])
+
+    def test_a_terminal_that_cannot_be_pinned_stops_the_setup(self):
+        with self.assertRaises(RuntimeError):
+            self.setup(floats=False)
+
+
 class Guardrails(unittest.TestCase):
     QUIET = {"wall_s": 60, "swapout_pages": 0, "psi_memory_some_us": 1000, "psi_cpu_some_us": 100000, "mem_available_kib": 20 << 20}
 

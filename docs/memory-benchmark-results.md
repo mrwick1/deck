@@ -166,7 +166,7 @@ No production change follows from this evidence.
 
 ## Verification
 
-- The existing 87 Python tests and 41 new tests pass (128 in total). One new test covers a sampler that dies before the harness reads its CPU clock. A repeat run of the suite found this race after the live run.
+- The existing 87 Python tests and 44 new tests pass (131 in total). One new test covers a sampler that dies before the harness reads its CPU clock. A repeat run of the suite found this race after the live run.
 - The new tests cover the fixture sizes, hashes and bounds, the session cap, the download cap and owned-file rules, the deadline loop, the growth math, missing counters, the stop rules, the sampler-failure invalidation, failure retention and the scope wait.
 - Mutating the cap, the prune rule, the deadline, the sampler error handler, the retention error handler, the stop rule and the owned-path check made the tests fail.
 - Compilation, `--help` (no VM starts) and `git diff --check` pass.
@@ -195,7 +195,32 @@ The host was quiet enough by the existing thresholds. The harness did not wait a
 
 **Other checks.** The bounded tab count (at most 3), the bounded downloads (one 2 MiB file, hash equal), the end-page marker and the session cap held in both attempts. The save-phase `scope_gone` check is immediate, while the final cleanup waits up to 5 s. No attempt reached the save phase, so the real behavior is **not verified** and the code is unchanged.
 
-**Next step.** The two-attempt limit is used. Before another live run, capture a screenshot and the window tree of the guest after the workload, to find why the terminal pixels change. The full three-boot run remains **pending**.
+**Next step.** Superseded by the diagnosis below.
+
+### Diagnosis of the terminal pixel difference
+
+One diagnostic boot (workload 60 s, original gate unchanged) kept the full screenshot, three terminal crops 0.6 s apart, the Sway tree and the nano process at three points. The points were setup, after the workload and after the refocus. The raw files are local and outside Git. The images were viewed.
+
+| Point | Windows | Terminal rect | Terminal focused | Crop hash (3 crops equal) | Nano |
+|---|---|---|---|---|---|
+| Setup | 2 | 640x800 | yes | 145f70c8b59f477d | PID 602, notes file absent |
+| After workload | 3 | 427x800 | no | 6baa286197f5df6d | PID 602, notes file absent |
+| After refocus | 3 | 427x800 | yes | ed7b087468d2fa23 | PID 602, notes file absent |
+
+**Cause (observed).** The terminal tiles with the bare windows. The workload opens a third window, so Sway narrows the terminal from 640 to 427 px. The images show the same text, `UNSAVED-NOTE-7f3a`, the `Modified` flag and the cursor at the same place. The three crops at each point are identical, so the cursor did not blink between them. The nano process is the same and the notes file is still absent. The hash gate failed on geometry. It did not fail on lost text. The unsaved text was intact at the first check.
+
+**Limit.** This is one boot. The cursor and focus effects at an equal layout were not isolated. The refocus changed the hash at the new layout, which shows focus alone matters to the pixels.
+
+**Fix.** The setup now floats the terminal at a fixed size before the session is built. The reference hash and the later hashes see the same layout. The gate still compares the pixels with the setup hash after the refocus. It is not weakened. Lost text, a changed layout or a changed focus still fail it. The record now includes the terminal rect. Regression tests use a fake desktop that tiles windows. They check that extra bare windows do not change the pixels, that lost text still fails and that a terminal that cannot be pinned stops the setup. Mutating the pin command and the pin check made them fail. Bare windows now open at the full output width, not half. This differs from the Stage 1 layout and may change page-render memory slightly.
+
+### Attempts after the diagnosis
+
+| Attempt | Result |
+|---|---|
+| Diagnostic boot | Stopped at the original gate as expected. Artifacts kept. Nothing leaked. Base unchanged. |
+| Validation boot with the fix | Stopped at setup. Sway reports a floating window as 640x797 for a requested 800, and the pin check expected 800. No gate ran. No VM, scope or fixture was left. Base unchanged. |
+
+The constant was then set to the observed 640x797 and the 131 tests pass. **This was not run on a VM.** The two-attempt limit is used. The save, restore, first-bare-action and post-restore marker steps are **still unvalidated**. The server, executor, chat, journal and holds were not tested. The full three-boot run remains **pending**.
 
 ## Outlier: 147 s host-side bare close
 

@@ -90,6 +90,27 @@ def wait_path_gone(path, timeout=5.0, sleep=time.sleep, now=time.monotonic):
     return True
 
 
+TERMINAL_RECT = "0,0 640x797"  # sway reports 3 px less than the requested 800 for a floating window (seen live)
+RECT_SCRIPT = ("swaymsg -t get_tree | python3 -c \"import sys,json\n"
+               "def w(n):\n"
+               " if n.get('app_id')=='foot': print('%d,%d %dx%d'%(n['rect']['x'],n['rect']['y'],n['rect']['width'],n['rect']['height'])); return\n"
+               " for c in n.get('nodes',[])+n.get('floating_nodes',[]): w(c)\n"
+               "w(json.load(sys.stdin))\"")
+
+
+def terminal_rect(g):
+    return g.deck(RECT_SCRIPT)[1].strip()
+
+
+def pin_terminal(g):
+    """Float the terminal at a fixed size. Tiled, it narrows when the workload opens bare windows, and its pixels change with no loss of text.
+    Pinned, the setup reference and the later hash see the same layout, so a pixel difference means a content or focus change."""
+    g.deck("swaymsg '[app_id=foot] floating enable, resize set 640 800, move position 0 0'")
+    rect = terminal_rect(g)
+    if rect != TERMINAL_RECT:
+        raise RuntimeError(f"terminal not pinned: {rect!r}")
+
+
 def pre_save_terminal(g, ref, sleep=time.sleep):
     """Compare the terminal pixels with the setup reference. Bare windows opened by the workload take focus, so focus the terminal
     first, as the setup does. Both hashes stay in the record, so a focus-only difference is visible and not hidden."""
@@ -97,7 +118,7 @@ def pre_save_terminal(g, ref, sleep=time.sleep):
     g.deck("swaymsg '[app_id=foot] focus'")
     sleep(0.5)
     after = s1.foot_crop_hash(g)
-    return {"same": after == ref, "as_is": as_is, "after_refocus": after, "reference": ref}
+    return {"same": after == ref, "as_is": as_is, "after_refocus": after, "reference": ref, "rect": terminal_rect(g)}
 
 
 def cleanup_commands(directory, names):
@@ -655,6 +676,7 @@ def run_boot(ctx, n):
         ctx.log("cold_boot", boot=n, launch_to_guest_command_s=round(cmd_s, 3), launch_to_desktop_ready_s=round(ready_s, 3), guest_env=env)
         if n == 1:
             ctx.log("migrate_parameters", boot=n, **query_migrate_parameters(p))
+        pin_terminal(g)
         state = cb.prepare_session(g, p, port)
         ctx.dl_dir = f"{env['home']}/Downloads/{DL_SUB}"
         g.sh(f"install -d -o {GUEST_USER} -g {GUEST_USER} {shlex.quote(ctx.dl_dir)}")
