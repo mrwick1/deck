@@ -4,6 +4,41 @@ import { applyEvent, initialState, parseMessages, visibleItems, type DeckEvent }
 const run = (events: DeckEvent[]) => events.reduce(applyEvent, initialState());
 
 describe('applyEvent', () => {
+  it('streams reasoning apart from the reply', () => {
+    const s = run([
+      { id: 1, kind: 'run_started', data: { run_id: 1 } },
+      { kind: 'reasoning_delta', data: { text: 'hm' } },
+      { kind: 'reasoning_delta', data: { text: 'm' } },
+      { kind: 'text_delta', data: { text: 'hi' } },
+    ]);
+    expect(s.run?.items).toEqual([
+      { kind: 'reasoning', text: 'hmm', streaming: true },
+      { kind: 'assistant', text: 'hi', streaming: true },
+    ]);
+  });
+
+  it('puts an approval request and its answer on the step', () => {
+    const s = run([
+      { id: 1, kind: 'run_started', data: { run_id: 1 } },
+      { id: 2, kind: 'tool_call', data: { id: 'a', name: 'browser_act', args: {} } },
+      { id: 3, kind: 'approval_request', data: { id: 'a', approval_id: 9, reason: 'Sends a message' } },
+    ]);
+    expect(s.run!.items[0]).toMatchObject({ approval: { id: '9', reason: 'Sends a message' } });
+    const t = applyEvent(s, { id: 4, kind: 'approval_result', data: { id: 'a', approved: false } });
+    expect(t.run!.items[0]).toMatchObject({ approval: { id: '9', approved: false } });
+  });
+
+  it('keeps the last capture while the page stays the same', () => {
+    const s = run([
+      { id: 1, kind: 'run_started', data: { run_id: 1 } },
+      { id: 2, kind: 'page', data: { url: 'https://a.test/', title: 'A', file_id: 4 } },
+      { id: 3, kind: 'page', data: { url: 'https://a.test/', title: 'A2' } },
+    ]);
+    expect(s.run?.page).toEqual({ url: 'https://a.test/', title: 'A2', fileId: 4 });
+    const t = applyEvent(s, { id: 4, kind: 'page', data: { url: 'https://b.test/' } });
+    expect(t.run?.page?.fileId).toBeUndefined();
+  });
+
   it('shows the final text once after deltas', () => {
     const s = run([
       { id: 1, kind: 'run_started', data: { run_id: 1 } },

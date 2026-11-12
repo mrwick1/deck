@@ -3,6 +3,7 @@ import type { StoredMessage } from './api';
 export type Item =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string; streaming: boolean }
+  | { kind: 'reasoning'; text: string; streaming: boolean }
   | {
       kind: 'step';
       id: string;
@@ -11,8 +12,25 @@ export type Item =
       done: boolean;
       ok?: boolean;
       summary?: string;
+      /** Set when the step waits for, or got, the user's answer. */
+      approval?: Approval;
     }
   | { kind: 'file'; fileId: number; name: string; mime: string };
+
+export interface Approval {
+  id: string;
+  /** Why the step needs a yes, in the model's words. */
+  reason?: string;
+  approved?: boolean;
+}
+
+/** The page the agent is on, for the live view. */
+export interface Page {
+  url: string;
+  title?: string;
+  /** The latest capture of the page. */
+  fileId?: number;
+}
 
 export type Status = 'running' | 'done' | 'failed' | 'cancelled';
 
@@ -21,6 +39,7 @@ export interface RunView {
   items: Item[];
   status: Status;
   error?: string;
+  page?: Page;
 }
 
 export interface ViewState {
@@ -52,19 +71,19 @@ export function applyEvent(state: ViewState, ev: DeckEvent): ViewState {
   const last = items[items.length - 1];
   switch (ev.kind) {
     case 'text_delta':
-      if (last?.kind === 'assistant' && last.streaming) {
-        items[items.length - 1] = { ...last, text: last.text + ev.data.text };
-      } else {
-        items.push({ kind: 'assistant', text: ev.data.text, streaming: true });
-      }
-      return { lastId, run: { ...run, items } };
+    case 'reasoning_delta':
     case 'text':
-      if (last?.kind === 'assistant' && last.streaming) {
-        items[items.length - 1] = { kind: 'assistant', text: ev.data.text, streaming: false };
+    case 'reasoning': {
+      const kind = ev.kind.startsWith('text') ? 'assistant' : 'reasoning';
+      const streaming = ev.kind.endsWith('_delta');
+      if (last?.kind === kind && last.streaming) {
+        const text = streaming ? last.text + ev.data.text : ev.data.text;
+        items[items.length - 1] = { kind, text, streaming };
       } else {
-        items.push({ kind: 'assistant', text: ev.data.text, streaming: false });
+        items.push({ kind, text: ev.data.text, streaming });
       }
       return { lastId, run: { ...run, items } };
+    }
     case 'tool_call':
       items.push({
         kind: 'step',
@@ -80,6 +99,27 @@ export function applyEvent(state: ViewState, ev: DeckEvent): ViewState {
         items[i] = { ...(items[i] as any), done: true, ok: ev.data.ok, summary: ev.data.summary };
       }
       return { lastId, run: { ...run, items } };
+    }
+    case 'approval_request':
+    case 'approval_result': {
+      const i = items.findIndex((x) => x.kind === 'step' && x.id === ev.data.id);
+      if (i >= 0) {
+        const step = items[i] as Extract<Item, { kind: 'step' }>;
+        const approval =
+          ev.kind === 'approval_request'
+            ? { id: String(ev.data.approval_id), reason: ev.data.reason }
+            : { id: '', ...step.approval, approved: Boolean(ev.data.approved) };
+        items[i] = { ...step, approval };
+      }
+      return { lastId, run: { ...run, items } };
+    }
+    case 'page': {
+      const page: Page = {
+        url: ev.data.url,
+        title: ev.data.title,
+        fileId: ev.data.file_id ?? (ev.data.url === run.page?.url ? run.page?.fileId : undefined),
+      };
+      return { lastId, run: { ...run, page } };
     }
     case 'file':
       items.push({
@@ -169,7 +209,12 @@ export function subscribe(
     'run_started',
     'text_delta',
     'text',
+    'reasoning_delta',
+    'reasoning',
     'tool_call',
+    'approval_request',
+    'approval_result',
+    'page',
     'tool_result',
     'file',
     'run_finished',

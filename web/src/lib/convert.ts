@@ -8,6 +8,8 @@ function part(item: Exclude<Item, { kind: 'user' }>): Part {
   switch (item.kind) {
     case 'assistant':
       return { type: 'text', text: item.text };
+    case 'reasoning':
+      return { type: 'reasoning', text: item.text };
     case 'step':
       return {
         type: 'tool-call',
@@ -17,6 +19,11 @@ function part(item: Exclude<Item, { kind: 'user' }>): Part {
         argsText: JSON.stringify(item.args ?? {}),
         result: item.done ? (item.summary ?? '') : undefined,
         isError: item.done ? !item.ok : undefined,
+        approval: item.approval && {
+          id: item.approval.id,
+          prompt: item.approval.reason,
+          approved: item.approval.approved,
+        },
       };
     case 'file':
       return item.mime.startsWith('image/')

@@ -55,6 +55,8 @@ export const sendMessage = (id: number, text: string) =>
   call<{ run_id: number }>(`/api/chats/${id}/messages`, post({ text }));
 export const cancelRun = (runId: number) =>
   call<void>(`/api/runs/${runId}/cancel`, { method: 'POST' });
+export const answerApproval = (id: string, approved: boolean) =>
+  call<void>(`/api/approvals/${id}`, post({ approved }));
 export const eventsUrl = (chatId: number, after: number) =>
   `/api/chats/${chatId}/events?after=${after}`;
 export const fileUrl = (id: number) => `/api/files/${id}`;

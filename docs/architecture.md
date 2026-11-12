@@ -70,3 +70,31 @@ The service calls a model endpoint with an API key from its configuration. The o
 - One local database for chats, runs, memory and routines in SQLite (D12).
 - Files in the workspace folder.
 - Secrets in the configuration or a vault, never in the database in plain text.
+
+## Live events
+
+The web app reads the events of a chat from `GET /api/chats/{id}/events` (server-sent events).
+
+The service sends these events today:
+
+| Event | Data |
+| --- | --- |
+| `run_started` | `run_id` |
+| `text_delta` | `text`: a part of the reply |
+| `text` | `text`: the full reply |
+| `tool_call` | `id`, `name`, `args` |
+| `tool_result` | `id`, `ok`, `summary` |
+| `file` | `file_id`, `name`, `mime` |
+| `run_finished` | `status`, `error` |
+
+The web app also reads these events. The service does not send them yet.
+
+| Event | Data | Use |
+| --- | --- | --- |
+| `reasoning_delta` | `text`: a part of the model's reasoning | Thinking block |
+| `reasoning` | `text`: the full reasoning | Thinking block |
+| `approval_request` | `id` (the tool call), `approval_id`, `reason` | Approval card (D14) |
+| `approval_result` | `id` (the tool call), `approved` | Approval card |
+| `page` | `url`, `title`, `file_id` (a capture, optional) | Live view |
+
+The web app answers an approval with `POST /api/approvals/{approval_id}` and the body `{"approved": true}` or `{"approved": false}`. The service does not have this endpoint yet.

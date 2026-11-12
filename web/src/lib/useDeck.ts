@@ -11,8 +11,15 @@ import {
   visibleItems,
   type DeckEvent,
   type Item,
+  type Page,
   type ViewState,
 } from './events';
+
+const SUGGESTIONS = [
+  { title: 'Take a screenshot', label: 'of a page', prompt: 'Take a screenshot of example.com and send it to me.' },
+  { title: 'Read a page', label: 'and summarize it', prompt: 'Open news.ycombinator.com and list the top five stories.' },
+  { title: 'Check a site', label: 'for a change', prompt: 'Open example.com and tell me what the page says.' },
+];
 
 const fail = (e: unknown) => toast.error((e as Error).message);
 
@@ -24,6 +31,8 @@ export function useDeck() {
   const [view, setView] = useState<ViewState>(initialState);
   const [connected, setConnected] = useState(true);
   const [loading, setLoading] = useState(false);
+  // The last page of the chat. It stays after the run ends.
+  const [page, setPage] = useState<Page | undefined>();
   const viewRef = useRef(view);
   // A chat created by its first message. Its effect starts from that message.
   const seed = useRef<{ chatId: number; text: string; runId: number } | null>(null);
@@ -42,6 +51,7 @@ export function useDeck() {
     };
     put(initialState());
     setConnected(true);
+    setPage(undefined);
     if (chatId === null) {
       setHistory([]);
       return;
@@ -92,6 +102,10 @@ export function useDeck() {
     };
   }, [chatId]);
 
+  useEffect(() => {
+    if (view.run?.page) setPage(view.run.page);
+  }, [view.run?.page]);
+
   const items = useMemo(() => visibleItems(history, view.run), [history, view.run]);
   const messages = useMemo(() => toThreadMessages(items, view.run), [items, view.run]);
   const running = view.run?.status === 'running';
@@ -131,6 +145,13 @@ export function useDeck() {
     if (id !== undefined) await api.cancelRun(id).catch(fail);
   }, []);
 
+  const onRespondToToolApproval = useCallback(
+    async ({ approvalId, approved }: { approvalId: string; approved: boolean }) => {
+      await api.answerApproval(approvalId, approved).catch(fail);
+    },
+    [],
+  );
+
   const runtime = useExternalStoreRuntime({
     messages,
     convertMessage: (m) => m,
@@ -138,6 +159,8 @@ export function useDeck() {
     isLoading: loading,
     onNew,
     onCancel,
+    onRespondToToolApproval,
+    suggestions: SUGGESTIONS,
     adapters: {
       threadList: {
         threadId: chatId === null ? undefined : String(chatId),
@@ -149,5 +172,5 @@ export function useDeck() {
   });
 
   const title = chats.find((c) => c.id === chatId)?.title ?? 'deck';
-  return { runtime, title, connected: chatId === null || connected };
+  return { runtime, title, page, running, connected: chatId === null || connected };
 }

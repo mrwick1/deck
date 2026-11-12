@@ -1,6 +1,8 @@
 import { Thread } from '@/components/assistant-ui/elements/thread.aui';
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui';
+import { LivePanel, LivePill } from '@/components/LiveView';
 import { Button } from '@/components/ui/button';
+import { Welcome } from '@/components/Welcome';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useDeck } from '@/lib/useDeck';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
@@ -10,8 +12,10 @@ import { useState } from 'react';
 import { Toaster } from 'sonner';
 import { Drawer } from 'vaul';
 
+const THREAD = { Welcome };
+
 export default function App() {
-  const { runtime, title, connected } = useDeck();
+  const { runtime, title, page, running, connected } = useDeck();
   const [drawer, setDrawer] = useState(false);
 
   return (
@@ -75,10 +79,12 @@ export default function App() {
                 )}
               </AnimatePresence>
             </header>
-            <div className="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
-              <Thread />
+            <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+              <LivePill page={page} running={running} />
+              <Thread components={THREAD} />
             </div>
           </main>
+          <LivePanel page={page} running={running} />
         </div>
         <Toaster position="top-center" richColors closeButton />
       </TooltipProvider>

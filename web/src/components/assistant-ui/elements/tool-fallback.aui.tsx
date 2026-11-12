@@ -30,6 +30,7 @@ import {
   type ToolCallMessagePartStatus,
   type ToolCallMessagePartComponent,
 } from "@assistant-ui/react";
+import { describeStep } from "@/lib/steps";
 import { cn } from "@/lib/utils";
 import {
   CollapsibleRoot as Collapsible,
@@ -140,6 +141,7 @@ function ToolFallbackDuration({
 
 function ToolFallbackTrigger({
   toolName,
+  args,
   status,
   isError,
   responseDeliveryStatus,
@@ -147,6 +149,7 @@ function ToolFallbackTrigger({
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
+  args?: unknown;
   status?: ToolCallMessagePartStatus;
   isError?: ToolCallMessagePart["isError"];
   responseDeliveryStatus?: ToolCallMessagePart["responseDeliveryStatus"];
@@ -159,16 +162,16 @@ function ToolFallbackTrigger({
     status?.type === "incomplete" && status.reason === "cancelled";
 
   const Icon = statusIconMap[statusType];
+  // deck: say what the step does, such as "Opening example.com".
+  const step = describeStep(toolName, args, isRunning);
   const label =
     responseDeliveryStatus === "queued"
-      ? "Reply queued, not sent yet"
-      : statusType === "running"
-        ? "Running tool"
-        : statusType === "requires-action"
-          ? "Waiting on tool"
-          : statusType === "incomplete"
-            ? `${isCancelled ? "Cancelled" : "Failed"} tool`
-            : "Used tool";
+      ? `Queued: ${step}`
+      : statusType === "requires-action"
+        ? `Needs your answer: ${step}`
+        : statusType === "incomplete"
+          ? `${isCancelled ? "Cancelled" : "Failed"}: ${step}`
+          : step;
 
   return (
     <CollapsibleTrigger
@@ -195,7 +198,7 @@ function ToolFallbackTrigger({
           isRunning && "shimmer motion-reduce:animate-none",
         )}
       >
-        {label}: <b>{toolName}</b>
+        {label}
       </span>
       <ToolFallbackDuration />
       <ChevronDownIcon
@@ -1200,6 +1203,7 @@ function ToolFallbackApprovalImpl({
 
 const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   toolName,
+  args,
   argsText,
   result,
   isError,
@@ -1255,6 +1259,7 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
     <ToolFallbackRoot open={open} onOpenChange={setOpen}>
       <ToolFallbackTrigger
         toolName={toolName}
+        args={args}
         status={status}
         isError={isError}
         responseDeliveryStatus={responseDeliveryStatus}
