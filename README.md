@@ -21,6 +21,7 @@ Without `web/dist`, `cargo build` embeds a placeholder page.
 Run `cargo test -- --ignored` to run the live tests. They start the real `bare-mcp`, so it must be on `PATH`.
 `tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
+Run `python3 evals/run.py` to score the agent on a fixed task set with the real model. See [evals/README.md](evals/README.md).
 
 ## Rules
 

@@ -146,7 +146,19 @@ Each decision has a date, the decision and the reason.
 
 **Blocker:** `@assistant-ui/react` needs `TransformStream`, which `bare` does not have yet ([bare#389](https://github.com/mrwick1/bare/issues/389)). Until then, the app does not render in `bare`, and the screenshot end-to-end test fails.
 
-## D21. Each bot owns a persistent desktop computer (2026-11-12)
+## D21. The owner's secrets come from a file in the config (2026-11-12)
+
+**Decision:** `[bare] secrets_file` names a file of `NAME=value` lines. deck passes it to `bare-mcp` on `open` and `ensure_session`. The model never sets it. The system prompt lists the names of the secrets, never the values. deck reads the names at the start of each run, so an edit to the file needs no restart.
+
+**Reason:** The prompt told the model to type `${NAME}`, but deck removed `secrets_file` from every call, so no value ever reached `bare`. `bare` puts the value in the page and shows `[secret]` in every reply. The value then never enters the model context, the chat store or the log.
+
+## D22. A fixed task set measures each change (2026-11-12)
+
+**Decision:** `evals/` holds a fixed set of tasks for the agent. Nine tasks run on a local fixture site, and eight tasks read public sites. `evals/run.py` starts deck with the real model and the real `bare-mcp`. It scores each task by a regex on the answer, by the tools that the agent used, and by what the fixture site received. It writes one result file per run and compares two runs. The scripts use only the Python standard library.
+
+**Reason:** A change to `bare` or to the prompt can help one site and break another. One manual check does not show that. A fixed set with the real model shows the change in passes, time and tool calls. The fixture tasks give the same result each run. The public tasks catch the problems of real sites. Their checks match the shape of an answer, so they survive data drift.
+
+## D23. Each bot owns a persistent desktop computer (2026-11-12)
 
 **Decision:** The owner can create independent bots for distinct purposes. Examples include email, job hunting and social media. Each bot owns a persistent virtual machine with a full desktop. Each bot has its own accounts, files, memory, instructions and model configuration. Deck manages the computers and their lifecycle.
 
@@ -156,7 +168,7 @@ Each decision has a date, the decision and the reason.
 
 **Scope change:** Full desktops replace the desktop exclusion in the original vision. `bare` remains the only browser. The VM backend and desktop transport remain open. This decision does not select Xvfb or VNC.
 
-## D22. Bots can use desktop tools, shell commands and APIs (2026-11-12)
+## D24. Bots can use desktop tools, shell commands and APIs (2026-11-12)
 
 **Decision:** A bot can operate its desktop, use `bare`, run shell commands and call service APIs. Its permissions govern each route.
 
@@ -164,7 +176,7 @@ Each decision has a date, the decision and the reason.
 
 **Scope change:** D13 described a host workspace shell sandbox. The new design places the bot's computer behind a VM boundary. The shell sandbox policy inside the VM remains open.
 
-## D23. Permissions are dynamic and belong to each bot (2026-11-12)
+## D25. Permissions are dynamic and belong to each bot (2026-11-12)
 
 **Decision:** The owner can change each bot's permissions at any time. Permissions describe actions, such as reading messages, sending messages or submitting job applications automatically. A bot can request a missing permission. The owner can approve one action or grant ongoing permission with limits. Revocation blocks future actions during an active run too.
 
@@ -174,7 +186,7 @@ Each decision has a date, the decision and the reason.
 
 **Scope change:** This extends D14. The enforcement mechanism remains open. A model flag alone does not establish enforcement across all tools.
 
-## D24. Bots can react to configured events (2026-11-12)
+## D26. Bots can react to configured events (2026-11-12)
 
 **Decision:** Bots can start work from user messages, schedules and configured event subscriptions. Monitoring depends on the bot's duties and the owner's instructions. Examples include incoming email and job alerts.
 
@@ -182,7 +194,7 @@ Each decision has a date, the decision and the reason.
 
 **Open:** Verify the event sources available for each service. APIs, notifications and browser polling are possible approaches. No specific service integration is selected yet.
 
-## D25. Pause automation and sleep computer are separate controls (2026-11-12)
+## D27. Pause automation and sleep computer are separate controls (2026-11-12)
 
 **Decision:** Pause automation stops new work and automatic wake-ups. Incoming events remain queued. Sleep computer saves the VM state to disk and stops the VM to release CPU and RAM. Its persistent disk remains stored. Resume restores the saved computer state.
 
@@ -196,9 +208,9 @@ Each decision has a date, the decision and the reason.
 
 ## Discussion tracking
 
-Append agreed decisions here as the architecture discussion continues. Keep proposals and open implementation questions separate from agreed behavior. D21–D25 describe the target architecture. They do not claim that these features exist in the current code.
+Append agreed decisions here as the architecture discussion continues. Keep proposals and open implementation questions separate from agreed behavior. D23–D27 describe the target architecture. They do not claim that these features exist in the current code.
 
-## D26. Create bots through a conversation (2026-11-12)
+## D28. Create bots through a conversation (2026-11-12)
 
 **Decision:** The owner describes a bot's purpose in plain language. Deck prepares a setup for review. The setup includes the name, instructions, accounts to connect, permissions, approval rules, event subscriptions, schedules, model and resource limits.
 
@@ -206,7 +218,7 @@ Append agreed decisions here as the architecture discussion continues. Keep prop
 
 **Reason:** A conversation is enough for the first setup flow. Templates can come later.
 
-## D27. The bot signs in through secure credential prompts (2026-11-12)
+## D29. The bot signs in through secure credential prompts (2026-11-12)
 
 **Decision:** Port the secure credential input mechanism from T3 Code. The bot requests the email address and password through that mechanism. It then fills the sign-in fields securely and completes the sign-in flow. The owner does not take over the desktop.
 
@@ -216,7 +228,7 @@ Append agreed decisions here as the architecture discussion continues. Keep prop
 
 **Open:** Inspect the T3 Code implementation before selecting the port. Define credential storage, secret lifetime and recovery for failed sign-ins. Define handling for MFA, passkeys and other verification challenges. These details are not settled by this decision.
 
-## D28. The bot coordinates service-specific sign-in verification (2026-11-12)
+## D30. The bot coordinates service-specific sign-in verification (2026-11-12)
 
 **Decision:** The bot handles MFA, OTP, 2FA and similar verification flows for each service. It identifies the next step, asks the owner for the required input or action, and continues the sign-in flow. General desktop takeover is not required.
 
@@ -224,9 +236,9 @@ Append agreed decisions here as the architecture discussion continues. Keep prop
 
 **Reason:** Verification differs between services. The bot must coordinate each flow while the owner supplies the required proof.
 
-**Scope:** This settles the verification interaction left open in D27. It does not assume that every challenge can be automated. Unsupported challenges must report a clear blocked state. Credential storage and secret lifetime remain open.
+**Scope:** This settles the verification interaction left open in D29. It does not assume that every challenge can be automated. Unsupported challenges must report a clear blocked state. Credential storage and secret lifetime remain open.
 
-## D29. Bots keep a persistent task queue (2026-11-12)
+## D31. Bots keep a persistent task queue (2026-11-12)
 
 **Decision:** Each bot keeps a persistent task queue. One task controls its desktop at a time. Related events can join a pending task, such as several emails in one summary. A task waiting for owner input stays visible. Unrelated work can continue only if it does not disturb the waiting task's session.
 
@@ -238,7 +250,7 @@ Append agreed decisions here as the architecture discussion continues. Keep prop
 
 **Open:** Define safe handling of concurrent API work, task dependencies and interruption of running work.
 
-## D30. Start with an inbox inside Deck (2026-11-12)
+## D32. Start with an inbox inside Deck (2026-11-12)
 
 **Decision:** Provide one inbox inside Deck across all bots. It contains approvals, sign-in requests, failures and results. Each item opens the relevant bot and task. Requests remain until resolved, even when the owner dismisses a notification.
 
@@ -252,27 +264,27 @@ Append agreed decisions here as the architecture discussion continues. Keep prop
 
 These findings are design concerns and recommendations. They are not new agreed decisions or verified implementation failures.
 
-1. **Permission enforcement:** D22 permits raw desktop, browser and shell access. D23 requires action permissions across every route. Raw access to a signed-in account can bypass a typed action gate. Define which guarantees Deck can enforce and which actions require trust in the bot. Consider host-controlled typed actions with credentials outside the VM.
+1. **Permission enforcement:** D24 permits raw desktop, browser and shell access. D25 requires action permissions across every route. Raw access to a signed-in account can bypass a typed action gate. Define which guarantees Deck can enforce and which actions require trust in the bot. Consider host-controlled typed actions with credentials outside the VM.
 2. **Secret ownership:** Secure entry does not protect session cookies from a shell in the same VM. VM disks and saved memory can contain credentials. Define storage protection, credential access and token refresh. Event listeners outside sleeping VMs also need an explicit credential boundary.
 3. **Recovery:** Keep external action records outside VM saved state. Record intent and outcome. A crash can leave an action's outcome unknown. Reconcile uncertain outcomes before retrying. A normal save and resume does not inherently replay an action; rollback or retry can create duplicates.
 4. **Desktop display:** Define how bare's browser output appears in the bot's desktop view. Preserve the only-browser rule. Do not assume desktop applications with embedded browsers are permitted.
 5. **Task ownership:** Define whether waiting tasks retain exclusive access to their browser sessions. Do not assume unrelated tasks can safely share a profile.
 6. **VM feasibility:** Prototype one VM before selecting a backend. Measure memory, save and restore time, session recovery and desktop capture. Define resource limits and network access.
-7. **Documentation:** Reconcile the original vision and architecture with D21–D30 before implementation. The older documents still describe the earlier scope.
+7. **Documentation:** Reconcile the original vision and architecture with D23–D32 before implementation. The older documents still describe the earlier scope.
 
 **Recommended next discussion:** Set the trust boundary first. Then define external action recovery. Next select and prototype the VM runtime. Keep these recommendations separate from the agreed product requirements until the owner decides.
 
-## D31. Action permissions are trusted instructions (2026-11-12)
+## D33. Action permissions are trusted instructions (2026-11-12)
 
 **Decision:** Action permissions are instructions that the owner trusts the bot to follow. The bot must follow the current permissions, request approval when required and respect revocation during a run.
 
 **Boundary:** Deck does not guarantee that a denied action is technically unreachable through desktop, browser, shell or API access. A bot with raw access to a signed-in account may have the technical ability to perform that action. The owner accepts this trust model.
 
-**Scope change:** This replaces the cross-tool enforcement guarantee in D23. Dynamic permissions, one-time approvals and ongoing grants remain part of the design. VM isolation between bots and protected credential input remain separate requirements.
+**Scope change:** This replaces the cross-tool enforcement guarantee in D25. Dynamic permissions, one-time approvals and ongoing grants remain part of the design. VM isolation between bots and protected credential input remain separate requirements.
 
 **Reason:** The owner chose trusted instructions instead of hard technical barriers for action permissions.
 
-## D32. Investigate uncertain outcomes before asking the owner (2026-11-12)
+## D34. Investigate uncertain outcomes before asking the owner (2026-11-12)
 
 **Decision:** The bot investigates failures and attempts recovery within its permissions before asking the owner. If it cannot establish an action's outcome, it asks through the Deck inbox.
 
@@ -284,7 +296,7 @@ These findings are design concerns and recommendations. They are not new agreed 
 
 **Open:** Define retry limits, evidence required to resolve an uncertain outcome and the action record format.
 
-## D33. Bots save useful facts and lessons automatically (2026-11-12)
+## D35. Bots save useful facts and lessons automatically (2026-11-12)
 
 **Decision:** Each bot keeps its own persistent instructions, preferences and learned facts between tasks. It saves useful facts automatically. It also records lessons from completed work and corrections to improve later work.
 
@@ -296,7 +308,7 @@ These findings are design concerns and recommendations. They are not new agreed 
 
 **Open:** Define memory storage, retrieval, provenance and correction handling. Decide whether reusable procedures need a separate skill format.
 
-## D34. Limit resources and pause at the spending budget (2026-11-12)
+## D36. Limit resources and pause at the spending budget (2026-11-12)
 
 **Decision:** Configure CPU, RAM, disk and model usage limits per bot. Set overall resource limits for Deck. Queue work when capacity is full. Idle computers can sleep automatically.
 
@@ -306,7 +318,7 @@ These findings are design concerns and recommendations. They are not new agreed 
 
 **Open:** Define budget periods, usage accounting, in-flight request handling and the scope of a continuation approval. Define resource defaults and idle sleep timing.
 
-## D35. Deck runs the agent loop outside the bot's VM (2026-11-12)
+## D37. Deck runs the agent loop outside the bot's VM (2026-11-12)
 
 **Decision:** Deck runs the agent loop and calls the model. It stores tasks, memory, permissions and action records outside the bot's VM. A small executor inside each VM operates the desktop, bare, shell and local files. The VM keeps its applications and signed-in sessions.
 
@@ -314,37 +326,37 @@ These findings are design concerns and recommendations. They are not new agreed 
 
 **Open:** Define the executor protocol, authentication and connection recovery. Select a VM backend after a prototype checks desktop capture, sleep, restore and resource use. The owner has approved the runtime split. This decision does not start the prototype.
 
-## D36. Show chat by default and the computer screen when needed (2026-11-12)
+## D38. Show chat by default and the computer screen when needed (2026-11-12)
 
 **Decision:** The bot's main view shows chat by default. Do not keep the desktop visible during ordinary conversation. Show the computer screen when the agent needs it for browsing or other desktop work.
 
 **Reason:** The owner wants a focused chat experience. The computer view should appear when it supports the current work.
 
-**Scope:** This changes presentation only. Each bot still owns a full desktop VM under D21. Human takeover remains deferred.
+**Scope:** This changes presentation only. Each bot still owns a full desktop VM under D23. Human takeover remains deferred.
 
 **Open:** Define when the screen closes and how it appears on a phone. Define how bare's browser output reaches this view.
 
-## D37. Show work status and support stop, steering and queued messages (2026-11-12)
+## D39. Show work status and support stop, steering and queued messages (2026-11-12)
 
 **Decision:** Show what the bot is doing, how it is doing the work and its current status. Show concrete activity such as searches, browser steps and tool results as work proceeds. Present observable actions and concise explanations, not private model reasoning.
 
-**Controls:** The owner can stop the bot's action and steer its current work. The owner can also queue messages for the bot to pick up after it finishes its task. Make steering current work and queuing later work distinct choices. Queued work keeps the owner-selected priority from D29.
+**Controls:** The owner can stop the bot's action and steer its current work. The owner can also queue messages for the bot to pick up after it finishes its task. Make steering current work and queuing later work distinct choices. Queued work keeps the owner-selected priority from D31.
 
 **Reason:** The owner needs visibility and control during execution, without forcing every message to interrupt the current task.
 
-**Limits:** Stop cannot undo an external action already submitted. Resolve uncertain outcomes under D32.
+**Limits:** Stop cannot undo an external action already submitted. Resolve uncertain outcomes under D34.
 
 **Open:** Define stop acknowledgements, steering delivery points and the exact activity and message controls.
 
-## D38. The home screen shows activity across all bots (2026-11-12)
+## D40. The home screen shows activity across all bots (2026-11-12)
 
-**Decision:** When the owner opens Deck, show what all bots are doing. The home screen is an activity overview across bots. Opening a bot leads to its chat-first view under D36.
+**Decision:** When the owner opens Deck, show what all bots are doing. The home screen is an activity overview across bots. Opening a bot leads to its chat-first view under D38.
 
 **Reason:** The owner wants to see ongoing work across bots before entering a conversation.
 
 **Open:** Choose the overview layout, activity detail and status controls through UI discussion.
 
-## D39. Compare interactive UI prototypes before choosing a layout (2026-11-12)
+## D41. Compare interactive UI prototypes before choosing a layout (2026-11-12)
 
 **Decision:** Build interactive prototypes and evaluate how they feel before selecting the UI layout. Compare alternatives with the same sample bots and work.
 
@@ -352,7 +364,7 @@ These findings are design concerns and recommendations. They are not new agreed 
 
 **Prototype:** `prototypes/bot-overview.html` compares cards, an activity feed and a split overview. It uses sample state only. No layout is selected by this prototype.
 
-## D40. Use the card layout with a more active bot presentation (2026-11-12)
+## D42. Use the card layout with a more active bot presentation (2026-11-12)
 
 **Decision:** Use the card layout for the bot overview for now. Redesign its presentation so it feels like bots at work rather than generic cards. Use subtle animation and activity details to convey state.
 
@@ -360,7 +372,7 @@ These findings are design concerns and recommendations. They are not new agreed 
 
 **Prototype direction:** Reduce box styling. Give each bot a small animated presence. Keep status and current activity readable without motion. Respect reduced-motion preferences. These visual treatments remain experiments.
 
-## D41. Keep the current overview prototype as the starting UI (2026-11-12)
+## D43. Keep the current overview prototype as the starting UI (2026-11-12)
 
 **Decision:** Keep the current bot overview prototype as the starting UI. Defer further visual redesign.
 
@@ -374,11 +386,11 @@ These are review recommendations. They do not authorize implementation or change
 
 - Prove one configuration-defined full desktop VM before building conversational provisioning. Test bare output, desktop capture and input, artifact delivery, saved-state resume and crash recovery.
 - Consider direct QEMU/KVM first. Compare libvirt if lifecycle problems justify it. Backend suitability and performance remain unverified. Do not build two interchangeable backends before a concrete need exists.
-- Keep the host agent loop and guest executor split from D35. Keep bare MCP inside the guest. Transfer screenshots and downloads explicitly into host artifact storage. A remote MCP relay alone does not resolve guest file paths.
+- Keep the host agent loop and guest executor split from D37. Keep bare MCP inside the guest. Transfer screenshots and downloads explicitly into host artifact storage. A remote MCP relay alone does not resolve guest file paths.
 - Keep VM lifecycle, automation pause, task state and budget hold separate. Neither events nor schedules may bypass a hold.
 - Store tasks, action intents, results and restore epochs outside the VM. Reconcile in-flight work after a host restart. Preserve late replies and known results.
 - Let the host advance the restore epoch. Reject stale responses and connections. Do not trust a restored guest identifier as fresh execution identity.
-- Distinguish confirmed success, confirmed failure and unknown outcomes. Normal restore does not inherently repeat actions. Re-dispatch and rollback can. Investigate unknown external effects under D32 before retrying.
+- Distinguish confirmed success, confirmed failure and unknown outcomes. Normal restore does not inherently repeat actions. Re-dispatch and rollback can. Investigate unknown external effects under D34 before retrying.
 - A cancellation request is not proof of termination. Obtain an acknowledgement or retain an unresolved outcome. Do not discard useful late results.
 - Test two independent bots and disks before claiming multi-bot support. Serialized VM execution is sufficient initially. Waiting tasks retain desktop ownership at first.
 - Keep the initial inbox focused on budget holds and unresolved recovery. Defer service integrations, full notification polish and automatic memory retrieval from the runtime prototype. These features remain product requirements.
@@ -405,7 +417,7 @@ These are review recommendations. They do not authorize implementation or change
 
 The backend, guest transport authentication, display path, numerical targets and exact milestone boundaries remain open. Verify current main before implementation; this review inspected an older worktree. No VM, backend, display or recovery experiment ran during the review.
 
-## D42. Define pass criteria before the VM prototype (2026-11-12)
+## D44. Define pass criteria before the VM prototype (2026-11-12)
 
 **Decision:** Use `vm-prototype.md` as the acceptance checklist for the first desktop VM prototype. Prove one configuration-defined computer before building the full provisioning flow.
 
@@ -413,7 +425,7 @@ The backend, guest transport authentication, display path, numerical targets and
 
 **Status:** The checklist separates correctness gates from provisional performance targets. The numerical targets are proposals for the experiment, not measured results or final product limits. No prototype has run under this decision.
 
-## D43. Approve the first VM prototype checklist (2026-11-12)
+## D45. Approve the first VM prototype checklist (2026-11-12)
 
 **Decision:** The owner approves the checklist and initial experiment targets in `vm-prototype.md`. Use them to evaluate the first VM prototype. The targets remain experiment criteria, not final product limits.
 
@@ -421,7 +433,7 @@ The backend, guest transport authentication, display path, numerical targets and
 
 **Status:** No prototype results exist yet. Checklist approval does not authorize deployment.
 
-## D44. Use Arch Linux for bot computers (2026-11-12)
+## D46. Use Arch Linux for bot computers (2026-11-12)
 
 **Decision:** Use Arch Linux as the guest OS for bot VMs. Do not use the Omarchy distribution for the current prototype. Build a minimal full desktop image with only the packages required for the prototype. Keep bare as the only browser.
 
@@ -439,7 +451,7 @@ The parent added failing regression tests, then fixed duplicate-start handling a
 
 Only Stage 1 feasibility is accepted by this verification. The complete prototype checklist remains open. Authenticated executor readiness, cancellation, host action records, restore fencing, Deck UI integration and two-bot isolation have not been tested. Boot and idle memory need more samples. End-to-end display latency remains untested.
 
-## D45. Implement and measure five resource optimizations (2026-11-12)
+## D47. Implement and measure five resource optimizations (2026-11-12)
 
 **Decision:** Implement idle sleep with event batching, shared clean base images with private overlays, demand-driven screen capture, measured guest service trimming and saved-state compression evaluation. Follow `optimization-plan.md` in dependency order.
 
@@ -463,7 +475,7 @@ The parent started a replacement task before the original task's background work
 
 Performance comparisons remain provisional because sessions overlapped or competed for a fixture port. Keep datasets separate. Functional marker and checksum evidence remains useful, but no uncontended speedup is established. Keep compression optional and its default unchanged. The implementation report records commit ownership and dataset provenance. Do not run another benchmark matrix merely to close this reporting gap.
 
-## D46. Start the executor stage and retain unfinished optimizations (2026-11-12)
+## D48. Start the executor stage and retain unfinished optimizations (2026-11-12)
 
 **Decision:** Start Stage 2 under `stage2-plan.md`. Keep unfinished optimization integrations on the explicit carryover checklist in `optimization-plan.md`.
 

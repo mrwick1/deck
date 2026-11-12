@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset=utf-8><title>Drafts</title></head><body>
+<h1>Drafts</h1>
+<ul>
+<li>Q2 review <button data-id="4" data-name="Q2 review">Delete</button></li>
+<li>Q3 plan <button data-id="7" data-name="Q3 plan">Delete</button></li>
+<li>Hiring notes <button data-id="9" data-name="Hiring notes">Delete</button></li>
+</ul>
+<p id="msg"></p>
+<script>
+document.querySelectorAll('button[data-id]').forEach(function(b){
+  b.onclick=function(){
+    if(!confirm('Delete the draft "'+b.dataset.name+'"? This cannot be undone.')){document.getElementById('msg').textContent='Kept '+b.dataset.name+'.';return}
+    fetch('/drafts/delete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'id='+b.dataset.id})
+      .then(function(){b.parentElement.remove();document.getElementById('msg').textContent='Deleted '+b.dataset.name+'.'})}});
+</script>
+</body></html>

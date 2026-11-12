@@ -55,6 +55,9 @@ pub struct Bare {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// A file of `NAME=value` lines. The model types `${NAME}`; bare fills in the value and hides it in every reply.
+    #[serde(default)]
+    pub secrets_file: Option<PathBuf>,
 }
 
 impl Config {
