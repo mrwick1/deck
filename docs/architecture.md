@@ -8,7 +8,7 @@ This file separates three states. Keep them apart.
 
 The decisions are in [decisions.md](decisions.md). The latest decision wins. Where D13, D14 or D25 conflicts with a later decision, the later decision applies.
 
-## Shipped today
+## Default runtime without VM configuration
 
 ```
 user (web app) ──HTTPS + SSE──> deck service (Rust, one process)
@@ -59,6 +59,14 @@ The web app also has readers for events that the service does not send. Treat th
 | `page` | `url`, `title`, `file_id` (optional) | Placeholder. No sender. |
 
 The web app calls `POST /api/approvals/{approval_id}` with `{"approved": true}` or `{"approved": false}`. The service has no route for it. The call is a placeholder.
+
+## Integrated VM runtime
+
+With a `[vm]` section, the server owns one configured bot and its Arch desktop VM. It routes browser, shell and file work through the guest executor. Without `[vm]`, the default runtime above remains available.
+
+The integrated path has a persistent task queue, steering, stop, pause and budget-hold gates, an inbox for unresolved outcomes, generic event batching and on-demand screen capture. An idle computer saves when no task or unresolved command owns it. Eligible queued work wakes it. The overview is the landing view; opening a bot shows its chat.
+
+Automatic spending accounting, real account integrations, conversational provisioning and memory retrieval are not implemented. Fresh provisioning and real halfway-save failure remain untested. See [Stage 3 results](stage3-results.md) for the parent verification and limits.
 
 ## Measured evidence
 
