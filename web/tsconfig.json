@@ -3,13 +3,15 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "vite-plugin-pwa/client"]
+    "types": ["vite/client", "vite-plugin-pwa/client", "node"],
+    "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"]
 }

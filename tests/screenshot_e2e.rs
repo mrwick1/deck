@@ -193,8 +193,8 @@ async fn screenshot_reaches_the_chat_in_the_web_app() {
     let deck = auth_proxy(addr).await;
 
     let steps = format!(
-        "open {deck}/\nexpect label=\"Message\" visible\ntype label=\"Message\" \"Send me a screenshot of the test page.\"\n\
-         click role=button name=\"Send\"\ntimeout 60000\nexpect css=\"img[src*=files]\" visible\n\
+        "open {deck}/\nexpect label=\"Message input\" visible\ntype label=\"Message input\" \"Send me a screenshot of the test page.\"\n\
+         click role=button name=\"Send message\"\ntimeout 60000\nexpect css=\"img[src*=files]\" visible\n\
          expect text=\"Here is the screenshot.\" visible\nshot chat"
     );
     let report = tokio::task::spawn_blocking(move || run_steps(&steps, 90_000))

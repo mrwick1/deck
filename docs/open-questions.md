@@ -4,7 +4,7 @@ All ten first questions were answered on 2026-11-11. Each answer is a decision i
 
 | Question | Decision |
 | --- | --- |
-| Language and stack | D6 (Rust service), D7 (Svelte web app) |
+| Language and stack | D6 (Rust service), D19 (React web app) |
 | Where it runs | D8 (owner's main machine) |
 | Access | D9 (Caddy and Authelia), D10 (Authelia is the only login) |
 | Model | D11 (Sonnet and Haiku) |
