@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Copy one file of the workspace into $DECK_OUT, so that the host can fetch it as a checked artifact."""
+import os, shutil, sys
+
+MAX_FILE = 8 << 20
+ws = os.path.realpath(os.environ["DECK_WORKSPACE"])
+if len(sys.argv) != 2:
+    sys.exit("usage: deck-publish PATH")
+src = os.path.realpath(sys.argv[1])
+if not src.startswith(ws + os.sep):
+    sys.exit("path is outside the workspace")
+if not os.path.isfile(src):
+    sys.exit("path is not a file")
+if os.path.getsize(src) > MAX_FILE:
+    sys.exit("file is larger than 8 MiB")
+name = "".join(c if c.isalnum() or c in "._-" else "_" for c in os.path.basename(src)).lstrip(".-") or "file"
+shutil.copyfile(src, os.path.join(os.environ["DECK_OUT"], name[:128]))
+print(name[:128])

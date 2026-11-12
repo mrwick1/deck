@@ -133,6 +133,109 @@ def wait_group_gone(pgid, timeout, leader=None):
         time.sleep(0.02)
 
 
+def cgroup_root():
+    """This process's cgroup v2 directory when it may create children there, else None.
+
+    The service unit sets Delegate=yes so that the desktop user owns its cgroup.
+    """
+    try:
+        with open("/proc/self/cgroup") as f:
+            rel = next(l.strip()[3:] for l in f if l.startswith("0::"))
+    except (OSError, StopIteration):
+        return None
+    path = "/sys/fs/cgroup" + rel
+    ok = os.access(os.path.join(path, "cgroup.procs"), os.W_OK) and os.path.exists(os.path.join(path, "cgroup.kill"))
+    return path if ok and os.access(path, os.W_OK | os.X_OK) else None
+
+
+class Cg:
+    """One cgroup per command. Every descendant stays inside, also after setsid or a double fork."""
+
+    def __init__(self, root, cid):
+        self.path = os.path.join(root, f"deck-cmd-{cid}")
+        os.mkdir(self.path, 0o700)
+        self.procs_fd = os.open(os.path.join(self.path, "cgroup.procs"), os.O_WRONLY | os.O_CLOEXEC)
+
+    def enter(self):
+        """Run in the child between fork and exec: write 0 to move the calling process."""
+        os.write(self.procs_fd, b"0")
+
+    def pids(self):
+        try:
+            with open(os.path.join(self.path, "cgroup.procs")) as f:
+                return [int(x) for x in f.read().split()]
+        except OSError:
+            return []
+
+    def populated(self):
+        try:
+            with open(os.path.join(self.path, "cgroup.events")) as f:
+                return "populated 1" in f.read()
+        except OSError:
+            return False
+
+    def signal(self, sig):
+        for pid in self.pids():
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+
+    def kill(self):
+        try:
+            with open(os.path.join(self.path, "cgroup.kill"), "w") as f:
+                f.write("1")
+        except OSError:
+            self.signal(signal.SIGKILL)
+
+    def wait_empty(self, timeout, leader=None):
+        end = time.monotonic() + timeout
+        while True:
+            if leader is not None:
+                leader.poll()
+            if not self.populated():
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(0.02)
+
+    def close(self):
+        os.close(self.procs_fd)
+        try:
+            os.rmdir(self.path)
+        except OSError:
+            pass
+
+
+def desktop_env(uid=None, runtime=None):
+    """Session variables found on disk. The model never supplies them."""
+    uid = os.getuid() if uid is None else uid
+    r = runtime or f"/run/user/{uid}"
+    env = {}
+
+    def sock(name):
+        try:
+            st = os.stat(os.path.join(r, name))
+            return stat.S_ISSOCK(st.st_mode) and st.st_uid == uid
+        except OSError:
+            return False
+
+    try:
+        names = sorted(os.listdir(r))
+    except OSError:
+        return env
+    env["XDG_RUNTIME_DIR"] = r
+    wl = [n for n in names if re.fullmatch(r"wayland-\d+", n) and sock(n)]
+    sw = [n for n in names if re.fullmatch(r"sway-ipc\.\d+\.\d+\.sock", n) and sock(n)]
+    if wl:
+        env["WAYLAND_DISPLAY"] = wl[0]
+    if sw:
+        env["SWAYSOCK"] = os.path.join(r, sw[0])
+    if sock("bus"):
+        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={os.path.join(r, 'bus')}"
+    return env
+
+
 def write_json_atomic(path, obj):
     tmp = f"{path}.tmp"
     with open(tmp, "w") as f:
@@ -230,8 +333,10 @@ class Command:
 
 
 class Executor:
-    def __init__(self, state_dir, workspace):
+    def __init__(self, state_dir, workspace, cgroups=True, runtime=None):
         self.state = os.path.abspath(state_dir)
+        self.cg_root = cgroup_root() if cgroups else None
+        self.runtime = runtime
         self.workspace = os.path.abspath(workspace)
         self.receipts_dir = os.path.join(self.state, "receipts")
         self.spool_dir = os.path.join(self.state, "spool")
@@ -423,13 +528,22 @@ class Executor:
 
     # --- running a command ---
 
-    def terminate(self, proc, grace):
-        """TERM the process group, then KILL it. Returns True only when no live member remains."""
+    def terminate(self, proc, grace, cg=None):
+        """TERM the command, then KILL it. Returns True only when no live member remains.
+
+        With a cgroup, every descendant counts, also one that left the process group.
+        """
         pgid = proc.pid
         try:
             os.killpg(pgid, signal.SIGTERM)
         except OSError:
             pass
+        if cg:
+            cg.signal(signal.SIGTERM)
+            if cg.wait_empty(grace, proc):
+                return True
+            cg.kill()
+            return cg.wait_empty(3.0, proc)
         if wait_group_gone(pgid, grace, proc):
             return True
         try:
@@ -461,12 +575,21 @@ class Executor:
         outdir = os.path.join(self.out_root, cid)
         os.makedirs(outdir, mode=0o700, exist_ok=True)
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", self.workspace), "LANG": "C.UTF-8",
-               "DECK_OUT": outdir, "DECK_COMMAND_ID": cid, "DECK_TASK_ID": rc["task_id"]}
+               **desktop_env(runtime=self.runtime),
+               "DECK_OUT": outdir, "DECK_COMMAND_ID": cid, "DECK_TASK_ID": rc["task_id"], "DECK_WORKSPACE": self.workspace}
+        cg = None
+        if self.cg_root:
+            try:
+                cg = Cg(self.cg_root, cid)
+            except OSError:
+                cg = None  # an old cgroup of the same ID, or no permission: fall back to the process group
+        rc["containment"] = "cgroup" if cg else "process_group"
         outs = {"out": {}, "err": {}}
         reason, exit_code, sig, confirmed, detail = None, None, None, True, None
         try:
             proc = subprocess.Popen(argv, cwd=os.path.join(self.workspace, "work"), env=env, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, close_fds=True)
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, close_fds=True,
+                                    pass_fds=(cg.procs_fd,) if cg else (), preexec_fn=cg.enter if cg else None)
         except OSError as e:
             proc = None
             reason, detail = "spawn_failed", f"spawn failed: {errno.errorcode.get(e.errno, e.errno)}"
@@ -490,16 +613,19 @@ class Executor:
                 elif time.monotonic() >= deadline:
                     reason = "timed_out"
                 if reason:
-                    confirmed = self.terminate(proc, cmd.grace if reason == "cancelled" else 1.0)
+                    confirmed = self.terminate(proc, cmd.grace if reason == "cancelled" else 1.0, cg)
                     code = proc.poll()
                     break
             if reason is None:
                 # The leader exited. Anything still in its group is left over from this command: stop it.
-                confirmed = not group_members(proc.pid) or self.terminate(proc, 0.0)
+                left = cg.populated() if cg else bool(group_members(proc.pid))
+                confirmed = not left or self.terminate(proc, 0.0, cg)
             if code is not None:
                 exit_code, sig = (code, None) if code >= 0 else (None, -code)
             for t in pumps:
                 t.join(3.0)
+        if cg:
+            cg.close()
         arts, rejected = scan_artifacts(outdir)
         with self.lock:
             if reason in ("cancelled", "timed_out"):

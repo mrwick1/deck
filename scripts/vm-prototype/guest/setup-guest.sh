@@ -7,6 +7,7 @@ pacman -Syu --noconfirm --needed sway foot grim wtype nano qemu-guest-agent curl
 install -m755 $S/bare-mcp /usr/local/bin/bare-mcp
 install -m755 $S/bare-session $S/bare-rpc $S/as-deck /usr/local/bin/
 install -m755 $S/deck_executor.py /usr/local/bin/deck-executor
+install -m755 $S/bare-call $S/deck-publish /usr/local/bin/
 install -m644 $S/deck-executor.service /etc/systemd/system/
 install -m644 $S/70-deck-executor.rules /etc/udev/rules.d/
 id deck || useradd -m -s /bin/bash deck

@@ -508,6 +508,9 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
 
 
 EXECUTOR_FILES = {"deck_executor.py": "/usr/local/bin/deck-executor",
+                  "bare-call": "/usr/local/bin/bare-call",
+                  "deck-publish": "/usr/local/bin/deck-publish",
+                  "bare-session": "/usr/local/bin/bare-session",
                   "deck-executor.service": "/etc/systemd/system/deck-executor.service",
                   "70-deck-executor.rules": "/etc/udev/rules.d/70-deck-executor.rules"}
 
@@ -528,7 +531,7 @@ def install_executor(p, bot_id):
         qga.push(dst, (HERE / "guest" / src).read_bytes())
     guest_id = uuid.uuid4().hex
     ident = json.dumps({"bot_id": bot_id, "guest_id": guest_id, "max_epoch": 0})
-    code, _, err = qga.sh("chmod 755 /usr/local/bin/deck-executor && "
+    code, _, err = qga.sh("chmod 755 /usr/local/bin/deck-executor /usr/local/bin/bare-call /usr/local/bin/deck-publish /usr/local/bin/bare-session && "
                           "runuser -u deck -- sh -c 'umask 077 && mkdir -p ~/.local/state/deck-executor ~/workspace "
                           "&& cat > ~/.local/state/deck-executor/identity.json' && "
                           "udevadm control --reload && udevadm trigger --subsystem-match=virtio-ports --action=add && udevadm settle && "

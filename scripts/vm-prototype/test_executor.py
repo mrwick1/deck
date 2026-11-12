@@ -120,6 +120,84 @@ class Protocol(unittest.TestCase):
             de.encode_frame({"x": "a" * de.MAX_FRAME})
 
 
+class Containment(Base):
+    """Stage 3: a command is contained by a cgroup, so a setsid descendant cannot escape a stop."""
+
+    def alive(self, pid):
+        try:
+            os.kill(pid, 0)
+            return open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0] != "Z"
+        except OSError:
+            return False
+
+    def wait_pid(self, path):
+        end = time.monotonic() + WAIT
+        while time.monotonic() < end:
+            try:
+                return int(Path(path).read_text())
+            except (OSError, ValueError):
+                time.sleep(0.02)
+        raise AssertionError("no pid file")
+
+    def test_cancel_kills_a_setsid_descendant(self):
+        if not self.ex.cg_root:
+            self.skipTest("no delegated cgroup here")
+        c, _ = self.hello(1)
+        pidfile = f"{self.tmp}/escapee.pid"
+        self.sh(c, "esc", f"setsid sleep 300 & echo $! > {pidfile}; wait", epoch=1)
+        c.of_type("exec_ack")
+        pid = self.wait_pid(pidfile)
+        self.assertTrue(self.alive(pid))
+        c.send(type="cancel", epoch=1, command_id="esc")
+        self.assertEqual(c.of_type("cancel_ack")["ack"], "accepted")
+        r = c.of_type("result")["receipt"]
+        self.assertEqual((r["state"], r["containment"], r["group_confirmed"]), ("cancelled", "cgroup", True))
+        end = time.monotonic() + 5
+        while self.alive(pid) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertFalse(self.alive(pid), "the setsid descendant survived the stop")
+
+    def test_leftover_descendant_after_a_normal_exit_is_killed(self):
+        if not self.ex.cg_root:
+            self.skipTest("no delegated cgroup here")
+        c, _ = self.hello(1)
+        pidfile = f"{self.tmp}/left.pid"
+        self.sh(c, "left", f"setsid sleep 300 >/dev/null 2>&1 & echo $! > {pidfile}", epoch=1)
+        r = c.of_type("result")["receipt"]
+        self.assertEqual(r["state"], "succeeded")
+        pid = self.wait_pid(pidfile)
+        end = time.monotonic() + 5
+        while self.alive(pid) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertFalse(self.alive(pid))
+
+    def test_without_cgroups_the_receipt_says_process_group(self):
+        self.ex = de.Executor(self.state, self.ws, cgroups=False)
+        c, _ = self.hello(1)
+        self.sh(c, "pg", "true", epoch=1)
+        self.assertEqual(c.of_type("result")["receipt"]["containment"], "process_group")
+
+    def test_session_env_comes_from_the_runtime_dir_not_the_caller(self):
+        rt = f"{self.tmp}/run"
+        os.makedirs(rt)
+        for name in ("wayland-1", "sway-ipc.1000.42.sock", "bus"):
+            s = socket.socket(socket.AF_UNIX)
+            s.bind(f"{rt}/{name}")
+            self.addCleanup(s.close)
+        Path(rt, "wayland-1.lock").write_text("")
+        env = de.desktop_env(runtime=rt)
+        self.assertEqual(env["WAYLAND_DISPLAY"], "wayland-1")
+        self.assertEqual(env["SWAYSOCK"], f"{rt}/sway-ipc.1000.42.sock")
+        self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], f"unix:path={rt}/bus")
+        self.ex = de.Executor(self.state, self.ws, runtime=rt)
+        c, _ = self.hello(1)
+        self.sh(c, "env", "echo $WAYLAND_DISPLAY $XDG_RUNTIME_DIR", epoch=1)
+        self.assertEqual(c.of_type("result")["receipt"]["stdout"].split(), ["wayland-1", rt])
+
+    def test_no_session_means_no_session_variables(self):
+        self.assertEqual(de.desktop_env(runtime=f"{self.tmp}/missing"), {})
+
+
 class Behavior(Base):
     def test_unprovisioned_and_wrong_bot_and_stale_hello(self):
         os.unlink(f"{self.state}/identity.json")
