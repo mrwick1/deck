@@ -98,6 +98,15 @@ impl BrowserHost for FakeHost {
         })
     }
 
+    fn tools(&self) -> BoxFuture<'_, anyhow::Result<Vec<Value>>> {
+        let t = |n: &str| serde_json::json!({"name": n, "description": n, "inputSchema": {"type": "object", "properties": {}}});
+        Box::pin(async move {
+            Ok(["open", "step", "snapshot", "act", "screenshot", "close"]
+                .map(t)
+                .to_vec())
+        })
+    }
+
     fn out_dirs(&self) -> Vec<PathBuf> {
         self.outs.lock().unwrap().clone()
     }

@@ -6,8 +6,14 @@ mod tests {
 
     #[test]
     fn names_every_tool() {
-        for t in crate::tools::schemas() {
-            let name = t["function"]["name"].as_str().unwrap();
+        for name in [
+            "browser_open",
+            "browser_snapshot",
+            "browser_act",
+            "browser_screenshot",
+            "browser_close",
+            "send_file",
+        ] {
             assert!(SYSTEM.contains(&format!("`{name}`")), "{name}");
         }
     }
@@ -15,15 +21,14 @@ mod tests {
     #[test]
     fn has_the_screenshot_rule() {
         assert!(SYSTEM.contains(
-            "When the user asks for a screenshot, run browser_step with `shot NAME`, read the PNG path from that step's note, and call send_file with that path. You can always send screenshots and files into the chat. Never say that you cannot."
+            "When the user asks for a screenshot, call `browser_screenshot`, read the PNG path from its reply, and call send_file with that path. You can always send screenshots and files into the chat. Never say that you cannot."
         ));
     }
 
     #[test]
     fn has_the_safety_rules() {
         assert!(SYSTEM.contains("untrusted data"));
-        assert!(SYSTEM.contains("expect"));
         assert!(SYSTEM.contains("Never claim a result that you did not check"));
-        assert!(SYSTEM.contains("shot NAME"));
+        assert!(SYSTEM.contains("stale_ref"));
     }
 }

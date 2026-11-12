@@ -51,13 +51,14 @@ async fn model(State(base): State<String>, body: String) -> Response {
         .collect();
     match tools.len() {
         0 => call("browser_open", json!({"url": format!("{base}/page")})),
-        1 => call("browser_step", json!({"steps": "shot page"})),
+        1 => call("browser_screenshot", json!({})),
         2 => {
-            let report: Value =
-                serde_json::from_str(tools[1]["content"].as_str().unwrap()).unwrap();
-            let path = report["steps"][0]["note"]
-                .as_str()
-                .expect("the shot gives its path in the note");
+            // The reply is "PATH (WxH)".
+            let said = tools[1]["content"].as_str().unwrap();
+            let path = said
+                .rsplit_once(" (")
+                .expect("the screenshot reply gives its path")
+                .0;
             *SHOT.lock().unwrap() = Some(path.to_owned());
             call(
                 "send_file",
