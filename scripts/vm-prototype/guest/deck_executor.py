@@ -685,13 +685,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--state", default=os.path.expanduser("~/.local/state/deck-executor"))
     ap.add_argument("--workspace", default=os.path.expanduser("~/workspace"))
+    ap.add_argument("--runtime-dir", help="desktop runtime directory (tests); default /run/user/UID")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--device", default=DEFAULT_DEVICE, help="virtio-serial port")
     g.add_argument("--listen-unix", help="serve a unix socket instead (tests)")
     a = ap.parse_args(argv)
     if os.geteuid() == 0:
         sys.exit("refusing to run as root")
-    ex = Executor(a.state, a.workspace)
+    ex = Executor(a.state, a.workspace, runtime=a.runtime_dir)
     if a.listen_unix:
         srv = socket.socket(socket.AF_UNIX)
         if os.path.exists(a.listen_unix):

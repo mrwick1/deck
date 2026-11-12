@@ -119,7 +119,7 @@ def main():
     out = os.environ["DECK_OUT"]
     workspace = os.environ["DECK_WORKSPACE"]
     d = session_dir()
-    reply = {"ok": False}
+    reply = {"ok": False, "out": out}
     try:
         if not os.path.exists(os.path.join(d, "in")):
             raise RuntimeError("bare-mcp is not running in the desktop session")
