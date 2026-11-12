@@ -438,3 +438,11 @@ A kill and cold boot preserved files but lost the tested volatile editor and bro
 The parent added failing regression tests, then fixed duplicate-start handling and result validation. The parent also added failure cleanup and a portable runtime default. Nine unit tests, compilation and syntax checks pass.
 
 Only Stage 1 feasibility is accepted by this verification. The complete prototype checklist remains open. Authenticated executor readiness, cancellation, host action records, restore fencing, Deck UI integration and two-bot isolation have not been tested. Boot and idle memory need more samples. End-to-end display latency remains untested.
+
+## D45. Implement and measure five resource optimizations (2026-11-12)
+
+**Decision:** Implement idle sleep with event batching, shared clean base images with private overlays, demand-driven screen capture, measured guest service trimming and saved-state compression evaluation. Follow `optimization-plan.md` in dependency order.
+
+**Reason:** The owner approved all five optimization areas after reviewing Stage 1 resource usage.
+
+**Boundary:** Preserve VM isolation, saved-state correctness, pause and budget holds. Keep baseline behavior when a proposed tuning does not improve measured results. A benchmark is not evidence of production integration.
