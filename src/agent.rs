@@ -200,6 +200,12 @@ impl Agent {
 
     async fn emit(&self, run: &Run, kind: &str, mut data: Value, persist: bool) {
         data["run_id"] = json!(run.id);
+        // The web app shows how long steps take, also for replayed events.
+        data["at"] = json!(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64)
+        );
         let id = if persist {
             match self
                 .store

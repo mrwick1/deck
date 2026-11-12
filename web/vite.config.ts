@@ -1,10 +1,13 @@
 import { defineConfig } from 'vitest/config';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
+import path from 'node:path';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
-    svelte(),
+    react(),
+    tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
@@ -28,6 +31,7 @@ export default defineConfig({
       },
     }),
   ],
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     proxy: {
       // Dev only: stands in for the Authelia proxy.

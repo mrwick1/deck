@@ -40,7 +40,7 @@ Each decision has a date, the decision and the reason.
 
 **Reason:** `bare` is a Rust workspace. One language makes fixes in both repositories easier. Later, `deck` can call `bare` crates in the same process instead of through MCP.
 
-## D7. The web app is a Svelte SPA (2026-11-11)
+## D7. The web app is a Svelte SPA (2026-11-11, replaced by D20)
 
 **Decision:** The web app uses Svelte and Vite. The service serves the built static files.
 
@@ -133,3 +133,15 @@ Each decision has a date, the decision and the reason.
 **Decision:** `deck` sets the folder of `browser_open` downloads to `downloads/` in the workspace. An upload may send only files of the workspace. A `browser_step` line with `upload` is refused.
 
 **Reason:** `send_file` can send a downloaded file. A page must never get a file from outside the workspace.
+
+## D20. The web app is a React SPA on shadcn/ui and assistant-ui (2026-11-12)
+
+**Decision:** The web app uses React, Vite, Tailwind CSS and shadcn/ui. The chat uses assistant-ui components. Motion, Vaul and Sonner give animations, a swipe drawer and toasts. The app is phone first and works on a desktop too. It is still a static SPA that the service serves. This replaces D7.
+
+**Reason:** The owner wants the app to feel native and fluid. React has the largest set of ready-made components and animation libraries. assistant-ui already has streaming text, tool-call cards, reasoning blocks, a thread list and auto-scroll. Its external-store runtime takes the deck event stream with no change to the service.
+
+**Look:** The colors, type, work-log rows, composer panels and image zoom follow T3 Code. T3 Code uses the MIT license. Ported files name it in their header, and `web/THIRD_PARTY.md` holds its license.
+
+**Cost:** The script bundle grows from about 30 kB to about 370 kB gzip.
+
+**Blocker:** `@assistant-ui/react` needs `TransformStream`, which `bare` does not have yet ([bare#389](https://github.com/mrwick1/bare/issues/389)). Until then, the app does not render in `bare`, and the screenshot end-to-end test fails.
