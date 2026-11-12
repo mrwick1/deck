@@ -489,3 +489,14 @@ Performance comparisons remain provisional because sessions overlapped or compet
 Main already assigned D21 to secret-file configuration and D22 to the fixed evaluation task set. Preserve those published IDs. Renumber this discussion's draft bot decisions from 21–46 to 23–48. Update target-design references in the architecture, vision and open-questions documents. This changes identifiers only, not the agreed behavior.
 
 Keep the proposed domain approval list open in the new per-bot flow. The approved permission model uses trusted instructions. Do not claim that domain rules establish hard cross-tool enforcement.
+
+
+## Stage 2 verification result (2026-11-12)
+
+The parent reviewed the executor implementation and reproduced one serial real-VM smoke on a fresh private overlay and host journal. Commands ran as the desktop user. The smoke passed artifact checksums, running status, confirmed process-group cancellation, deadlines, duplicate-ID suppression, payload conflict rejection, stale-epoch and wrong-bot rejection, saved-state resume and crash recovery. The tested external marker was not repeated. The owned VM stopped at handback.
+
+Review found that a remembered epoch plus a missing receipt cannot exclude rollback after hello. A failing regression demonstrated the error. Reconciliation now keeps the outcome unknown instead of allowing replay. A second failing regression covered cross-bot command lookup. The parent also bounded transport writes and reused existing hashing and encoding packages instead of new hand-written implementations.
+
+Eighty-three Rust unit tests, three non-live integration tests, fifty Python tests, formatting, clippy and syntax checks pass. Live browser tests remain ignored. No optimization benchmark matrix ran.
+
+Stage 2 is accepted as a developer control path. It is not a production bot runtime. Fresh provisioning, multi-bot execution, real dropped-reply injection and escaped process sessions remain untested. Process-group cancellation does not provide cgroup containment. Stage 3 must connect the long-running server and agent tools, define queue ownership and surface unknown outcomes. The results report is `docs/stage2-results.md` on the implementation branch.

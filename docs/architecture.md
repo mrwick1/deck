@@ -86,7 +86,7 @@ This section records prototype results. It does not show that the target exists.
 - **Host (Deck):** the agent loop, model calls, tasks, memory, permissions, action records and VM lifecycle. Host state stays outside the VM (D37).
 - **Guest:** the desktop, bare, a shell, files, applications, signed-in sessions and a small executor (D37).
 - The executor runs commands as the guest desktop user. Privileged lifecycle commands use a separate path (Stage 2 plan).
-- Target executor rules (Stage 2 plan, not built):
+- Executor rules (verified developer path in Stage 2; server integration is pending):
   - The protocol is versioned. A connection binds to one configured bot.
   - Each command carries a task ID, a command ID, a host-owned epoch and a deadline.
   - A repeated command with the same ID returns the known state. Reuse of an ID with other arguments is rejected.
@@ -196,6 +196,6 @@ This section records prototype results. It does not show that the target exists.
 ## Stage status
 
 - **Stage 1:** VM feasibility reproduced. Only feasibility is accepted (see Measured evidence).
-- **Stage 2:** approved and started. The executor and durable host control are in progress. Not verified. Do not treat Stage 2 as complete.
+- **Stage 2:** the developer executor and host journal are implemented on the implementation branch. The parent reproduced a serial VM smoke test. The long-running service, agent tools and UI are not connected to this path. Fresh setup and multi-bot behavior remain untested.
 - **Later stages:** UI integration, real accounts, MFA, event integrations, conversational creation, and the home screen redesign.
 - **Carryover:** idle sleep, event batching, live-view subscriptions, unchanged-frame suppression in Deck, and the saved-state codec default (D47, D48). Each item stays unchecked until its real caller exists.

@@ -29,4 +29,4 @@ The parent reviews the full diff and reproduces the critical checks. No second a
 
 Idle sleep, event batching and UI capture subscriptions remain on the carryover checklist in `optimization-plan.md`. Stage 2 supplies dependencies; it does not complete those integrations. Conversational creation, real accounts, MFA, model spending enforcement, automatic memory and the home-screen redesign are outside this stage.
 
-Status: approved to start. Implementation has not been verified.
+Status: the developer executor path is implemented and independently smoke-tested on one VM. The parent verified execution, process-group cancellation, artifacts, reconnect, saved-state resume and crash recovery. This is not integrated with the long-running server or agent tools. Fresh provisioning, escaped process sessions and multi-bot behavior remain untested. See the implementation branch report `docs/stage2-results.md`.
