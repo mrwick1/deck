@@ -75,6 +75,7 @@ pub struct FakeHost {
     pub calls: Mutex<Vec<(String, Value)>>,
     pub outs: Mutex<Vec<PathBuf>>,
     pub hang: bool,
+    pub panic: bool,
 }
 
 impl BrowserHost for FakeHost {
@@ -84,6 +85,7 @@ impl BrowserHost for FakeHost {
             if self.hang {
                 std::future::pending::<()>().await;
             }
+            assert!(!self.panic, "the fake host panics");
             let reply = self
                 .replies
                 .lock()
