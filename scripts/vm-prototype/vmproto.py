@@ -13,7 +13,9 @@ import json
 import os
 import shutil
 import signal
+import shlex
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -29,6 +31,10 @@ LIFETIME_S = 3 * 3600
 MEM_MAX = "3500M"
 
 
+def default_bases():
+    return Path(os.environ.get("DECK_VM_BASES", default_dir().parent / "vm-bases"))
+
+
 def default_dir():
     return Path(os.environ.get("DECK_VM_DIR", str(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "deck" / "vm-stage1")))
 
@@ -39,6 +45,7 @@ class Paths:
         self.images = self.root / "images"
         self.base = self.images / "base.qcow2"
         self.disk = self.root / "disk.qcow2"
+        self.diskmeta = self.disk.with_suffix(".json")
         self.seed = self.root / "seed"
         self.run = self.root / "run"
         self.state = self.root / "state"
@@ -97,9 +104,174 @@ def disk_fingerprint(path):
     return {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "ino": st.st_ino}
 
 
-def state_matches_disk(meta, disk_path):
-    """Saved memory is valid only against the disk as it was at save time."""
-    return meta.get("disk") == disk_fingerprint(disk_path)
+def state_matches_disk(meta, disk_path, base=None):
+    """Saved memory is valid only against the disk as it was at save time, on the same base image."""
+    return meta.get("disk") == disk_fingerprint(disk_path) and meta.get("base") == base
+
+
+def state_uri(codec, path, direction):
+    """Migration URI for a state file. 'none' is a plain file; 'zstd-N' pipes through the installed zstd."""
+    if codec == "none":
+        return f"file:{path}"
+    level = codec.removeprefix("zstd-")
+    if not (codec.startswith("zstd-") and level.isdigit() and 1 <= int(level) <= 19):
+        sys.exit(f"unknown state codec {codec!r}")
+    q = shlex.quote(str(path))
+    return f"exec:zstd -q -f -{level} -o {q}" if direction == "save" else f"exec:zstd -q -d -c {q}"
+
+
+# ---------- base images and overlays ----------
+
+def read_json(path):
+    return json.loads(Path(path).read_text())
+
+
+def write_disk_meta(p, meta):
+    p.diskmeta.write_text(json.dumps(meta))
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 22), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def backing_file(path):
+    """The backing path stored in a qcow2 header, or None. Reads the header only; opens no image."""
+    with open(path, "rb") as f:
+        h = f.read(20)
+        if h[:4] != b"QFI\xfb":
+            sys.exit(f"{path} is not a qcow2 image")
+        off, size = struct.unpack(">QI", h[8:20])
+        if not off:
+            return None
+        f.seek(off)
+        return f.read(size).decode()
+
+
+def base_path(bases_dir, base_id):
+    return Path(bases_dir) / f"{base_id}.qcow2"
+
+
+def is_frozen_base(path):
+    path = Path(path)
+    for q in (path, path.resolve()):
+        side = q.with_suffix(".json")
+        if side.exists() and read_json(side).get("kind") == "base":
+            return True
+    return path.exists() and not os.access(path, os.W_OK)
+
+
+def freeze_base(p, bases_dir):
+    """Turn a freshly provisioned, never-booted standalone disk into a read-only shared base. Moves the disk."""
+    if not p.disk.exists():
+        sys.exit("no disk to freeze")
+    vm = read_vm(p)
+    if vm and proc_ok(p, vm["pid"]):
+        sys.exit("VM still running; stop it first")
+    if p.statefile.exists() or p.statemeta.exists():
+        sys.exit("saved state exists for this disk; refusing to freeze")
+    meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
+    if meta.get("kind") != "standalone" or meta.get("provisioned") != "setup":
+        sys.exit("disk has no setup provenance record; only a disk made by 'setup' in this runtime can become a base")
+    if meta.get("run_booted"):
+        sys.exit("disk was booted in run mode and may hold sessions or personal data; provision a fresh one")
+    if backing_file(p.disk):
+        sys.exit("disk has a backing file; a base must be standalone")
+    digest = sha256_file(p.disk)
+    base_id = digest[:16]
+    dest = base_path(bases_dir, base_id)
+    if dest.exists():
+        sys.exit(f"base {base_id} exists; refusing to replace it")
+    Path(bases_dir).mkdir(parents=True, exist_ok=True)
+    virtual = json.loads(subprocess.run(["qemu-img", "info", "-U", "--output=json", str(p.disk)], check=True, capture_output=True, text=True).stdout)["virtual-size"]
+    shutil.move(str(p.disk), dest)
+    os.chmod(dest, 0o444)
+    info = {"kind": "base", "id": base_id, "sha256": digest, "virtual_size": virtual, "frozen": time.time(),
+            "fingerprint": disk_fingerprint(dest), "provenance": meta}
+    dest.with_suffix(".json").write_text(json.dumps(info))
+    p.diskmeta.unlink()
+    return info
+
+
+def create_overlay(p, base):
+    """Create the private writable qcow2 on top of a frozen base. The base is verified by full digest here, once."""
+    base = Path(base).resolve()
+    side = base.with_suffix(".json")
+    info = read_json(side) if side.exists() else {}
+    if info.get("kind") != "base" or info.get("id") != base.stem:
+        sys.exit(f"{base} is not a frozen base")
+    if disk_fingerprint(base) != info["fingerprint"]:
+        sys.exit("base changed since it was frozen")
+    if sha256_file(base) != info["sha256"]:
+        sys.exit("base digest does not match its record")
+    if p.disk.exists() or p.diskmeta.exists():
+        sys.exit(f"{p.disk} exists; run clean --disk first")
+    p.mk()
+    subprocess.run(["qemu-img", "create", "-q", "-f", "qcow2", "-b", str(base), "-F", "qcow2", str(p.disk)], check=True)
+    write_disk_meta(p, {"kind": "overlay", "created": time.time(),
+                        "base": {"id": info["id"], "path": str(base), "fingerprint": info["fingerprint"]}})
+    return info
+
+
+def check_disk(p):
+    """Cheap pre-boot check (no hashing): the recorded base is present, unchanged and is the backing file."""
+    meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
+    backing = backing_file(p.disk)
+    if meta.get("kind") == "overlay":
+        b = meta["base"]
+        if not Path(b["path"]).exists():
+            sys.exit(f"base {b['id']} is missing")
+        if disk_fingerprint(b["path"]) != b["fingerprint"]:
+            sys.exit(f"base changed since the overlay was created ({b['id']})")
+        if backing != b["path"]:
+            sys.exit("backing file differs from the recorded base")
+    elif backing:
+        sys.exit("disk has a backing file but no base record; refusing to boot it")
+
+
+def disk_base_id(p):
+    meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
+    return meta.get("base", {}).get("id") if meta.get("kind") == "overlay" else None
+
+
+def allocated_tree(path):
+    path = Path(path)
+    return sum(allocated_bytes(f) for f in ([path] if path.is_file() else path.rglob("*")) if f.is_file())
+
+
+def storage_report(*runtimes):
+    """Allocated bytes of each disk, saved state and every distinct base. Virtual sizes are not counted."""
+    parts = {}
+    for p in runtimes:
+        if p.disk.exists():
+            parts[f"{p.root.name}/disk"] = allocated_bytes(p.disk)
+        if p.state.exists():
+            parts[f"{p.root.name}/state"] = allocated_tree(p.state)
+        meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
+        if meta.get("kind") == "overlay":
+            parts["base"] = allocated_bytes(meta["base"]["path"])
+    return {"parts": parts, "total_bytes": sum(parts.values())}
+
+
+def cgroup_dir(pid):
+    try:
+        return Path("/sys/fs/cgroup") / Path(f"/proc/{pid}/cgroup").read_text().strip().split("::", 1)[1].lstrip("/")
+    except (OSError, IndexError):
+        return None
+
+
+def cpu_usec(cg):
+    """CPU time of everything in the VM's scope, children included. None when unreadable."""
+    try:
+        for line in (cg / "cpu.stat").read_text().splitlines():
+            if line.startswith("usage_usec"):
+                return int(line.split()[1])
+    except (OSError, AttributeError):
+        pass
+    return None
 
 
 def is_our_vm(cmdline, name=VM_NAME, root=None):
@@ -290,6 +462,11 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
         f.unlink(missing_ok=True)
     if mode == "run" and not p.disk.exists():
         sys.exit("no disk: run setup first")
+    if mode == "run":
+        check_disk(p)
+        meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
+        if meta.get("kind") == "standalone" and not meta.get("run_booted"):
+            write_disk_meta(p, {**meta, "run_booted": True})  # from here the disk may hold sessions: it can no longer become a base
     log = open(p.run / "qemu.log", "ab")
     proc = subprocess.Popen(scope_cmd(qemu_cmd(p, mode, fixture_port, incoming, seed_iso)), stdout=log, stderr=log,
                             stdin=subprocess.DEVNULL, start_new_session=True)
@@ -343,6 +520,8 @@ def cmd_setup(a, p):
         sys.exit("setup timed out")
     print(f"setup finished in {time.time() - t:.0f}s")
     p.vm.unlink(missing_ok=True)
+    write_disk_meta(p, {"kind": "standalone", "provisioned": "setup", "run_booted": False, "finished": time.time(),
+                        "guest_files_sha256": {f.name: hashlib.sha256(f.read_bytes()).hexdigest()[:16] for f in sorted((HERE / "guest").iterdir())}})
 
 
 def kill_vm(p):
@@ -363,8 +542,8 @@ def cmd_start(a, p):
     print(json.dumps({"pid": pid, "boot_to_agent_s": round(time.time() - t0, 2)}))
 
 
-def save_vm(p, qga=None, sync=True):
-    """Quiesce, migrate RAM and devices to a file, quit QEMU. Returns timings."""
+def save_vm(p, qga=None, sync=True, codec="none"):
+    """Quiesce, migrate RAM and devices to a file, quit QEMU. Returns timings, CPU time and sampled peak RSS."""
     vm = read_vm(p)
     if not vm or not proc_ok(p, vm["pid"]):
         sys.exit("no matching VM process")
@@ -378,27 +557,39 @@ def save_vm(p, qga=None, sync=True):
     p.statefile.unlink(missing_ok=True)
     p.statemeta.unlink(missing_ok=True)
     rss_before = tree_rss_kib(pid)
+    uri = state_uri(codec, p.statefile, "save")
+    cg = cgroup_dir(pid)
+    cpu0 = cpu_usec(cg)
+    peak, last = rss_before, 0
+    base = disk_base_id(p)
     q = Qmp(p.qmp)
-    q.cmd("migrate", uri=f"file:{p.statefile}")
+    q.cmd("migrate", uri=uri)
     while True:
         st = q.cmd("query-migrate")
         if st["status"] == "completed":
             break
         if st["status"] in ("failed", "cancelled"):
             sys.exit(f"migration {st['status']}: {st.get('error-desc')}")
+        if time.time() - last > 0.1:
+            peak, last = max(peak, tree_rss_kib(pid)), time.time()
         time.sleep(0.02)
     t2 = time.time()
     q.cmd("quit")
     q.close()
     gone = wait_gone(pid, 15)
+    cpu1 = cpu_usec(cg)
+    while codec != "none" and cg and cg.exists() and time.time() - t2 < 30:  # the compressor may outlive QEMU
+        cpu1 = cpu_usec(cg) or cpu1
+        time.sleep(0.02)
     t3 = time.time()
     if not gone:
         sys.exit("qemu did not exit after quit")
-    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "state_bytes": p.statefile.stat().st_size}
+    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size}
     p.statemeta.write_text(json.dumps(meta))
     p.vm.unlink(missing_ok=True)
     return {"quiesce_s": round(t1 - t0, 3), "migrate_s": round(t2 - t1, 3), "exit_s": round(t3 - t2, 3),
-            "total_s": round(t3 - t0, 3), "state_bytes": meta["state_bytes"], "rss_kib_before": rss_before}
+            "total_s": round(t3 - t0, 3), "state_bytes": meta["state_bytes"], "rss_kib_before": rss_before, "codec": codec,
+            "peak_rss_kib_sampled": peak, "cpu_s": None if None in (cpu0, cpu1) else round((cpu1 - cpu0) / 1e6, 3)}
 
 
 def restore_vm(p, fixture_port):
@@ -406,19 +597,26 @@ def restore_vm(p, fixture_port):
     if not p.statemeta.exists() or not p.statefile.exists():
         sys.exit("no saved state")
     meta = json.loads(p.statemeta.read_text())
-    if not state_matches_disk(meta, p.disk):
-        sys.exit("saved state does not match the disk (disk changed after the save); refusing to restore")
+    codec = meta.get("codec", "none")
+    uri = state_uri(codec, p.statefile, "load")
+    if not state_matches_disk(meta, p.disk, disk_base_id(p)):
+        sys.exit("saved state does not match the disk or its base (changed after the save); refusing to restore")
     # The state file is deleted after a successful load: the disk changes from then on.
     t0 = time.time()
     pid = start_qemu(p, "run", fixture_port, incoming=True)
     q = Qmp(p.qmp)
-    q.cmd("migrate-incoming", uri=f"file:{p.statefile}")
+    cg = cgroup_dir(pid)
+    peak, last = tree_rss_kib(pid), 0
+    q.cmd("migrate-incoming", uri=uri)
     while True:
         st = q.cmd("query-status")
         if st["status"] == "running":
             break
+        if time.time() - last > 0.1:
+            peak, last = max(peak, tree_rss_kib(pid)), time.time()
         time.sleep(0.02)
     t1 = time.time()
+    peak = max(peak, tree_rss_kib(pid))
     q.close()
     qga = Qga(p.qga)
     qga.ping_ready(30)
@@ -429,11 +627,13 @@ def restore_vm(p, fixture_port):
     p.statemeta.unlink()
     if code != 0 or "restored-ok" not in out:
         sys.exit("guest command failed after restore")
-    return {"pid": pid, "load_s": round(t1 - t0, 3), "to_usable_s": round(t2 - t0, 3)}
+    cpu = cpu_usec(cg)
+    return {"pid": pid, "load_s": round(t1 - t0, 3), "to_usable_s": round(t2 - t0, 3), "codec": codec,
+            "peak_rss_kib_sampled": peak, "cpu_s_since_launch": None if cpu is None else round(cpu / 1e6, 3)}
 
 
 def cmd_stop(a, p):
-    print(json.dumps(save_vm(p)))
+    print(json.dumps(save_vm(p, codec=a.codec)))
 
 
 def cmd_restore(a, p):
@@ -452,6 +652,8 @@ def cmd_status(a, p):
         out["rss_kib_tree"] = tree_rss_kib(vm["pid"])
     if p.disk.exists():
         out["disk_allocated_bytes"] = allocated_bytes(p.disk)
+        out["storage"] = storage_report(p)
+        out["base"] = disk_base_id(p)
     print(json.dumps(out))
 
 
@@ -482,11 +684,30 @@ def cmd_clean(a, p):
     vm = read_vm(p)
     if vm and proc_ok(p, vm["pid"]):
         sys.exit("VM still running; stop or kill it first")
+    if a.disk and is_frozen_base(p.disk):
+        sys.exit(f"{p.disk} is a frozen base; refusing to delete it")
     for f in (p.vm, p.qmp, p.qga, p.pidfile, p.statefile, p.statemeta):
         f.unlink(missing_ok=True)
     if a.disk:
         p.disk.unlink(missing_ok=True)
+        p.diskmeta.unlink(missing_ok=True)
     print("cleaned")
+
+
+def cmd_freeze_base(a, p):
+    print(json.dumps(freeze_base(p, a.bases)))
+
+
+def cmd_overlay(a, p):
+    print(json.dumps(create_overlay(p, a.base)))
+
+
+def cmd_verify_base(a, p):
+    base = Path(a.base)
+    info = read_json(base.with_suffix(".json"))
+    ok = sha256_file(base) == info["sha256"]
+    print(json.dumps({"id": info["id"], "sha256_matches": ok}))
+    sys.exit(0 if ok else 1)
 
 
 def main(argv=None):
@@ -500,7 +721,9 @@ def main(argv=None):
     s = sub.add_parser("start", help="cold boot the disk")
     s.add_argument("--timeout", type=int, default=120)
     s.set_defaults(f=cmd_start)
-    sub.add_parser("stop", help="save RAM and devices, then exit QEMU").set_defaults(f=cmd_stop)
+    s = sub.add_parser("stop", help="save RAM and devices, then exit QEMU")
+    s.add_argument("--codec", default="none", help="state file codec: none (default) or zstd-N; restore reads it from the saved record")
+    s.set_defaults(f=cmd_stop)
     sub.add_parser("restore", help="restore the saved state onto its paired disk").set_defaults(f=cmd_restore)
     sub.add_parser("kill", help="SIGKILL our VM only, after checking its identity").set_defaults(f=cmd_kill)
     sub.add_parser("status", help="print VM and storage status").set_defaults(f=cmd_status)
@@ -513,6 +736,15 @@ def main(argv=None):
     s = sub.add_parser("clean", help="remove sockets and saved state; --disk also removes the disk")
     s.add_argument("--disk", action="store_true")
     s.set_defaults(f=cmd_clean)
+    s = sub.add_parser("freeze-base", help="turn the never-booted disk made by setup into a read-only shared base (moves the disk)")
+    s.add_argument("--bases", default=str(default_bases()), help="base store (default: $DECK_VM_BASES)")
+    s.set_defaults(f=cmd_freeze_base)
+    s = sub.add_parser("overlay", help="create this runtime's private qcow2 on top of a frozen base")
+    s.add_argument("--base", required=True, help="path of the frozen base .qcow2")
+    s.set_defaults(f=cmd_overlay)
+    s = sub.add_parser("verify-base", help="hash a frozen base and compare it with its record")
+    s.add_argument("base")
+    s.set_defaults(f=cmd_verify_base)
     a = ap.parse_args(argv)
     a.f(a, Paths(a.dir))
 
