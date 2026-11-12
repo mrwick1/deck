@@ -231,15 +231,19 @@ impl Tools {
             a.insert("downloads_dir".into(), json!(dir));
         }
         // An upload sends a local file to a site: only files of the workspace may go.
-        if let Some(files) = a.get("files").and_then(Value::as_array) {
-            for f in files {
-                let ok = f
+        // A relative path names a file in the workspace; bare gets the real path.
+        if let Some(files) = a.get_mut("files").and_then(Value::as_array_mut) {
+            for f in files.iter_mut() {
+                let real = f
                     .as_str()
-                    .and_then(|f| std::fs::canonicalize(f).ok())
-                    .is_some_and(|p| self.allowed(&p));
-                if !ok {
-                    return Err(anyhow!("upload path not allowed: {f}"));
-                }
+                    .and_then(|p| std::fs::canonicalize(self.workspace.join(p)).ok())
+                    .filter(|p| self.allowed(p))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "upload path not allowed: {f}: give a path relative to the workspace"
+                        )
+                    })?;
+                *f = json!(real);
             }
         }
         if bare_name == "step"
@@ -555,6 +559,25 @@ mod tests {
             )
             .await;
         assert!(ok.ok, "{}", ok.content);
+        // A relative path names a workspace file; bare gets the real path.
+        let ok = tools
+            .execute(
+                chat,
+                "browser_act",
+                &json!({"op": "upload", "ref": "e1", "files": ["doc.txt"]}),
+            )
+            .await;
+        assert!(ok.ok, "{}", ok.content);
+        let sent = host.calls.lock().unwrap().last().unwrap().1["files"].clone();
+        assert_eq!(sent, json!([std::fs::canonicalize(&f).unwrap()]));
+        let bad = tools
+            .execute(
+                chat,
+                "browser_act",
+                &json!({"op": "upload", "ref": "e1", "files": ["../../etc/passwd"]}),
+            )
+            .await;
+        assert!(!bad.ok, "{}", bad.content);
     }
 
     #[test]

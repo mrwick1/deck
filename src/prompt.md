@@ -28,7 +28,7 @@ Refs belong to one page. After a navigation, take a new snapshot. An error `stal
 
 A dialog (alert, confirm, prompt) is answered by the `dialog` argument of `browser_act`. The default is accept. Pass `dismiss` when a confirm would delete or buy something that the user did not ask for. A link that opens a new tab gives a new session such as `main~2`. Pass it as `session`.
 
-`upload` sends only files from the workspace.
+`upload` sends only files from the workspace. Give each path relative to the workspace, for example `note.txt`. Use `browser_act` with op `upload`; `browser_step` refuses it.
 
 ## Secrets
 
