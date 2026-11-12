@@ -16,7 +16,7 @@ Decision references use the titles in the parent decision log: "Each bot owns a 
 | --- | --- |
 | `scripts/vm-prototype/guest/deck_executor.py` | Guest executor. Python standard library only. Runs as the desktop user. |
 | `scripts/vm-prototype/guest/deck-executor.service`, `70-deck-executor.rules` | systemd unit (`User=deck`) and the udev rule that gives `deck` the serial port. |
-| `src/executor/proto.rs` | Frames, limits, ID rules, the command digest, a small SHA-256 and base64 decoder. No new dependency. |
+| `src/executor/proto.rs` | Frames, limits, ID rules, the command digest, SHA-256 and base64 adapters that reuse the packages already in Cargo.lock. |
 | `src/executor/journal.rs` | Journal methods on `Store`: epochs, command rows, events, artifact records. Migration V3 is in `src/store.rs`. |
 | `src/executor/client.rs` | One connection: hello, epoch fence, exec, cancel, status, reconcile, artifact fetch. |
 | `src/executor/cli.rs` | Developer entry point: `deck executor <command>`. |
@@ -85,7 +85,7 @@ Rules:
 2. A reply updates the row after it arrives. A late `result` for a row that is already final is stored as a `late_result` event. It does not change the row.
 3. Reconcile runs on every CLI connection. It asks for the receipt of each `sent`, `running` or `unknown` row. It sends no command.
    - A receipt exists: apply it.
-   - No receipt, and the guest had seen the dispatch epoch (`max_epoch_before` is at least that epoch): the row becomes `not_delivered`. The guest now rejects any frame from the older epoch, so the command never ran and never will.
+- A missing receipt after reconnect leaves `unknown`. A remembered epoch cannot exclude rollback after hello but before the command receipt. Only an explicit pre-execution rejection establishes `not_delivered`.
    - No receipt, and the guest had not seen that epoch, or a `running` row lost its receipt: the row becomes `unknown` with `guest_state_lost`. The guest was replaced or rolled back. Its earlier timeline may have run the command.
    - A `sent` row on the same connection that sent it is left alone. The absence of a receipt proves nothing there.
 4. Submitting a known command ID never sends a second `exec` while the row is `sent`, `running`, `unknown` or final. Only `intent` and `not_delivered` rows dispatch. A changed payload under a known ID is rejected before any send and logged as `payload_conflict`.
@@ -197,3 +197,15 @@ The journal events recorded on the real VM were `intent`, `dispatch`, `guest_rep
 - Define evidence rules for resolving an `unknown` row, and the retry policy.
 - Add a cgroup per command, a per-command resource limit and desktop session variables for commands that drive the screen.
 - Add a way to bind the guest identity at bot creation, instead of `install-executor` on a running guest.
+
+## Parent review and reproduction
+
+The parent reproduced the serial real-VM smoke on a new private overlay and host journal. It passed command execution as the desktop user, status during execution, confirmed process-group cancellation, deadline termination, artifact integrity, duplicate-ID suppression, payload conflict rejection, stale-epoch and wrong-bot rejection, save/restore and kill/cold-boot recovery. The side-effect file retained one line after resubmission and restore. No owned VM remained running after the script exited.
+
+Review found a missing-receipt recovery error. A snapshot can retain hello's epoch but predate the command receipt. A remembered epoch alone therefore cannot prove non-delivery. A new regression test failed first. Reconciliation now retains an unknown outcome and does not permit silent replay in that case.
+
+The parent also added a failing cross-bot command-access regression, then bound session command lookup to the configured bot. Request writes and hello writes now have timeouts. The new hand-written SHA-256 and base64 routines were replaced with adapters to packages already in the dependency graph. No new package version was introduced. Guest output pipe descriptors close after draining.
+
+The parent reproduction used the install-executor path. Fresh setup provisioning, detached sessions that escape a process group, multi-bot operation and real transport-loss injection remain untested. Process-group cancellation is not a cgroup containment guarantee. Treat this stage as a verified developer control path, not a production bot runtime.
+
+Raw parent results are in a separate local stage2-parent-review runtime directory. Earlier experiment evidence is preserved. No performance benchmark was run.

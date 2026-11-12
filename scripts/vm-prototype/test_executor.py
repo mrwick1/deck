@@ -66,7 +66,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="deck-exec-test-")
         self.state, self.ws = f"{self.tmp}/state", f"{self.tmp}/ws"
         os.makedirs(self.state)
-        json.dump({"bot_id": BOT, "guest_id": "guest-1", "max_epoch": 0}, open(f"{self.state}/identity.json", "w"))
+        Path(self.state, "identity.json").write_text(json.dumps({"bot_id": BOT, "guest_id": "guest-1", "max_epoch": 0}))
         self.clients = []
         self.ex = de.Executor(self.state, self.ws)
 
@@ -200,9 +200,9 @@ class Behavior(Base):
         self.sh(c, "long", f"sleep 300 & echo $! > {pidfile}; wait", epoch=1)
         c.of_type("exec_ack")
         end = time.monotonic() + WAIT
-        while not (os.path.exists(pidfile) and open(pidfile).read().strip()) and time.monotonic() < end:
+        while not (os.path.exists(pidfile) and Path(pidfile).read_text().strip()) and time.monotonic() < end:
             time.sleep(0.02)
-        child = int(open(pidfile).read())
+        child = int(Path(pidfile).read_text())
         self.assertTrue(os.path.exists(f"/proc/{child}"))
         c.send(type="status", epoch=1, command_id="long")
         self.assertEqual(c.of_type("status_reply")["receipt"]["state"], "running")  # status works while it runs
@@ -213,7 +213,7 @@ class Behavior(Base):
         self.assertEqual(r["state"], "cancelled")
         self.assertTrue(r["cancel"]["confirmed"] and r["group_confirmed"])
         self.assertEqual(de.group_members(child), [])
-        self.assertFalse(os.path.exists(f"/proc/{child}") and open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] != "Z")
+        self.assertFalse(os.path.exists(f"/proc/{child}") and Path(f"/proc/{child}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z")
 
     def test_cancel_unknown_and_finished(self):
         c, _ = self.hello(1)
@@ -250,7 +250,7 @@ class Behavior(Base):
         self.sh(c, "bg", f"sleep 300 >/dev/null 2>&1 & echo $! > {pidfile}", epoch=1)
         r = c.of_type("result")["receipt"]
         self.assertEqual(r["state"], "succeeded")
-        self.assertEqual(de.group_members(int(open(pidfile).read())), [])
+        self.assertEqual(de.group_members(int(Path(pidfile).read_text())), [])
 
     def test_large_output_does_not_deadlock_and_is_bounded(self):
         c, _ = self.hello(1)

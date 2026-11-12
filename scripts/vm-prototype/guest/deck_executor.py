@@ -241,7 +241,8 @@ class Executor:
         self.lock = threading.RLock()
         self.running = {}
         self.session = None
-        self.boot_id = open("/proc/sys/kernel/random/boot_id").read().strip()
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            self.boot_id = f.read().strip()
         self.ident = None
         p = os.path.join(self.state, "identity.json")
         if os.path.exists(p):
@@ -451,6 +452,7 @@ class Executor:
                 tail_len += len(chunk)
                 while tail_len - len(tail[0]) >= TAIL_BYTES:
                     tail_len -= len(tail.popleft())
+        pipe.close()
         data = b"".join(tail)[-TAIL_BYTES:]
         box.update(bytes=total, tail=data.decode(errors="replace"), truncated=total > len(data))
 

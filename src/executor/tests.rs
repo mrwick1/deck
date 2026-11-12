@@ -574,7 +574,32 @@ async fn lost_guest_state_leaves_an_unknown_outcome_that_is_not_retried() {
 }
 
 #[tokio::test]
-async fn disconnect_before_the_guest_reads_the_exec_is_proven_not_delivered() {
+async fn rollback_after_hello_keeps_missing_receipt_unknown() {
+    let f = Fake::start(Mode::DropAfterExec).await;
+    let s1 = f.session().await;
+    s1.exec("t1", "c1", argv(&["pay"]), 5000).await.unwrap();
+    drop(s1);
+    {
+        let mut g = f.g.lock().unwrap();
+        g.receipts.clear(); // the guest restarts from an older state
+        // Restored snapshot retained hello but predates the command receipt.
+        g.mode = Mode::Normal;
+    }
+    let s2 = f.session().await;
+    let rows = s2.reconcile().await.unwrap();
+    assert_eq!(
+        (rows[0].state.as_str(), rows[0].detail.as_deref()),
+        ("unknown", Some("guest_state_lost"))
+    );
+    for _ in 0..2 {
+        let c = s2.exec("t1", "c1", argv(&["pay"]), 5000).await.unwrap();
+        assert_eq!(c.state, "unknown");
+    }
+    assert_eq!(f.execs(), 1); // never executed again
+}
+
+#[tokio::test]
+async fn disconnect_before_exec_remains_unknown_without_a_receipt() {
     let f = Fake::start(Mode::DropBeforeExec).await;
     let s1 = f.session().await;
     let c = s1.exec("t1", "c1", argv(&["x"]), 5000).await.unwrap();
@@ -583,11 +608,11 @@ async fn disconnect_before_the_guest_reads_the_exec_is_proven_not_delivered() {
     f.set_mode(Mode::Normal);
     let s2 = f.session().await;
     let rows = s2.reconcile().await.unwrap();
-    assert_eq!(rows[0].state, "not_delivered");
+    assert_eq!(rows[0].state, "unknown");
     assert_eq!(f.execs(), 0); // reconcile did not retry
-    let c = s2.exec("t1", "c1", argv(&["x"]), 5000).await.unwrap(); // an explicit submission may
-    assert_ne!(c.state, "not_delivered");
-    assert_eq!(f.execs(), 1);
+    let c = s2.exec("t1", "c1", argv(&["x"]), 5000).await.unwrap(); // no retry without outcome evidence
+    assert_eq!(c.state, "unknown");
+    assert_eq!(f.execs(), 0);
 }
 
 #[tokio::test]
@@ -999,4 +1024,24 @@ async fn real_guest_restart_turns_a_running_command_into_an_unknown_outcome() {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn session_cannot_cancel_or_fetch_another_bots_command() {
+    let f = Fake::start(Mode::Normal).await;
+    let s = f.session().await;
+    f.store
+        .begin(
+            "other-bot".into(),
+            "task".into(),
+            "foreign".into(),
+            argv(&["x"]),
+            5000,
+            "digest".into(),
+        )
+        .await
+        .unwrap();
+    assert!(s.cancel("foreign").await.is_err());
+    assert!(s.fetch_artifacts("foreign").await.is_err());
+    assert_eq!(f.execs(), 0);
 }

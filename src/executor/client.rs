@@ -117,11 +117,11 @@ impl Session {
             bail!("the peer is not the expected process");
         }
         let nonce = uuid::Uuid::new_v4().to_string();
-        write_frame(
+        timeout(opts.request_timeout, write_frame(
             &mut stream,
             &json!({"type":"hello","id":"hello","proto":PROTO,"bot_id":opts.bot,"epoch":epoch,"nonce":nonce}),
-        )
-        .await?;
+        ))
+        .await.context("hello write timed out")??;
         // Bytes left from an earlier connection may come first. Skip frames until our answer.
         let ack = timeout(opts.request_timeout, async {
             loop {
@@ -211,8 +211,12 @@ impl Session {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id.clone(), tx);
         let sent = {
-            let mut w = self.w.lock().await;
-            write_frame(&mut *w, &msg).await
+            timeout(self.opts.request_timeout, async {
+                let mut w = self.w.lock().await;
+                write_frame(&mut *w, &msg).await
+            })
+            .await
+            .unwrap_or_else(|_| Err(anyhow!("request write timed out")))
         };
         if let Err(e) = sent {
             self.pending.lock().unwrap().remove(&id);
@@ -331,10 +335,15 @@ impl Session {
     }
 
     async fn get(&self, id: &str) -> anyhow::Result<Cmd> {
-        self.store
+        let cmd = self
+            .store
             .command(id.into())
             .await?
-            .context("no such command")
+            .context("no such command")?;
+        if cmd.bot_id != self.opts.bot {
+            bail!("command belongs to another bot");
+        }
+        Ok(cmd)
     }
 
     /// Poll the journal until the row is settled or the time is up.
@@ -394,19 +403,8 @@ impl Session {
             // Same connection: the stream is ordered, so the guest read the exec before this status.
             // An absent receipt then means the exec frame never arrived. Leave the row as it is.
             "sent" if sent_at == self.epoch => {}
-            // The guest had seen the dispatch epoch and holds no receipt. Its epoch fence now
-            // rejects any late frame from that epoch, so the command never ran and never will.
-            "sent" if self.max_epoch_before >= sent_at => {
-                self.store
-                    .settle(
-                        cmd.command_id.clone(),
-                        "not_delivered",
-                        "guest has no receipt; the old epoch is fenced".into(),
-                        self.epoch,
-                    )
-                    .await?;
-            }
-            // The guest has no memory of the epoch or the receipt. It was replaced or rolled back.
+            // A missing receipt cannot rule out rollback after hello but before receipt persistence.
+            // Fence stale dispatches, but retain an unknown outcome rather than permit replay.
             "sent" | "running" => {
                 self.store
                     .settle(
