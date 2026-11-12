@@ -5,9 +5,38 @@ import unittest
 from pathlib import Path
 
 import vmproto as v
+import stage1
+from unittest.mock import patch
 
 
 class Helpers(unittest.TestCase):
+    def test_start_refuses_live_vm_before_touching_sockets(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            p.mk()
+            p.qmp.write_text("owned socket marker")
+            with patch.object(v, "read_vm", return_value={"pid": 123}), patch.object(v, "proc_ok", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "already running"):
+                    v.start_qemu(p, "run", 18080)
+            self.assertEqual(p.qmp.read_text(), "owned socket marker")
+
+    def test_result_validation_rejects_failed_markers_and_boundaries(self):
+        result = {"boundary": {"fixture_reachable": True, "host_marker_leaked": False,
+                  "loopback_fixture_via_gateway_reachable": False},
+                  "artifacts": {"bare_screenshot_sha_match": True, "download_sha_match": True},
+                  "cycles": [{"post": dict.fromkeys(("nano_process_same", "notes_file_not_written", "disk_marker", "shell_file", "downloaded_file_sha", "bare_tab_url", "bare_logged_in", "bare_cookie"), True), "terminal_pixels_same": True,
+                              "vm_gone": True, "helpers_gone": True, "fixture_alive": True}],
+                  "kill": {"gone": True}, "after_kill": {"disk_marker": True, "shell_file": True,
+                  "downloaded_file_sha": True, "post_restore_marker": True}}
+        stage1.validate_results(result)
+        result["cycles"][0]["post"]["bare_cookie"] = False
+        with self.assertRaisesRegex(RuntimeError, "resume"):
+            stage1.validate_results(result)
+        result["cycles"][0]["post"]["bare_cookie"] = True
+        result["boundary"]["host_marker_leaked"] = True
+        with self.assertRaisesRegex(RuntimeError, "boundary"):
+            stage1.validate_results(result)
+
     def test_rss_parse(self):
         self.assertEqual(v.rss_kib("Name:\tqemu\nVmRSS:\t  1234 kB\nThreads:\t3\n"), 1234)
         self.assertEqual(v.rss_kib("Name:\tkthread\n"), 0)

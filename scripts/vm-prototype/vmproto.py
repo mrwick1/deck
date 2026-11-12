@@ -30,7 +30,7 @@ MEM_MAX = "3500M"
 
 
 def default_dir():
-    return Path(os.environ.get("DECK_VM_DIR", "/data/tmp/deck-vm-stage1"))
+    return Path(os.environ.get("DECK_VM_DIR", str(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "deck" / "vm-stage1")))
 
 
 class Paths:
@@ -283,6 +283,9 @@ class Qga:
 
 def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
     p.mk()
+    vm = read_vm(p)
+    if vm and proc_ok(p, vm["pid"]):
+        raise RuntimeError("VM already running; refusing to replace its control sockets")
     for f in (p.qmp, p.qga, p.pidfile):
         f.unlink(missing_ok=True)
     if mode == "run" and not p.disk.exists():

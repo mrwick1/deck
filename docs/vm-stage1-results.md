@@ -131,3 +131,31 @@ Kill and cold boot: the harness checked the process name and runtime directory, 
 ## Next step
 
 Start Stage 2: the guest executor and the host record. Start with command identifiers, deadlines, cancellation acknowledgement, artifact retrieval and a restore epoch. Keep the QEMU lifecycle in `scripts/vm-prototype/` as the test base. Run the stale-reply, cancel and recovery gates with fakes first, then repeat them on this VM.
+
+## Parent verification
+
+The parent reproduced the scenario on a separate copy of the provisioned disk. The parent inspected the desktop capture and confirmed the unsaved editor buffer beside the signed-in bare page. All five save/restore cycles preserved the required markers. Strict result validation passed.
+
+| Metric | Independent reproduction |
+| --- | --- |
+| Idle host resident memory | 583,052 KiB after 60 seconds; one sample |
+| Boot to guest command | 10.72 seconds; one sample |
+| Boot to desktop | 16.68 seconds |
+| Save samples | 3.716, 3.740, 3.721, 5.773, 3.705 seconds |
+| Restore samples | 0.943, 1.055, 1.471, 0.719, 1.002 seconds |
+| Maximum saved state | 500,975,601 bytes |
+| Cleanup | No prototype VM or fixture remained running. |
+
+After SIGKILL and cold boot, files survived. The unsaved buffer, browser tab and fixture login did not survive. This confirms the distinction between saved-state resume and crash recovery. It does not establish account session durability after a crash.
+
+The parent fixed review findings in the harness:
+
+- Reject a duplicate start before replacing a running VM's control sockets.
+- Fail the scenario when required correctness checks fail or are missing.
+- Clean up the owned VM and fixture when the scenario raises an exception.
+- Refuse to reuse an occupied fixture port.
+- Use the user's cache directory as the portable default runtime location.
+
+Nine unit tests pass. Regression tests first failed for duplicate-start handling and missing result validation. Python compilation, shell syntax checks and diff checks pass.
+
+Verdict: Stage 1 feasibility is reproduced. The full prototype checklist is not complete. Authenticated readiness, guest cancellation, host journals and epochs, Deck delivery and activity, and two-bot isolation remain untested. Idle memory and initial boot still have only one sample per run. End-to-end display latency is untested. The Stage 2 control path must replace or constrain the prototype's root guest-agent command interface.
