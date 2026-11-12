@@ -303,6 +303,17 @@ class EvidenceRetention(unittest.TestCase):
             self.assertIn("sampler read failed", json.loads((root / "evidence-status.json").read_text())["sampler_errors"][0])
             self.assertFalse(json.loads((root / "summary.json").read_text())["ok"])
 
+    def test_a_sampler_that_died_before_its_clock_was_read_is_still_a_sampler_failure(self):
+        def broken(ctx):
+            raise OSError("sampler read failed")
+        def boot(ctx, n):
+            ctx.log("cold_boot", boot=n)
+            ctx.observer_cpu()
+        with tempfile.TemporaryDirectory() as tmp, patch.object(mb, "sample_once", broken), \
+                patch.object(mb.time, "pthread_getcpuclockid", side_effect=ProcessLookupError):
+            with self.assertRaisesRegex(RuntimeError, "sampler"):
+                self.run_with(boot, tmp)
+
     def test_a_guardrail_stop_invalidates_the_run_and_is_recorded(self):
         def boot(ctx, n):
             ctx.stop_reasons.append("cgroup_oom")

@@ -166,7 +166,7 @@ No production change follows from this evidence.
 
 ## Verification
 
-- The existing 87 Python tests and 38 new tests pass.
+- The existing 87 Python tests and 39 new tests pass. One new test covers a sampler that dies before the harness reads its CPU clock. A repeat run of the suite found this race after the live run.
 - The new tests cover the fixture sizes, hashes and bounds, the session cap, the download cap and owned-file rules, the deadline loop, the growth math, missing counters, the stop rules, the sampler-failure invalidation, failure retention and the scope wait.
 - Mutating the cap, the prune rule, the deadline, the sampler error handler, the retention error handler, the stop rule and the owned-path check made the tests fail.
 - Compilation, `--help` (no VM starts) and `git diff --check` pass.

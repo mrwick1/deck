@@ -450,6 +450,14 @@ class Ctx(cb.Ctx):
         super().__init__(root, args)
         self.stop_reasons, self.failures, self.boot, self.phase = [], [], 0, "idle"
         self.guest, self.guest_lock, self.dl_dir, self.ref, self.prev = None, threading.Lock(), None, None, None
+        self.last_observer_cpu = 0.0
+
+    def observer_cpu(self):
+        try:
+            self.last_observer_cpu = super().observer_cpu()
+        except ProcessLookupError:  # the sampler thread already ended: keep its last reading, the run is invalid anyway
+            pass
+        return self.last_observer_cpu
 
     def stop_reason(self):
         return (self.sampler_errors or self.stop_reasons or [None])[0]
@@ -813,7 +821,10 @@ def run(a):
     stop = threading.Event()
     thread = threading.Thread(target=sampler, args=(ctx, stop), daemon=True)
     thread.start()
-    ctx.sampler_clock = time.pthread_getcpuclockid(thread.ident)
+    try:
+        ctx.sampler_clock = time.pthread_getcpuclockid(thread.ident)
+    except ProcessLookupError:  # a sampler that failed at once; its error is reported below
+        pass
     error = None
     with QgaSerialized(), cb.Tracing() as tracing:
         tracing.ctx = ctx
