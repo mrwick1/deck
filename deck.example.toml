@@ -24,6 +24,8 @@ small_model = "claude-haiku-5-5"
 command = "bare-mcp"
 # Arguments for that command.
 args = []
+# Optional: a file of NAME=value lines (mode 0600). The model types ${NAME}; bare fills in the value.
+# secrets_file = "/path/to/secrets.env"
 
 [agent]
 # Most model calls in one run.

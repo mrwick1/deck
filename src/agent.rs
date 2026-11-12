@@ -71,7 +71,8 @@ impl Agent {
         model: ModelClient,
         host: Arc<dyn BrowserHost>,
     ) -> Self {
-        let tools = Tools::new(host, store.clone(), config.workspace(), &config.data_dir);
+        let tools = Tools::new(host, store.clone(), config.workspace(), &config.data_dir)
+            .with_secrets(config.bare.secrets_file.clone());
         Self {
             config,
             store,
@@ -229,7 +230,17 @@ impl Agent {
     }
 
     async fn history(&self, chat_id: i64) -> anyhow::Result<Vec<Value>> {
-        let mut out = vec![json!({"role":"system","content":SYSTEM})];
+        let names = self.tools.secret_names();
+        let system = if names.is_empty() {
+            SYSTEM.to_string()
+        } else {
+            let list: Vec<String> = names.iter().map(|n| format!("`${{{n}}}`")).collect();
+            format!(
+                "{SYSTEM}\nSecrets that you can type: {}.\n",
+                list.join(", ")
+            )
+        };
+        let mut out = vec![json!({"role":"system","content":system})];
         let stored = self.store.list_messages(chat_id).await?.unwrap_or_default();
         for m in stored {
             let v: Value = serde_json::from_str(&m.content)?;

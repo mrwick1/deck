@@ -70,6 +70,8 @@ pub struct Tools {
     store: Store,
     workspace: PathBuf,
     files_dir: PathBuf,
+    /// The secrets file of the owner, from the config. The model never sees its path or values.
+    secrets: Option<PathBuf>,
 }
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
@@ -177,7 +179,29 @@ impl Tools {
             store,
             workspace,
             files_dir: data_dir.join("files"),
+            secrets: None,
         }
+    }
+
+    /// The names in the secrets file, for the prompt. Values are never read into the model's context.
+    pub fn secret_names(&self) -> Vec<String> {
+        let text = self
+            .secrets
+            .as_ref()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .unwrap_or_default();
+        text.lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .filter_map(|l| l.split_once('='))
+            .map(|(k, _)| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect()
+    }
+
+    /// Give bare the secrets file, so that `${NAME}` in typed text becomes the value.
+    pub fn with_secrets(mut self, secrets: Option<PathBuf>) -> Self {
+        self.secrets = secrets;
+        self
     }
 
     pub async fn execute(&self, chat_id: i64, name: &str, args: &Value) -> Outcome {
@@ -224,6 +248,10 @@ impl Tools {
             tokio::fs::create_dir_all(&dir).await?;
             let path = dir.join(format!("{}.png", uuid::Uuid::new_v4()));
             a.insert("path".into(), json!(path));
+        }
+        // A new session reads the secrets file of the config. Its tabs copy the secrets.
+        if let (Some(f), "open" | "ensure_session") = (&self.secrets, bare_name) {
+            a.insert("secrets_file".into(), json!(f));
         }
         if bare_name == "open" {
             let dir = self.workspace.join("downloads");
@@ -510,6 +538,42 @@ mod tests {
             .await;
         assert!(out.ok, "{}", out.content);
         assert_eq!(out.content, r#"[{"t":"a"}]"#);
+    }
+
+    #[tokio::test]
+    async fn the_configured_secrets_file_goes_to_open_and_ensure_session() {
+        let (_, store, chat, ws) = setup().await;
+        let host = Arc::new(FakeHost::default());
+        let secrets = ws.join("secrets.env");
+        let tools =
+            Tools::new(host.clone(), store, ws.clone(), &ws).with_secrets(Some(secrets.clone()));
+        for name in ["browser_open", "browser_ensure_session"] {
+            let out = tools
+                .execute(
+                    chat,
+                    name,
+                    &json!({"url": "https://x.test", "secrets_file": "/etc/shadow"}),
+                )
+                .await;
+            assert!(out.ok, "{}", out.content);
+        }
+        let calls = host.calls.lock().unwrap();
+        assert_eq!(calls[0].1["secrets_file"], json!(secrets));
+        assert_eq!(calls[1].1["secrets_file"], json!(secrets));
+    }
+
+    #[tokio::test]
+    async fn secret_names_come_without_values() {
+        let (_, store, _, ws) = setup().await;
+        let f = ws.join("secrets.env");
+        std::fs::write(
+            &f,
+            "# note\nSITE_PASS=hunter2\n\n MAIL_USER = a@b\nbad line\n",
+        )
+        .unwrap();
+        let tools =
+            Tools::new(Arc::new(FakeHost::default()), store, ws.clone(), &ws).with_secrets(Some(f));
+        assert_eq!(tools.secret_names(), ["SITE_PASS", "MAIL_USER"]);
     }
 
     #[tokio::test]
