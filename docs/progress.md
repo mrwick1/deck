@@ -142,3 +142,7 @@ No server-path speedup is claimed. Restores were warm in the host page cache. Th
 The first memory experiment stopped on the existing host-wide swap guard after 1,551 of 1,800 planned workload seconds in boot 1. Boots 2 and 3 did not start. The raw summary correctly reports failure, with no sampler or retention error and an unchanged base. Parent checks reproduce all 126 Python tests. See [memory-benchmark-results.md](memory-benchmark-results.md).
 
 This partial run shows stable bare process memory after warm-up, continued host VM/cache growth and reply-file growth. It does not establish a host-memory plateau or a leak. The Deck reply spool requires bounded-transport investigation, not an engine-leak claim. Save/restore after the memory workload remains untested. Run one short smoke before a fresh full attempt. Keep the original guard and incomplete evidence; do not relax the threshold to obtain a pass.
+
+## Memory smoke: desktop comparison unresolved
+
+Two fresh one-minute smoke attempts passed workload bounds but stopped at the pre-save terminal-pixel check. Refocusing did not resolve the mismatch. Save/restore after this workload is still unvalidated; the long experiment remains incomplete. All 128 Python tests pass in the implementation report. The next diagnostic must retain pre/post workload screenshots and compositor trees, determine whether layout, focus, cursor or content changed, and test a correction without dropping the volatile-state gate.
