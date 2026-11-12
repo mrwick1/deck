@@ -148,6 +148,43 @@ def checks(g, expect_volatile=True, ref_nano=None):
     return r
 
 
+INVENTORY = ("systemctl list-units --type=service --state=running --no-legend --plain | awk '{print $1}'; echo ---procs; "
+             "ps -eo pid,ppid,rss,cputimes,comm --sort=-rss | head -30; echo ---mem; free -k | head -2; echo ---timers; "
+             "systemctl list-timers --all --no-legend --plain | awk '{print $NF}'; echo ---failed; systemctl --failed --no-legend --plain")
+
+
+def guest_jiffies(g):
+    v_ = [int(x) for x in g.sh("head -1 /proc/stat")[1].split()[1:]]
+    return sum(v_) - v_[3] - v_[4], sum(v_)  # busy, total (USER_HZ ticks, all vCPUs)
+
+
+def owned_left(pids):
+    """Those of our own recorded pids that still run. Command text is never matched."""
+    return [x for x in pids if v.alive(x)]
+
+
+def codec_order(codecs, rnd):
+    """Rotate the candidate list so no codec always runs first in a round."""
+    k = (rnd - 1) % len(codecs)
+    return codecs[k:] + codecs[:k]
+
+
+def by_codec(cycles):
+    r = {}
+    for c in cycles:
+        d = r.setdefault(c["codec"], {"save_s": [], "restore_s": [], "state_bytes": [], "save_cpu_s": [], "restore_cpu_s": [],
+                                      "save_peak_rss_kib": [], "restore_peak_rss_kib": [], "markers_ok": True})
+        d["save_s"].append(c["save"]["total_s"])
+        d["restore_s"].append(c["restore"]["to_usable_s"])
+        d["state_bytes"].append(c["save"]["state_bytes"])
+        d["save_cpu_s"].append(c["save"]["cpu_s"])
+        d["restore_cpu_s"].append(c["restore"]["cpu_s_since_launch"])
+        d["save_peak_rss_kib"].append(c["save"]["peak_rss_kib_sampled"])
+        d["restore_peak_rss_kib"].append(c["restore"]["peak_rss_kib_sampled"])
+        d["markers_ok"] &= all(x for x in c["post"].values())
+    return r
+
+
 def med(xs):
     return round(statistics.median(xs), 3) if xs else None
 
@@ -241,25 +278,36 @@ def run(a):
             t = time.time()
             q.cmd("screendump", filename=str(p.art / "rate.png"), format="png")
             ts.append(time.time() - t)
+        out["migrate_capabilities"] = {c["capability"]: c["state"] for c in q.cmd("query-migrate-capabilities")}
         q.close()
         out["screendump_10_s"] = [round(x, 3) for x in ts]
 
         # ---- idle RSS after 60 s ----
+        cg, gj0 = v.cgroup_dir(pid), guest_jiffies(g)
+        cpu0 = v.cpu_usec(cg)
         time.sleep(60)
+        cpu1, gj1 = v.cpu_usec(cg), guest_jiffies(g)
+        out["idle_cpu_60s"] = {"host_vm_cpu_s": None if None in (cpu0, cpu1) else round((cpu1 - cpu0) / 1e6, 3),
+                               "guest_busy_ticks": gj1[0] - gj0[0], "guest_total_ticks": gj1[1] - gj0[1]}
+        out["inventory"] = g.sh(INVENTORY)[1]
         out["idle_rss_kib_60s"] = v.tree_rss_kib(pid)
         out["disk_allocated_after_workflow_bytes"] = v.allocated_bytes(p.disk)
         out["disk_virtual_bytes"] = json.loads(subprocess.run(["qemu-img", "info", "-U", "--output=json", str(p.disk)], capture_output=True, text=True).stdout)["virtual-size"]
 
         # ---- five save/restore cycles ----
         cycles = []
-        for i in range(1, a.cycles + 1):
-            c = {"cycle": i}
+        codecs = a.codec.split(",")
+        for i, codec in ((i, k) for i in range(1, a.cycles + 1) for k in codec_order(codecs, i)):
+            c = {"cycle": i, "codec": codec}
             c["pre"] = checks(g, ref_nano=ref_nano)
             g.q.sh("true")
-            s = v.save_vm(p, qga=g.q)
+            owned = v.tree_pids(pid)  # QEMU and the helpers it started
+            s = v.save_vm(p, qga=g.q, codec=codec)
             c["save"] = s
             c["vm_gone"] = not v.proc_ok(p, pid) and not v.alive(pid)
-            c["helpers_gone"] = subprocess.run(["pgrep", "-f", f"{v.VM_NAME}|socat - TCP:127.0.0.1:{a.fixture_port}"], capture_output=True).returncode != 0
+            left = owned_left(owned)
+            c["helpers_gone"] = not left
+            c["helpers_left"] = left
             c["resident_after_save_kib"] = 0 if c["vm_gone"] else v.tree_rss_kib(pid)
             c["state_files_bytes"] = sum(f.stat().st_size for f in p.state.iterdir())
             c["fixture_alive"] = fixture_up(a.fixture_port)
@@ -275,13 +323,15 @@ def run(a):
             t = time.time()
             c["capture_after_restore"] = json.loads(subprocess.run([sys.executable, "-I", str(HERE / "vmproto.py"), "--dir", str(p.root), "capture", "--tag", f"cycle{i}"], capture_output=True, text=True).stdout)
             cycles.append(c)
-            print(f"cycle {i}: save {s['total_s']}s restore {r['to_usable_s']}s state {s['state_bytes'] >> 20} MiB", flush=True)
+            print(f"cycle {i} {codec}: save {s['total_s']}s restore {r['to_usable_s']}s state {s['state_bytes'] >> 20} MiB", flush=True)
         out["cycles"] = cycles
         sv = [c["save"]["total_s"] for c in cycles]
         rs = [c["restore"]["to_usable_s"] for c in cycles]
         sz = [c["save"]["state_bytes"] for c in cycles]
         out["summary"] = {"save_s": sv, "save_median": med(sv), "save_max": max(sv), "restore_s": rs, "restore_median": med(rs), "restore_max": max(rs),
-                          "state_bytes": sz, "state_max": max(sz),
+                          "state_bytes": sz, "state_max": max(sz), "codec": a.codec, "by_codec": by_codec(cycles),
+                          "save_cpu_s": [c["save"]["cpu_s"] for c in cycles], "save_peak_rss_kib": [c["save"]["peak_rss_kib_sampled"] for c in cycles],
+                          "restore_cpu_s": [c["restore"]["cpu_s_since_launch"] for c in cycles], "restore_peak_rss_kib": [c["restore"]["peak_rss_kib_sampled"] for c in cycles],
                           "all_markers_survived": all(all(x for x in c["post"].values()) for c in cycles)}
 
         # ---- kill and cold boot ----
@@ -324,5 +374,6 @@ if __name__ == "__main__":
     ap.add_argument("--dir", default=str(v.default_dir()))
     ap.add_argument("--fixture-port", type=int, default=18080)
     ap.add_argument("--cycles", type=int, default=5)
+    ap.add_argument("--codec", default="none", help="state file codec: none, zstd-N or lz4; a comma list runs every codec once per round on the same VM")
     ap.add_argument("--stop-fixture", action="store_true")
     run(ap.parse_args())

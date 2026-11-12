@@ -110,13 +110,15 @@ def state_matches_disk(meta, disk_path, base=None):
 
 
 def state_uri(codec, path, direction):
-    """Migration URI for a state file. 'none' is a plain file; 'zstd-N' pipes through the installed zstd."""
+    """Migration URI for a state file. 'none' is a plain file; 'zstd-N' and 'lz4' pipe through the installed tool."""
+    q = shlex.quote(str(path))
     if codec == "none":
         return f"file:{path}"
+    if codec == "lz4":
+        return f"exec:lz4 -q -f - {q}" if direction == "save" else f"exec:lz4 -q -d -c {q}"
     level = codec.removeprefix("zstd-")
     if not (codec.startswith("zstd-") and level.isdigit() and 1 <= int(level) <= 19):
         sys.exit(f"unknown state codec {codec!r}")
-    q = shlex.quote(str(path))
     return f"exec:zstd -q -f -{level} -o {q}" if direction == "save" else f"exec:zstd -q -d -c {q}"
 
 
@@ -576,11 +578,11 @@ def save_vm(p, qga=None, sync=True, codec="none"):
     t2 = time.time()
     q.cmd("quit")
     q.close()
-    gone = wait_gone(pid, 15)
     cpu1 = cpu_usec(cg)
-    while codec != "none" and cg and cg.exists() and time.time() - t2 < 30:  # the compressor may outlive QEMU
+    while cg and cg.exists() and time.time() - t2 < 30:  # the last reading before the scope vanishes; a compressor may outlive QEMU
         cpu1 = cpu_usec(cg) or cpu1
         time.sleep(0.02)
+    gone = wait_gone(pid, 15)
     t3 = time.time()
     if not gone:
         sys.exit("qemu did not exit after quit")

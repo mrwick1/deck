@@ -23,6 +23,9 @@ EOT
 install -m644 $S/sway-config /home/deck/.config/sway/config
 chown -R deck:deck /home/deck
 systemctl enable qemu-guest-agent.service || true
+# The desktop uses no managed home directories, no user-namespace allocation and no user database service.
+# Masking them saves guest memory. Login, networking, time sync and the guest agent stay. See docs/vm-optimization-results.md.
+systemctl mask systemd-homed.service systemd-homed-activate.service systemd-nsresourced.service systemd-nsresourced.socket systemd-userdbd.service systemd-userdbd.socket
 touch /etc/cloud/cloud-init.disabled
 printf 'deck-stage1 setup done\n' > /var/lib/stage1-setup-done
 pacman -Scc --noconfirm

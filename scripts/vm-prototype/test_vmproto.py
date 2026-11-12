@@ -280,8 +280,39 @@ class Codec(unittest.TestCase):
         self.assertEqual(v.state_uri("none", Path("/s/vm.state"), "load"), "file:/s/vm.state")
         self.assertEqual(v.state_uri("zstd-1", Path("/s/a b"), "save"), "exec:zstd -q -f -1 -o '/s/a b'")
         self.assertEqual(v.state_uri("zstd-1", Path("/s/a b"), "load"), "exec:zstd -q -d -c '/s/a b'")
-        with self.assertRaisesRegex(SystemExit, "codec"):
-            v.state_uri("lzma", Path("/s/x"), "load")
+        self.assertEqual(v.state_uri("lz4", Path("/s/a"), "save"), "exec:lz4 -q -f - /s/a")
+        self.assertEqual(v.state_uri("lz4", Path("/s/a"), "load"), "exec:lz4 -q -d -c /s/a")
+        for bad in ("lzma", "zstd-0", "zstd-20", "zstd-x", "lz4-3"):
+            with self.assertRaisesRegex(SystemExit, "codec"):
+                v.state_uri(bad, Path("/s/x"), "load")
+
+    def test_codec_rotation_pairs_every_codec_in_every_round(self):
+        codecs = ["none", "zstd-1", "lz4"]
+        rounds = [stage1.codec_order(codecs, i) for i in range(1, 4)]
+        self.assertTrue(all(sorted(r) == sorted(codecs) for r in rounds))
+        self.assertEqual(len({r[0] for r in rounds}), 3)  # no codec always goes first
+
+    def test_helpers_check_uses_owned_pids_not_command_text(self):
+        owned = subprocess.Popen(["sleep", "30"])
+        decoy = subprocess.Popen(["sh", "-c", "sleep 30 # deck-stage1 socat - TCP:127.0.0.1:18180"])
+        try:
+            self.assertEqual(stage1.owned_left([owned.pid]), [owned.pid])
+            owned.kill()
+            owned.wait()
+            self.assertEqual(stage1.owned_left([owned.pid]), [])  # the decoy with the VM name in its text does not count
+        finally:
+            decoy.kill()
+            decoy.wait()
+            owned.kill()
+            owned.wait()
+
+    def test_by_codec_groups_cycles_and_flags_marker_failures(self):
+        cyc = [{"codec": "none", "save": {"total_s": 4, "state_bytes": 10, "cpu_s": 1, "peak_rss_kib_sampled": 5}, "restore": {"to_usable_s": 2, "cpu_s_since_launch": 1, "peak_rss_kib_sampled": 5}, "post": {"a": True}},
+               {"codec": "lz4", "save": {"total_s": 5, "state_bytes": 4, "cpu_s": 2, "peak_rss_kib_sampled": 6}, "restore": {"to_usable_s": 3, "cpu_s_since_launch": 2, "peak_rss_kib_sampled": 6}, "post": {"a": False}}]
+        r = stage1.by_codec(cyc)
+        self.assertEqual(r["none"]["state_bytes"], [10])
+        self.assertTrue(r["none"]["markers_ok"])
+        self.assertFalse(r["lz4"]["markers_ok"])
 
     def test_restore_uses_the_codec_recorded_at_save(self):
         with tempfile.TemporaryDirectory() as d:
