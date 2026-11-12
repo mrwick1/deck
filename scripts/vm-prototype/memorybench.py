@@ -80,6 +80,16 @@ def prune_plan(files, incoming, cap):
     return drop
 
 
+def wait_path_gone(path, timeout=5.0, sleep=time.sleep, now=time.monotonic):
+    """True once the path is gone. A killed VM's cgroup scope disappears a moment after the process."""
+    end = now() + timeout
+    while path is not None and path.exists():
+        if now() >= end:
+            return False
+        sleep(0.1)
+    return True
+
+
 def cleanup_commands(directory, names):
     return [f"rm -f -- {shlex.quote(f'{directory}/{n}')}" for n in names if owned_download(directory, f"{directory}/{n}")]
 
@@ -734,7 +744,7 @@ def run_boot(ctx, n):
         if vm and v.proc_ok(p, vm["pid"]):
             tree, cg = v.tree_pids(vm["pid"]), v.cgroup_dir(vm["pid"])
             v.kill_vm(p)
-            final = {"killed_running_vm": True, "vm_left": [q for q in tree if v.alive(q)], "scope_gone": cg is None or not cg.exists()}
+            final = {"killed_running_vm": True, "vm_left": [q for q in tree if v.alive(q)], "scope_gone": wait_path_gone(cg)}
         s1.fixture_stop(p)
         rec["final"] = final or {"killed_running_vm": False}
         rec["overlay_allocated_bytes_final"] = v.allocated_bytes(p.disk) if p.disk.exists() else None

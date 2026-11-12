@@ -215,6 +215,26 @@ class GuestScript(unittest.TestCase):
         self.assertIsInstance(g["self_cpu_ticks"], int)
 
 
+class ScopeGone(unittest.TestCase):
+    def test_a_scope_that_disappears_late_is_reported_gone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "scope"
+            d.mkdir()
+            calls = []
+            def sleep(s):
+                calls.append(s)
+                if len(calls) == 3:
+                    d.rmdir()
+            self.assertTrue(mb.wait_path_gone(d, timeout=5, sleep=sleep))
+            self.assertEqual(len(calls), 3)
+
+    def test_a_scope_that_stays_is_reported_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = [0.0]
+            self.assertFalse(mb.wait_path_gone(Path(tmp), timeout=1, sleep=lambda s: t.__setitem__(0, t[0] + s), now=lambda: t[0]))
+        self.assertTrue(mb.wait_path_gone(None))
+
+
 class Guardrails(unittest.TestCase):
     QUIET = {"wall_s": 60, "swapout_pages": 0, "psi_memory_some_us": 1000, "psi_cpu_some_us": 100000, "mem_available_kib": 20 << 20}
 
