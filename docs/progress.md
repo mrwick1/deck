@@ -4,7 +4,7 @@ Update this file when a stage or verification step ends.
 
 ## One-bot runtime: 2026-11-12
 
-Stages 1–3 are complete for one configured bot with synthetic tasks. The integration branch contains the code and evidence. Upstream merge is pending. No deployment is required for local use.
+Stages 1–3 are complete for one configured bot with synthetic tasks. PR #22 merged the code and evidence. The merged revision is `1085df9`. No deployment is required for local use.
 
 | Stage | Verified result | Evidence |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Stages 1–3 are complete for one configured bot with synthetic tasks. The integ
 | 2 | Guest executor, durable command records, cancellation, artifacts and restore fencing | [Stage 2 results](stage2-results.md) |
 | 3 | Server integration, queue, controls, idle save, wake, event batching and subscribed screen capture | [Stage 3 results](stage3-results.md) |
 
-CI exposed a pause race during task selection. Dispatch now rechecks holds when it claims work. A regression failed before the fix. The updated branch must pass CI before merge.
+CI exposed a pause race during task selection. Dispatch now rechecks holds when it claims work. A regression failed before the fix. Both CI runs passed on the corrected branch before merge.
 
 The parent checked the UI in bare. The strict real-VM run used the real server and a scripted model. It completed browser, shell and file work, saved the idle computer and restored it for the next task. Deterministic tests cover stop, steer, holds and uncertain outcomes.
 
@@ -27,6 +27,10 @@ These are single-run observations, not capacity estimates or before/after perfor
 | Saved | 0 | No process | 21.4 MiB | 0.00% |
 
 No model calls or captures occurred in the idle and saved windows. Capture stopped after the viewer disconnected. A restored task completed in about 3 seconds. The workload was small and synthetic.
+
+### In progress: benchmark one integrated bot
+
+A release-binary lifecycle series completed four runs. Three form the baseline; one overlapped local tests and remains diagnostic evidence. Each round used a new private overlay. Timestamped API traces, one-second process counters and scenario results stay outside Git. See [the benchmark report](single-bot-benchmark.md). All lifecycle checks passed. No performance change or speedup is claimed. Sustained active-load tests remain pending.
 
 ### Next: optimize one integrated bot
 
