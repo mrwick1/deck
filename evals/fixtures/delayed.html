@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset=utf-8><title>Shipment</title></head><body>
+<h1>Shipment status</h1>
+<p id="status">Loading shipment…</p>
+<script>
+fetch('/api/shipment').then(function(r){return r.json()}).then(function(d){
+  document.getElementById('status').innerHTML='Shipped. Tracking code: <b>'+d.tracking+'</b>'});
+</script>
+</body></html>

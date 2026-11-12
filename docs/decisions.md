@@ -151,3 +151,9 @@ Each decision has a date, the decision and the reason.
 **Decision:** `[bare] secrets_file` names a file of `NAME=value` lines. deck passes it to `bare-mcp` on `open` and `ensure_session`. The model never sets it. The system prompt lists the names of the secrets, never the values. deck reads the names at the start of each run, so an edit to the file needs no restart.
 
 **Reason:** The prompt told the model to type `${NAME}`, but deck removed `secrets_file` from every call, so no value ever reached `bare`. `bare` puts the value in the page and shows `[secret]` in every reply. The value then never enters the model context, the chat store or the log.
+
+## D22. A fixed task set measures each change (2026-11-12)
+
+**Decision:** `evals/` holds a fixed set of tasks for the agent. Nine tasks run on a local fixture site, and eight tasks read public sites. `evals/run.py` starts deck with the real model and the real `bare-mcp`. It scores each task by a regex on the answer, by the tools that the agent used, and by what the fixture site received. It writes one result file per run and compares two runs. The scripts use only the Python standard library.
+
+**Reason:** A change to `bare` or to the prompt can help one site and break another. One manual check does not show that. A fixed set with the real model shows the change in passes, time and tool calls. The fixture tasks give the same result each run. The public tasks catch the problems of real sites. Their checks match the shape of an answer, so they survive data drift.

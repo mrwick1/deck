@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset=utf-8><title>Sign up</title>
+<style>.step{display:none}.step.on{display:block}.err{color:#b00}</style></head><body>
+<h1>Sign up</h1>
+<form id="f" method="post" action="/wizard/submit">
+<section class="step on" id="s1">
+<h2>Step 1 of 3: About you</h2>
+<label>Full name <input name="name" id="name"></label><br>
+<label>Company <input name="company" id="company"></label><br>
+<label>Seats <input name="seats" id="seats" type="number" min="1"></label><br>
+<p class="err" id="e1"></p>
+<button type="button" id="n1">Next</button>
+</section>
+<section class="step" id="s2">
+<h2>Step 2 of 3: Plan</h2>
+<label>Plan <select name="plan" id="plan">
+<option value="">Choose a plan</option>
+<option value="starter">Starter</option>
+<option value="team">Team</option>
+<option value="enterprise">Enterprise</option>
+</select></label><br>
+<fieldset><legend>Billing</legend>
+<label><input type="radio" name="billing" value="monthly"> Monthly</label>
+<label><input type="radio" name="billing" value="yearly"> Yearly</label>
+</fieldset>
+<p class="err" id="e2"></p>
+<button type="button" id="b2">Back</button>
+<button type="button" id="n2">Next</button>
+</section>
+<section class="step" id="s3">
+<h2>Step 3 of 3: Review</h2>
+<p id="summary"></p>
+<label><input type="checkbox" name="terms" id="terms"> I agree to the terms</label><br>
+<p class="err" id="e3"></p>
+<button type="button" id="b3">Back</button>
+<button type="submit">Submit</button>
+</section>
+</form>
+<script>
+function show(n){document.querySelectorAll('.step').forEach(function(s){s.classList.toggle('on',s.id==='s'+n)})}
+function v(id){return document.getElementById(id).value.trim()}
+document.getElementById('n1').onclick=function(){
+  if(!v('name')||!v('company')||!(+v('seats')>0)){document.getElementById('e1').textContent='Fill in every field.';return}
+  document.getElementById('e1').textContent='';show(2)};
+document.getElementById('n2').onclick=function(){
+  var b=document.querySelector('input[name=billing]:checked');
+  if(!v('plan')||!b){document.getElementById('e2').textContent='Choose a plan and a billing period.';return}
+  document.getElementById('e2').textContent='';
+  document.getElementById('summary').textContent=v('name')+', '+v('company')+', '+v('seats')+' seats, '+v('plan')+', '+b.value;
+  show(3)};
+document.getElementById('b2').onclick=function(){show(1)};
+document.getElementById('b3').onclick=function(){show(2)};
+document.getElementById('f').onsubmit=function(e){
+  if(!document.getElementById('terms').checked){e.preventDefault();document.getElementById('e3').textContent='Accept the terms first.'}};
+</script>
+</body></html>
