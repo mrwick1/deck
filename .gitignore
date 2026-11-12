@@ -3,3 +3,5 @@
 deck.toml
 /web/node_modules
 /web/dist
+/evals/results
+__pycache__/

@@ -1,0 +1,155 @@
+# The deck eval tasks. See README.md for the fields and the checks.
+# {{base}} is the fixture site. {{name}} is a value of the run (see fixture_server.py).
+
+# ---- Local fixtures: deterministic ----
+
+[[task]]
+id = "login-secret"
+fixture = true
+timeout_s = 240
+prompt = "Sign in at {{base}}/login.html. The user name is eval. The password is the secret EVAL_PASSWORD. After you sign in, tell me the account number on the page."
+[task.check]
+answer = "{{account}}"
+logins_ok = 1
+
+[[task]]
+id = "wizard-form"
+fixture = true
+timeout_s = 300
+prompt = "Fill in the signup form at {{base}}/wizard.html and submit it. Full name: Ada Lovelace. Company: Analytical Engines Ltd. Seats: 12. Plan: Team. Billing: yearly. Accept the terms."
+[task.check.posted]
+path = "/wizard/submit"
+count = 1
+fields = { name = "Ada Lovelace", company = "Analytical Engines Ltd", seats = "12", plan = "team", billing = "yearly", terms = "on" }
+
+[[task]]
+id = "upload-file"
+fixture = true
+timeout_s = 240
+prompt = "Upload the file report.txt from your workspace with the form at {{base}}/upload.html. Write \"weekly\" in the note field, then send the report."
+[task.check.posted]
+path = "/upload"
+fields = { note = "weekly" }
+[task.check.uploaded]
+path = "/upload"
+filename = "report.txt"
+text = "{{upload_text}}"
+
+[[task]]
+id = "table-lookup"
+fixture = true
+timeout_s = 180
+prompt = "What was the Q3 revenue of the Lisbon office? The table is at {{base}}/table.html."
+[task.check]
+answer = "48[,.\\s]?213"
+
+[[task]]
+id = "pagination"
+fixture = true
+timeout_s = 240
+prompt = "Find the product \"Cobalt Lantern\" in the catalog at {{base}}/catalog and tell me its SKU."
+[task.check]
+answer = "{{sku}}"
+
+[[task]]
+id = "delayed-content"
+fixture = true
+timeout_s = 180
+prompt = "What is the tracking code of the shipment at {{base}}/delayed.html?"
+[task.check]
+answer = "{{tracking}}"
+
+[[task]]
+id = "confirm-dialog"
+fixture = true
+timeout_s = 180
+prompt = "Delete the draft \"Q3 plan\" at {{base}}/dialog.html. Confirm the deletion. Do not delete any other draft."
+[task.check.posted]
+path = "/drafts/delete"
+count = 1
+fields = { id = "7" }
+
+[[task]]
+id = "link-url"
+fixture = true
+timeout_s = 180
+prompt = "Give me the full URL of the \"Release notes\" link in the top navigation of {{base}}/links.html. Do not open the link."
+[task.check]
+answer = "{{base}}/docs/release-notes\\.html\\?v=4\\.2&ref=nav"
+forbid_tools = ["browser_eval"]
+
+[[task]]
+id = "new-tab"
+fixture = true
+timeout_s = 180
+prompt = "Open the \"Partner portal\" link on {{base}}/portal.html. It opens in a new tab. Tell me the welcome code on that page."
+[task.check]
+answer = "{{welcome}}"
+
+# ---- Public sites: read-only, no login, no posting ----
+# The checks match the shape of the answer, so they survive data drift.
+
+[[task]]
+id = "crates-serde-version"
+timeout_s = 240
+prompt = "What is the latest version of the serde crate on crates.io? Look it up on crates.io."
+[task.check]
+answer = "\\b1\\.\\d+\\.\\d+\\b"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "wikipedia-search"
+timeout_s = 300
+prompt = "Go to en.wikipedia.org, search for \"Ada Lovelace\" with the search box, open the article and quote its first sentence."
+[task.check]
+answer = "(?is)Ada.*(mathematician|writer)"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "github-open-issue"
+timeout_s = 300
+prompt = "Give me the URL of one open issue in https://github.com/rust-lang/rust/issues that is not pinned."
+[task.check]
+answer = "https://github\\.com/rust-lang/rust/issues/\\d+"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "hn-page-two"
+timeout_s = 240
+prompt = "What is the title of the first story on the second page of Hacker News (news.ycombinator.com)?"
+[task.check]
+answer = "\\S{3,}"
+trace = "ycombinator\\.com/(news)?\\?p=2\\b"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "docsrs-signature"
+timeout_s = 240
+prompt = "On docs.rs, what is the signature of the function serde_json::from_str? Quote it exactly."
+[task.check]
+answer = "fn from_str<.*>\\(\\s*s:\\s*&'a str\\s*\\)\\s*->\\s*Result<T"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "wikipedia-table"
+timeout_s = 300
+prompt = "On the English Wikipedia page \"List of tallest buildings\", what height in metres does the table give for the Burj Khalifa?"
+[task.check]
+answer = "\\b828\\b"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "python-docs-version"
+timeout_s = 240
+prompt = "In the Python documentation on docs.python.org, in which Python version was str.removeprefix added?"
+[task.check]
+answer = "\\b3\\.9\\b"
+require_tools = ["browser_open"]
+
+[[task]]
+id = "mdn-status-418"
+timeout_s = 240
+prompt = "On MDN (developer.mozilla.org), what is the name of the HTTP status code 418?"
+[task.check]
+answer = "(?i)teapot"
+require_tools = ["browser_open"]
