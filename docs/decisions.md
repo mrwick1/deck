@@ -512,3 +512,11 @@ Stage 2 is accepted as a developer control path. It is not a production bot runt
 **Next priority:** Integrate automatic idle sleep with durable command and task ownership. Keep screen capture off unless requested. Bound active commands, output, artifact transfers and background workers. Preserve pause, budget and unknown-outcome rules. Do not save a computer while unresolved work owns it.
 
 **Boundary:** Multiple-bot isolation remains a correctness requirement. Concurrent capacity testing and further compression matrices are deferred until one bot's integrated lifecycle is lean and verified.
+
+## D50. Integrate one lean bot in Stage 3 (2026-11-12)
+
+**Decision:** Proceed with Stage 3 under `stage3-plan.md`. Build lifecycle optimizations into the server, queue, tools and UI integration. Tune from measured behavior after the integrated path works.
+
+**Reason:** The owner approved continuing after choosing integration-time optimization over another separate tuning phase.
+
+**Boundary:** Start with one bot. Keep multi-bot capacity tests, further compression matrices and real account integrations outside this stage. Preserve pause, budget hold and unknown-outcome rules. Test with synthetic data and a scripted model.
