@@ -90,6 +90,16 @@ def wait_path_gone(path, timeout=5.0, sleep=time.sleep, now=time.monotonic):
     return True
 
 
+def pre_save_terminal(g, ref, sleep=time.sleep):
+    """Compare the terminal pixels with the setup reference. Bare windows opened by the workload take focus, so focus the terminal
+    first, as the setup does. Both hashes stay in the record, so a focus-only difference is visible and not hidden."""
+    as_is = s1.foot_crop_hash(g)
+    g.deck("swaymsg '[app_id=foot] focus'")
+    sleep(0.5)
+    after = s1.foot_crop_hash(g)
+    return {"same": after == ref, "as_is": as_is, "after_refocus": after, "reference": ref}
+
+
 def cleanup_commands(directory, names):
     return [f"rm -f -- {shlex.quote(f'{directory}/{n}')}" for n in names if owned_download(directory, f"{directory}/{n}")]
 
@@ -671,7 +681,8 @@ def run_boot(ctx, n):
             raise err
         load.finish()
         pre = s1.checks(g, ref_nano=state["ref_nano"])
-        rec["pre_save_failures"] = cb.check_failures(pre, s1.foot_crop_hash(g) == state["foot_h"], True, True)
+        rec["pre_save_terminal"] = pre_save_terminal(g, state["foot_h"])
+        rec["pre_save_failures"] = cb.check_failures(pre, rec["pre_save_terminal"]["same"], True, True)
         if rec["pre_save_failures"]:
             raise RuntimeError(f"markers failed before save: {rec['pre_save_failures']}")
 

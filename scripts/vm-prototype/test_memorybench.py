@@ -235,6 +235,34 @@ class ScopeGone(unittest.TestCase):
         self.assertTrue(mb.wait_path_gone(None))
 
 
+class PreSaveTerminal(unittest.TestCase):
+    class G:
+        """Fake guest: the terminal pixels match the reference only while the terminal has focus."""
+        def __init__(self):
+            self.focused, self.cmds = False, []
+        def deck(self, s, **kw):
+            self.cmds.append(s)
+            if "focus" in s:
+                self.focused = True
+            return 0, "", ""
+
+    def hasher(self, g):
+        return lambda _g: "ref" if g.focused else "other"
+
+    def test_workload_windows_take_focus_so_the_terminal_is_focused_before_the_hash(self):
+        g = self.G()
+        with patch.object(mb.s1, "foot_crop_hash", self.hasher(g)):
+            r = mb.pre_save_terminal(g, "ref", sleep=lambda s: None)
+        self.assertTrue(r["same"])
+        self.assertEqual((r["as_is"], r["after_refocus"], r["reference"]), ("other", "ref", "ref"))
+
+    def test_a_terminal_that_still_differs_after_the_refocus_fails_the_gate(self):
+        g = self.G()
+        with patch.object(mb.s1, "foot_crop_hash", lambda _g: "other"):
+            r = mb.pre_save_terminal(g, "ref", sleep=lambda s: None)
+        self.assertFalse(r["same"])
+
+
 class Guardrails(unittest.TestCase):
     QUIET = {"wall_s": 60, "swapout_pages": 0, "psi_memory_some_us": 1000, "psi_cpu_some_us": 100000, "mem_available_kib": 20 << 20}
 

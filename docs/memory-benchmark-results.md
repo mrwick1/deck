@@ -166,7 +166,37 @@ No production change follows from this evidence.
 
 ## Verification
 
-- The existing 87 Python tests and 39 new tests pass. One new test covers a sampler that dies before the harness reads its CPU clock. A repeat run of the suite found this race after the live run.
+- The existing 87 Python tests and 41 new tests pass (128 in total). One new test covers a sampler that dies before the harness reads its CPU clock. A repeat run of the suite found this race after the live run.
 - The new tests cover the fixture sizes, hashes and bounds, the session cap, the download cap and owned-file rules, the deadline loop, the growth math, missing counters, the stop rules, the sampler-failure invalidation, failure retention and the scope wait.
 - Mutating the cap, the prune rule, the deadline, the sampler error handler, the retention error handler, the stop rule and the owned-path check made the tests fail.
 - Compilation, `--help` (no VM starts) and `git diff --check` pass.
+
+## Smoke test (validation only)
+
+This section checks the harness. It is not a memory, growth, plateau or performance result. Two single-boot smoke attempts used `--boots 1 --workload-s 60 --max-wall-s 1200` on the same frozen base. Each used a fresh private overlay, a cold boot and the normal pace and sample cadence. Both attempts **failed**. The raw directories are kept outside Git.
+
+| Item | Attempt 1 | Attempt 2 |
+|---|---|---|
+| Host before the run, 60 s window | CPU pressure 11.0%, memory pressure 0.16%, swap-out 1,408 pages | CPU pressure 0.4%, memory pressure 3.25%, swap-out 0 pages |
+| Stop reasons from the existing thresholds | none | none |
+| Wall time | 119 s | 110 s |
+| Launch to desktop ready | 20.8 s | 15.3 s |
+| Workload | 9 operations in 62.3 s (navigate 4, snapshot, read, download, new tab, extra session 1 each) | 9 operations in 61.9 s, same mix |
+| Bare errors, sampler errors, retention errors | none | none |
+| Result | stopped before save: `terminal_pixels` | stopped before save: `terminal_pixels` |
+| Base digest | unchanged | unchanged |
+| Leftovers | no VM, no scope, no fixture | no VM, no scope, no fixture |
+
+The host was quiet enough by the existing thresholds. The harness did not wait and did not relax any guard.
+
+**What failed.** After the workload, the pixel hash of the terminal window differed from the hash taken after the unsaved note was typed. The harness stopped before the save. The save, restore, first-bare-action and post-restore marker steps therefore **did not run again**. All their code paths remain unvalidated against a VM.
+
+**What was tried.** In attempt 1 the workload windows might have taken focus away from the terminal. A regression test now requires the terminal to be focused before the hash, as the setup does. The harness also records the hash as it was, the hash after the refocus and the reference. In attempt 2 the three hashes were all different. So focus alone does not explain the difference. The cause is **unproven**. Hypotheses to verify: a layout change from the opened and closed bare windows, or a change in the terminal content. The guard was not weakened. The gate still compares with the setup hash.
+
+**Other checks.** The bounded tab count (at most 3), the bounded downloads (one 2 MiB file, hash equal), the end-page marker and the session cap held in both attempts. The save-phase `scope_gone` check is immediate, while the final cleanup waits up to 5 s. No attempt reached the save phase, so the real behavior is **not verified** and the code is unchanged.
+
+**Next step.** The two-attempt limit is used. Before another live run, capture a screenshot and the window tree of the guest after the workload, to find why the terminal pixels change. The full three-boot run remains **pending**.
+
+## Outlier: 147 s host-side bare close
+
+No retained log under the benchmark directories records a 147 s bare close. The matching numbers found there belong to other measurements (sample times, cycles, screen capture totals). The cause of the outlier is **unknown**: launch, wait, network and tool timeout are not separable from the data kept. This report makes no claim about the bare engine.
