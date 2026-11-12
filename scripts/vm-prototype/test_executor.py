@@ -126,7 +126,7 @@ class Containment(Base):
     def alive(self, pid):
         try:
             os.kill(pid, 0)
-            return open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0] != "Z"
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
         except OSError:
             return False
 
@@ -138,6 +138,20 @@ class Containment(Base):
             except (OSError, ValueError):
                 time.sleep(0.02)
         raise AssertionError("no pid file")
+
+    def test_cancelled_browser_relay_has_an_unknown_external_outcome(self):
+        relay = Path(self.tmp, "bare-call")
+        relay.write_text("#!/bin/sh\nexec sleep 300\n")
+        relay.chmod(0o755)
+        c, _ = self.hello(1)
+        c.send(type="exec", epoch=1, bot_id=BOT, task_id="t1", command_id="relay",
+               argv=[str(relay)], deadline_ms=30000,
+               digest=de.exec_digest(BOT, "t1", "relay", 30000, [str(relay)]))
+        c.of_type("exec_ack")
+        c.send(type="cancel", epoch=1, command_id="relay")
+        c.of_type("cancel_ack")
+        r = c.of_type("result")["receipt"]
+        self.assertEqual((r["state"], r["detail"]), ("interrupted", "browser_outcome_unknown"))
 
     def test_cancel_kills_a_setsid_descendant(self):
         if not self.ex.cg_root:

@@ -67,13 +67,13 @@ export function useDeck(bot?: {
     null,
   );
 
-  // Chat first: the bot's chat opens once, unless the owner asked for the overview.
+  // Start on the overview when configured. Opening a bot then selects its chat.
   const opened = useRef(false);
   useEffect(() => {
     if (bot?.chatId == null || opened.current) return;
     opened.current = true;
-    setChatId(bot.chatId);
-  }, [bot?.chatId]);
+    if (!bot.home) setChatId(bot.chatId);
+  }, [bot?.chatId, bot?.home]);
 
   useEffect(() => {
     api
@@ -275,6 +275,7 @@ export function useDeck(bot?: {
     openChat: setChatId,
     title,
     page,
+    browserActive: running && (view.run?.items.some((it) => it.kind === "step" && !it.done && it.name.startsWith("browser_")) ?? false),
     connected: chatId === null || connected,
     dock: { running, startedAt: view.run?.startedAt, approval, answer },
   };

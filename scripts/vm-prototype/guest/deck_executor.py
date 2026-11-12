@@ -636,6 +636,10 @@ class Executor:
                 state = "termination_unconfirmed"
             else:
                 state = "succeeded" if exit_code == 0 else "failed"
+            if os.path.basename(argv[0]) == "bare-call" and reason in ("cancelled", "timed_out"):
+                # The bridge can stop while the persistent browser still completes its request.
+                # Confirming bridge termination does not establish the external action's outcome.
+                state, detail = "interrupted", "browser_outcome_unknown"
             if reason == "cancelled":
                 rc["cancel"]["confirmed"] = bool(confirmed)
             rc.update(state=state, finished_at=time.time(), exit_code=exit_code, signal=sig, group_confirmed=bool(confirmed),

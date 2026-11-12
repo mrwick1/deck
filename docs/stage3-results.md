@@ -1,6 +1,6 @@
 # Stage 3 results: one lean bot through the real server, tools and UI
 
-Date: 2026-11-12. Branch `t3/desktop-vm-feasibility`. Status: **COMPLETE for the gates below, with the gaps listed under "Not done" and "Not tested".**
+Date: 2026-11-12. Branch `t3/desktop-vm-feasibility`. Status: implementation reviewed; parent verification and remaining limits are recorded below.
 
 ## What is real now
 
@@ -39,7 +39,7 @@ When `deck.toml` has a `[vm]` section, the server owns one bot with one guest co
 | One scripted E2E task (browser, file, shell) | PASS | Real run |
 | Sleep and wake round trip with chat continuity | PASS | Real run: the second task woke the saved computer in 3.0 s and the chat kept all earlier messages |
 | Resource observations | PASS | Table below |
-| UI exercised in a browser | **NOT TESTED** | Type check, unit tests and a production build pass. No browser opened the page. |
+| UI exercised in bare | PASS for reviewed controls and navigation | Parent real-server controls check; built-UI overview navigation check. See parent review for scope. |
 
 ## Real VM run
 
@@ -81,9 +81,9 @@ One server, one VM (QEMU/KVM, 16 CPUs on the host), synthetic data, no real mode
 
 ## Not tested
 
-- The UI in a browser. Only `tsc`, `vitest` (22 tests, 4 for the bot status text) and `vite build` ran.
+- Full browser coverage of every UI action remains open. Parent tested bare navigation, pause/resume, message submission, delivery options, inbox and a real screen frame. Stop, steer and event intake retain deterministic coverage rather than real-VM UI coverage.
 - Steer, stop, `ask_owner` and events against a real VM. They ran against the real Python executor on a unix socket with a fake `bare` session and a fake computer. The real VM run covered one task, an idle save and a wake.
-- Per-command cgroup containment inside the real guest. The real executor test uses the host's cgroup tree. The guest run did not check which containment it used.
+- Real-VM cancellation of a detached descendant remains untested. Parent checked live guest receipts and confirmed cgroup containment was active; detached-process cancellation tests use the real executor on the host kernel.
 - A fresh `setup` that provisions the new files (`setup-guest.sh` has a `bash -n` check only). The real run used `install-executor` on an existing base.
 - A real model, long tasks, and a save that fails halfway.
 - Event intake over the network from outside the host.
@@ -97,3 +97,31 @@ python3 -m unittest discover -s scripts/vm-prototype -p 'test_*.py'
 # Real VM run. Needs QEMU/KVM and a frozen base. The runtime directory stays outside Git.
 python3 scripts/vm-prototype/stage3.py --base /path/to/frozen-base.qcow2 --dir "$HOME/.cache/deck/deck-stage3"
 ```
+
+
+## Parent review
+
+The parent tested the real server UI in bare through a loopback test proxy. The owner could open the overview and bot chat, pause and resume automation, submit a message, select queue mode and priority, open the inbox and view a real desktop frame. A message submitted while paused waited and then completed after resume. No other browser was used.
+
+Review found two behavioral errors. A normally running command appeared as an unknown-outcome decision. A new regression failed first; the status and inbox now distinguish live work from outcomes that need attention. The owner cannot dismiss a live command through that inbox. A second failing regression showed later queued work starting while an earlier outcome remained unresolved. Such work now waits for resolution.
+
+The initial UI opened the chat instead of the overview. The parent corrected the landing behavior and hid the chat composer on the overview. A separate bare navigation check on the built UI confirmed overview, open chat and return to overview. That navigation check used synthetic API responses. The earlier controls test used the real server. The screen is requested automatically during browser tool activity in an open bot chat, or manually by the owner.
+
+Cancelling a bare relay command is not proof that the persistent browser stopped its operation. The parent added a failing guest regression and changed interrupted browser relay receipts to an unknown external outcome. This blocks silent retry, queued work and idle saving until the outcome is resolved. Shell cancellation still uses the command cgroup.
+
+The parent inspected receipts inside the real guest and confirmed cgroup containment on executed commands. A new coordinator test covers a failed save: it reports failure, retains the completed task and does not replay work. It does not simulate a real half-written migration file.
+
+The first parent run included interactive UI traffic through a test proxy. Its capture and resource windows were contaminated by those viewers and are not a performance baseline. The proxy delayed upstream disconnect detection. Do not use those figures to assert idle capture behavior. The parent added strict assertions to the end-to-end script and ran the final verification separately, without that UI proxy.
+
+The implementation agent added numbered decision entries in this branch despite the parent owning the canonical log. The parent removed those duplicate entries. Their implementation behavior is described here and in the approved Stage 3 plan. No approved product decision was removed.
+
+
+## Final parent verification
+
+The strict end-to-end run passed on a fresh private overlay and host journal without the UI proxy. The browser/shell/file task completed, the file appeared in chat, idle save stopped the VM, and the next task restored it with earlier chat messages intact. There were zero model calls and captures during the awake-idle and saved observation windows. The direct viewer produced five captures and one changed frame; closing it stopped the worker and the capture counter stayed flat. These are single-run functional observations, not a capacity benchmark.
+
+A final waiting-task regression failed first: answering a waiting task could resume it while automation was paused. Resume dispatch now obeys both pause and budget gates. The queued answer remains stored until the gate opens.
+
+Final checks: 130 Rust unit tests and three non-live integration tests pass. The Python suite has 62 tests. Web type checking, 22 unit tests and the production build pass. Formatting, clippy, Python compilation, shell syntax and diff checks pass. The web build still reports a large-bundle warning; bundle splitting was not part of this stage.
+
+The coordinator's failed-save behavior is covered by a fake failure. Real corruption or failure halfway through a migration remains untested. Fresh provisioning, real accounts/models, automatic spending accounting and memory integration remain open. No deployment or production merge occurred.

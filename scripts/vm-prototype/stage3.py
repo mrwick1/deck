@@ -252,6 +252,14 @@ screen_interval_ms = 1000
                                                "task_one_visible_in_chat": TASK1 in json.dumps(msgs)}
         assert t2["state"] == "done", results["steps"]["wake_round_trip"]
         results["final_status"] = {k: s[k] for k in ("computer", "counters", "screen", "unresolved")}
+        screen = results["steps"]["screen"]
+        assert screen["captures_before_viewer"] == 0, screen
+        assert screen["captures_with_viewer"] > screen["captures_before_viewer"], screen
+        assert not screen["worker_after_close"] and screen["captures_stable_after_close"], screen
+        assert results["steps"]["task_one"]["file_message_sent"], results["steps"]["task_one"]
+        for w in results["windows"]:
+            if w["label"] in ("saved", "saved (before any task)", "awake, idle"):
+                assert w["model_calls_delta"] == 0 and w["captures_delta"] == 0, w
         results["ok"] = True
     finally:
         results.setdefault("ok", False)

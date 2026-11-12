@@ -40,13 +40,14 @@ export default function App() {
     openChat,
     title,
     page,
+    browserActive,
     connected,
     dock,
   } = useDeck({
     chatId: bot?.chat_id ?? null,
     mode,
     priority,
-    home: false,
+    home: true,
   });
   const running = dock.running;
   const [drawer, setDrawer] = useState(false);
@@ -54,7 +55,7 @@ export default function App() {
   const [inboxOpen, setInboxOpen] = useState(false);
   const inChat = bot !== null && chatId === bot.chat_id;
   // The screen shows while the owner asks for it, or when a task waits for the owner.
-  const showScreen = inChat && bot.computer === "awake" && (screen || !!bot.waiting);
+  const showScreen = inChat && bot.computer === "awake" && (screen || browserActive || !!bot.waiting);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -151,10 +152,12 @@ export default function App() {
                   onOpen={() => openChat(bot.chat_id)}
                 />
               )}
-              <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
-                <LivePill page={page} running={running} />
-                <Thread components={THREAD} />
-              </div>
+              {(!bot || chatId !== null) && (
+                <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+                  <LivePill page={page} running={running} />
+                  <Thread components={THREAD} />
+                </div>
+              )}
               {inChat && (
                 <SendOptions
                   mode={mode}

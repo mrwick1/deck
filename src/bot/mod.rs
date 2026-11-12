@@ -288,12 +288,17 @@ impl Bot {
         let gates_open = !flags.automation_paused && !flags.budget_hold;
         let owner = self.store.owner_task(&self.id).await?;
         if !busy && !self.stopping.load(Relaxed) {
-            let resume = self.inner.lock().unwrap().resume.take();
+            let resume = if gates_open {
+                self.inner.lock().unwrap().resume.take()
+            } else {
+                None
+            };
             if let Some(id) = resume {
                 if let Some(t) = self.store.task(&id).await?.filter(|t| t.state == "waiting") {
                     self.dispatch(t, true).await?;
                 }
             } else if owner.is_none()
+                && self.store.unresolved(&self.id).await?.is_empty()
                 && gates_open
                 && let Some(t) = self.store.next_queued(&self.id).await?
             {
@@ -654,7 +659,7 @@ impl Bot {
                 return Ok(Submitted {
                     task_id: t.id,
                     kind: "resumed",
-                    held: None,
+                    held,
                 });
             }
         }
@@ -792,7 +797,7 @@ impl Bot {
         if t.state != "held" {
             return Err(BotError::Conflict("only a held task can retry".into()));
         }
-        let open = internal(self.store.unresolved(&self.id).await)?;
+        let open = self.decision_commands().await?;
         if open.iter().any(|c| c.task_id == id) {
             return Err(BotError::Conflict(
                 "an outcome of this task is unsettled: decide in the inbox first".into(),
@@ -876,6 +881,24 @@ impl Bot {
 
     // ---------- inbox and status ----------
 
+    async fn decision_commands(&self) -> R<Vec<crate::executor::journal::Cmd>> {
+        let current = self
+            .inner
+            .lock()
+            .unwrap()
+            .current
+            .as_ref()
+            .map(|c| c.task_id.clone());
+        let waking = self.comp() == Comp::Waking;
+        Ok(internal(self.store.unresolved(&self.id).await)?
+            .into_iter()
+            .filter(|c| {
+                c.state == "unknown"
+                    || (current.as_ref() != Some(&c.task_id) && !(waking && c.task_id == "boot"))
+            })
+            .collect())
+    }
+
     pub async fn inbox(&self) -> R<Vec<InboxItem>> {
         let mut out = vec![];
         let flags = internal(self.store.bot_flags(&self.id, "Bot").await)?;
@@ -888,7 +911,7 @@ impl Bot {
                 task_id: None,
             });
         }
-        for c in internal(self.store.unresolved(&self.id).await)? {
+        for c in self.decision_commands().await? {
             let title =
                 internal(self.store.task(&c.task_id).await)?.map_or("a task".into(), |t| t.title);
             let script: String = c
@@ -935,7 +958,7 @@ impl Bot {
                 "decision must be ran, not_run or dismissed",
             ));
         }
-        let open = internal(self.store.unresolved(&self.id).await)?;
+        let open = self.decision_commands().await?;
         if !open.iter().any(|c| c.command_id == command_id) {
             return Err(BotError::NotFound);
         }
@@ -956,7 +979,7 @@ impl Bot {
     pub async fn status(&self) -> R<Value> {
         let flags = internal(self.store.bot_flags(&self.id, "Bot").await)?;
         let tasks = internal(self.store.tasks(&self.id, 10).await)?;
-        let unresolved = internal(self.store.unresolved(&self.id).await)?.len();
+        let unresolved = self.decision_commands().await?.len();
         let (idle_left, last_error) = {
             let i = self.inner.lock().unwrap();
             (
@@ -1188,6 +1211,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_save_reports_the_error_without_replaying_work() {
+        let t = setup(vec![text("done")], 5000, false).await;
+        let a = t.bot.submit("work".into(), Mode::Queue, 1).await.unwrap();
+        done(&t, &a.task_id, "done").await;
+        t.g.vm.inner.lock().unwrap().fail_save = true;
+        assert!(t.bot.sleep().await.is_err());
+        assert_eq!(t.bot.comp(), Comp::Failed);
+        {
+            let vm = t.g.vm.inner.lock().unwrap();
+            assert!(vm.running && !vm.saved);
+        }
+        assert_eq!(state(&t, &a.task_id).await, "done");
+        assert_eq!(t.seen.lock().unwrap().len(), 1);
+        assert!(
+            t.bot.status().await.unwrap()["last_error"]
+                .as_str()
+                .unwrap()
+                .contains("scripted save failure")
+        );
+    }
+
+    #[tokio::test]
     async fn steering_reaches_the_next_model_call() {
         let t = setup(
             vec![call("shell", json!({"script": "sleep 1"})), text("ok")],
@@ -1249,8 +1294,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_live_command_is_not_an_owner_decision() {
+        let t = setup(
+            vec![call("shell", json!({"script":"sleep 10"})), text("done")],
+            5000,
+            false,
+        )
+        .await;
+        let task = t.bot.submit("work".into(), Mode::Queue, 1).await.unwrap();
+        until("running command", || async {
+            t.g.store
+                .commands("main".into())
+                .await
+                .unwrap()
+                .iter()
+                .any(|c| c.task_id == task.task_id && c.state == "running")
+        })
+        .await;
+        let cmd =
+            t.g.store
+                .commands("main".into())
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|c| c.task_id == task.task_id && c.state == "running")
+                .unwrap();
+        assert!(
+            !t.bot
+                .inbox()
+                .await
+                .unwrap()
+                .iter()
+                .any(|i| i.kind == "unknown_outcome")
+        );
+        assert_eq!(t.bot.status().await.unwrap()["unresolved"], 0);
+        assert!(t.bot.decide(&cmd.command_id, "not_run", "").await.is_err());
+        t.bot.stop().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn an_unknown_outcome_blocks_the_idle_save_until_the_owner_decides() {
-        let t = setup(vec![text("a")], 300, false).await;
+        let t = setup(vec![text("a"), text("b")], 300, false).await;
         let a = t.bot.submit("a".into(), Mode::Queue, 1).await.unwrap();
         done(&t, &a.task_id, "done").await;
         let task = a.task_id.clone();
@@ -1269,9 +1353,11 @@ mod tests {
             })
             .await
             .unwrap();
+        let later = t.bot.submit("later".into(), Mode::Queue, 1).await.unwrap();
         t.bot.kick();
         tokio::time::sleep(Duration::from_millis(900)).await;
         assert_eq!((sleeps(&t), t.bot.comp()), (0, Comp::Awake));
+        assert_eq!(state(&t, &later.task_id).await, "queued");
         let inbox = t.bot.inbox().await.unwrap();
         assert!(
             inbox
@@ -1482,11 +1568,17 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(900)).await;
         assert_eq!((sleeps(&t), t.bot.comp()), (0, Comp::Awake));
         assert!(matches!(t.bot.sleep().await, Err(BotError::Conflict(_))));
+        t.bot.set_paused(true).await.unwrap();
         let r = t.bot.submit("red".into(), Mode::Steer, 1).await.unwrap();
         assert_eq!(
             (r.kind, r.task_id.as_str()),
             ("resumed", a.task_id.as_str())
         );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(state(&t, &a.task_id).await, "waiting");
+        assert_eq!(t.seen.lock().unwrap().len(), 1);
+        assert_eq!(r.held, Some("automation paused"));
+        t.bot.set_paused(false).await.unwrap();
         done(&t, &a.task_id, "done").await;
         let last = t.seen.lock().unwrap().last().unwrap().to_string();
         assert!(last.contains("red"));

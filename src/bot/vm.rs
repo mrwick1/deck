@@ -164,6 +164,7 @@ pub struct FakeState {
     pub wakes: usize,
     pub saves: usize,
     pub fail_wake: bool,
+    pub fail_save: bool,
     pub wake_delay_ms: u64,
 }
 
@@ -217,6 +218,9 @@ impl Vm for FakeVm {
         Box::pin(async move {
             let mut s = self.inner.lock().unwrap();
             s.saves += 1;
+            if s.fail_save {
+                bail!("scripted save failure");
+            }
             s.running = false;
             s.saved = true;
             Ok(())

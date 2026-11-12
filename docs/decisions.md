@@ -151,33 +151,3 @@ Each decision has a date, the decision and the reason.
 **Decision:** `[bare] secrets_file` names a file of `NAME=value` lines. deck passes it to `bare-mcp` on `open` and `ensure_session`. The model never sets it. The system prompt lists the names of the secrets, never the values. deck reads the names at the start of each run, so an edit to the file needs no restart.
 
 **Reason:** The prompt told the model to type `${NAME}`, but deck removed `secrets_file` from every call, so no value ever reached `bare`. `bare` puts the value in the page and shows `[secret]` in every reply. The value then never enters the model context, the chat store or the log.
-
-## D22. The server owns one bot and its computer (2026-11-12)
-
-**Decision:** With a `[vm]` section, the server owns one bot. A coordinator in `src/bot/` holds the queue, the wake and sleep of the guest, the holds, and the event intake. The guest runs the browser and the shell. The host database holds all state that matters.
-
-**Reason:** The server must stay the owner of tasks and outcomes. A saved or lost guest then loses no task. Without `[vm]`, the old local `bare` path stays unchanged.
-
-## D23. Idle is event-driven, and the computer sleeps only when nothing needs it (2026-11-12)
-
-**Decision:** The loop waits on a notify and the next deadline. It never polls. The idle save starts only when no task runs, no task waits for the owner, no command outcome is unsettled, and no eligible task is queued. Pause automation and sleep the computer are two separate actions. A paused bot does not start work; a sleeping computer wakes on the next task.
-
-**Reason:** A waiting task must keep its desktop. An `UNKNOWN` command may have run, so the owner decides before anything saves or replays.
-
-## D24. Steering applies at the model-call boundary; a stop awaits the end (2026-11-12)
-
-**Decision:** A steering message is stored and the agent loop reads it before its next model call. A stop cancels the model work, cancels the guest commands, and reports each command that the guest did not confirm as ended.
-
-**Reason:** The boundary is the only point where the history is valid. A stop that returns early would hide a command that still runs.
-
-## D25. A budget hold is a persisted gate, not yet an accounting system (2026-11-12)
-
-**Decision:** The hold stops a run at the model-call boundary, blocks new work and blocks the wake. Only an explicit owner approval clears it. Nothing yet computes cost, so the owner sets the hold.
-
-**Reason:** The gate must exist before the accounting feeds it. Cost counting needs real model pricing and is left open.
-
-## D26. Screen capture runs only for a viewer (2026-11-12)
-
-**Decision:** QMP `screendump` runs in one worker per bot, only while a viewer is connected and the computer is awake. A slow viewer gets the latest frame, never a queue. An unchanged frame is not sent again.
-
-**Reason:** An idle bot must cost nothing. The count of captures and the count of delivered frames are separate numbers, so the cost of looking stays visible.
