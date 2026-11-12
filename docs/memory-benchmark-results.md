@@ -262,7 +262,7 @@ Run 2 used revision `229cd9c`, the pinned 640x797 terminal and the unchanged har
 | Samples | 49 in the load window; gap median 10.23 s, maximum 10.42 s; no sampler or retention error; no PID reuse |
 | Observer CPU | 2.79 s over 497.6 s (0.56% of one core) |
 
-The host available memory was above 13 GiB at the stop. The VM could not swap, because its cgroup sets `MemorySwapMax=0`. Other host work ran, and its share of the paging is unproven.
+The host available memory was 12.4 GiB at the stop. The VM could not swap, because its cgroup sets `MemorySwapMax=0`. Other host work ran, and its share of the paging is unproven.
 
 ### Memory readings (first five minutes only)
 
@@ -305,6 +305,6 @@ The bare output file grew 843 bytes per request. The guest runtime tmpfs grew wi
 
 ### Negative finding and next candidate
 
-The unchanged host-wide `swap_out` rule stopped two full attempts (1,551 s and 497.6 s) with VM swap at 0 and over 13 GiB free. On this busy host the rule measures other work. The full experiment cannot finish under it. A stop rule on the VM's own swap and cgroup events, with host paging kept as context, is the next candidate. It needs a decision before any change. It is a proposal, not a user requirement. The other option is a run on a quiet host.
+The unchanged host-wide `swap_out` rule stopped two full attempts (1,551 s and 497.6 s) with VM swap at 0 and over 12 GiB free. On this busy host the rule measures other work. The full experiment cannot finish under it. A stop rule on the VM's own swap and cgroup events, with host paging kept as context, is the next candidate. It needs a decision before any change. It is a proposal, not a user requirement. The other option is a run on a quiet host.
 
 Run history addition: **Run 2** stopped at 497.6 s of boot 1 on `swap_out`. No retry followed.
