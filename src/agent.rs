@@ -269,14 +269,16 @@ impl Agent {
 
     async fn history(&self, chat_id: i64) -> anyhow::Result<Vec<Value>> {
         let names = self.tools.secret_names();
-        let system = if names.is_empty() {
+        let base = if self.tools.has_guest() {
+            format!("{SYSTEM}{}", crate::prompt::COMPUTER)
+        } else {
             SYSTEM.to_string()
+        };
+        let system = if names.is_empty() {
+            base
         } else {
             let list: Vec<String> = names.iter().map(|n| format!("`${{{n}}}`")).collect();
-            format!(
-                "{SYSTEM}\nSecrets that you can type: {}.\n",
-                list.join(", ")
-            )
+            format!("{base}\nSecrets that you can type: {}.\n", list.join(", "))
         };
         let mut out = vec![json!({"role":"system","content":system})];
         let stored = self.store.list_messages(chat_id).await?.unwrap_or_default();

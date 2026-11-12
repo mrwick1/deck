@@ -1046,6 +1046,8 @@ mod tests {
         g: Guest,
         seen: Arc<Mutex<Vec<Value>>>,
         cap: Arc<Cap>,
+        config: Arc<Config>,
+        agent: Arc<Agent>,
     }
 
     /// A bot on the real Python executor, a scripted model and a fake computer.
@@ -1080,6 +1082,7 @@ mod tests {
             model,
             tools,
         ));
+        let agent2 = agent.clone();
         let cap = Arc::new(Cap(AtomicU64::new(0)));
         let mut bot = Bot::new(
             &config,
@@ -1095,7 +1098,14 @@ mod tests {
         b.idle = Duration::from_millis(idle_ms);
         b.screen = Screen::new(cap.clone(), Duration::from_millis(50), b.awake.subscribe());
         bot.start().await.unwrap();
-        T { bot, g, seen, cap }
+        T {
+            bot,
+            g,
+            seen,
+            cap,
+            config,
+            agent: agent2,
+        }
     }
 
     async fn until<F, Fut>(what: &str, mut f: F)
@@ -1518,5 +1528,130 @@ mod tests {
         assert!(!t.bot.screen.view().worker);
         drop(rx);
         let _ = Path::new("");
+    }
+
+    async fn http(
+        app: &axum::Router,
+        method: &str,
+        uri: &str,
+        auth: Option<&str>,
+        body: &str,
+    ) -> (u16, String) {
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+        let mut r = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Content-Type", "application/json");
+        r = match auth {
+            Some(a) => r.header("Authorization", a),
+            None => r.header("Remote-User", "test"),
+        };
+        let res = app
+            .clone()
+            .oneshot(r.body(axum::body::Body::from(body.to_owned())).unwrap())
+            .await
+            .unwrap();
+        let st = res.status().as_u16();
+        let b = res.into_body().collect().await.unwrap().to_bytes();
+        (st, String::from_utf8(b.to_vec()).unwrap())
+    }
+
+    fn app(t: &T) -> axum::Router {
+        use axum::extract::connect_info::MockConnectInfo;
+        crate::api::router_with(
+            t.config.clone(),
+            t.g.store.clone(),
+            t.agent.clone(),
+            Some(t.bot.clone()),
+        )
+        .layer(MockConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            5000,
+        ))))
+    }
+
+    #[tokio::test]
+    async fn the_http_api_drives_the_bot() {
+        let t = setup(vec![text("hello")], 5000, false).await;
+        let app = app(&t);
+        let (s, b) = http(&app, "GET", "/api/bot", None, "").await;
+        assert_eq!(s, 200, "{b}");
+        let v: Value = serde_json::from_str(&b).unwrap();
+        assert_eq!(
+            (v["computer"].as_str(), v["chat_id"].as_i64()),
+            (Some("awake"), Some(t.bot.chat_id()))
+        );
+        // The bot chat goes through the queue.
+        let uri = format!("/api/chats/{}/messages", t.bot.chat_id());
+        let (s, b) = http(
+            &app,
+            "POST",
+            &uri,
+            None,
+            r#"{"text":"hi","mode":"queue","priority":2}"#,
+        )
+        .await;
+        assert_eq!(s, 202, "{b}");
+        let id = serde_json::from_str::<Value>(&b).unwrap()["task_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        done(&t, &id, "done").await;
+        for (body, want) in [
+            (r#"{"text":"x","mode":"fast"}"#, 400),
+            (r#"{"text":"x","priority":9}"#, 400),
+            (r#"{}"#, 400),
+        ] {
+            let (s, b) = http(&app, "POST", &uri, None, body).await;
+            assert_eq!(s, want, "{b}");
+        }
+        let (s, _) = http(
+            &app,
+            "POST",
+            "/api/bot/automation",
+            None,
+            r#"{"paused":true}"#,
+        )
+        .await;
+        assert_eq!(s, 204);
+        let (s, b) = http(
+            &app,
+            "POST",
+            "/api/bot/inbox/commands/nope",
+            None,
+            r#"{"decision":"ran"}"#,
+        )
+        .await;
+        assert_eq!(s, 404, "{b}");
+        let (s, _) = http(&app, "POST", "/api/bot/tasks/nope/cancel", None, "").await;
+        assert_eq!(s, 404);
+        // Nothing but the user may call the API.
+        let r = axum::http::Request::builder()
+            .uri("/api/bot")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let res = tower::ServiceExt::oneshot(app.clone(), r).await.unwrap();
+        assert_eq!(res.status().as_u16(), 401);
+    }
+
+    #[tokio::test]
+    async fn the_event_endpoint_needs_its_token_and_drops_duplicates() {
+        let t = setup(vec![], 5000, true).await;
+        // SAFETY: only this test sets this variable.
+        unsafe { std::env::set_var("DECK_TEST_TOKEN", "s3cret-test-token") };
+        let app = app(&t);
+        let ev = r#"{"source":"mail","id":"1","kind":"mail","payload":{"a":1}}"#;
+        let (s, _) = http(&app, "POST", "/api/bot/events", Some("Bearer wrong"), ev).await;
+        assert_eq!(s, 401);
+        let (s, _) = http(&app, "POST", "/api/bot/events", None, ev).await;
+        assert_eq!(s, 401, "a user header is not a token");
+        let ok = Some("Bearer s3cret-test-token");
+        let (s, b) = http(&app, "POST", "/api/bot/events", ok, ev).await;
+        assert_eq!((s, b.as_str()), (202, r#"{"duplicate":false}"#));
+        let (s, b) = http(&app, "POST", "/api/bot/events", ok, ev).await;
+        assert_eq!((s, b.as_str()), (200, r#"{"duplicate":true}"#));
+        let bad = r#"{"source":"a b","id":"1","kind":"k"}"#;
+        assert_eq!(http(&app, "POST", "/api/bot/events", ok, bad).await.0, 400);
     }
 }
