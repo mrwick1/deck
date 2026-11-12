@@ -24,6 +24,8 @@ Give the `deck` agent every browser tool that it needs, in `bare-mcp`. Read page
 | 2026-11-12 | Smaller replies: `act` gives only the changed lines (80–99 % smaller); full snapshots are 37–58 % smaller | bare #386 |
 | 2026-11-12 | `deck` saves downloads in the workspace and sends uploads only from it | deck #13 |
 | 2026-11-12 | Full-page screenshots (up to 8000 px); the RegExp `v` flag, so crates.io renders; `adoptedStyleSheets`, and `snapshot` and `read` walk shadow roots, so archive.org shows its content | bare #390 |
+| 2026-11-12 | Relative upload paths resolve against the workspace | deck #15 |
+| 2026-11-12 | `eval` awaits a Promise; late dialogs and tabs show in the next reply; `script error:` lines in `open` and `act`; a click waits up to 1 s for a short cover and names a lasting one; crates.io renders fully | bare #399 |
 
 ## Checks with a real model
 
@@ -31,13 +33,19 @@ Give the `deck` agent every browser tool that it needs, in `bare-mcp`. Read page
 - Wikipedia: a search, two facts, and a screenshot of the infobox, sent into the chat in 14 s.
 - A local CSV download: the model downloaded it, sent it into the chat and gave the correct total.
 - crates.io: the version, the all-time downloads and the license of `serde`, and a full-page screenshot sent into the chat, in 13.7 s. All three facts were correct.
+- A local order form: the model typed, selected, checked, uploaded `note.txt` and submitted, and gave the right order line.
+- crates.io `tokio`: the version, the license and the repository URL, in 12.4 s.
 
 ## In progress
 
-- `eval` awaits a Promise and shows the message of a thrown error (bare#387).
-- A 9.6 s stall before a request (bare#388). archive.org `open` still takes 12.7 s.
-- crates.io: `focus({ focusVisible })` stops the page, the `<noscript>` banner shows, and the readme and the chart are empty (bare#391).
-- A second sweep of real sites.
+- `TransformStream` and `WritableStream` (bare#389). Top priority: without them the new React web app does not render in bare, and `tests/screenshot_e2e.rs` fails.
+- `id` globals and named forms (bare#392).
+- `eval` prints arrays and objects as JSON (bare#393).
+- `Intl.ListFormat` and `Intl.DisplayNames`: the GitHub issue list needs them (bare#394).
+- The Wikipedia search box loses its text (bare#395).
+- `act` replies show the old page after an in-page navigation (bare#396).
+- `find` and locator faults, and an error for unknown arguments (bare#397).
+- Reply size: text changes in the `act` diff, a short `open` reply, `max_chars` limits (bare#398).
 
 ## Next
 
