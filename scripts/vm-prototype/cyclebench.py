@@ -556,12 +556,16 @@ def run(a):
     stop = threading.Event()
     thread = threading.Thread(target=sampler, args=(ctx, stop), daemon=True)
     thread.start()
-    ctx.sampler_clock = time.pthread_getcpuclockid(thread.ident)
+    try:
+        ctx.sampler_clock = time.pthread_getcpuclockid(thread.ident)
+    except ProcessLookupError:
+        ctx.sampler_errors.append("sampler clock unavailable: thread exited during startup")
     error = None
     with Tracing() as tracing:
         tracing.ctx = ctx
         try:
             for n in range(1, a.boots + 1):
+                ctx.check_sampler()
                 run_boot(ctx, n)
         except BaseException as e:
             error = e

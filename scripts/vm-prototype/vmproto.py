@@ -607,7 +607,19 @@ def cmd_start(a, p):
     print(json.dumps({"pid": pid, "boot_to_agent_s": round(time.time() - t0, 2)}))
 
 
-def save_vm(p, qga=None, sync=True, codec="none"):
+def start_save_migration(q, uri, bandwidth_mib):
+    """Apply an explicit save cap before dispatch; direct benchmark callers can preserve QEMU's limit."""
+    if bandwidth_mib is not None:
+        if bandwidth_mib not in (128, 512):
+            raise ValueError("save bandwidth must be 128 or 512 MiB/s")
+        wanted = bandwidth_mib << 20
+        q.cmd("migrate-set-parameters", **{"max-bandwidth": wanted})
+        if q.cmd("query-migrate-parameters").get("max-bandwidth") != wanted:
+            raise RuntimeError("QEMU did not apply the save bandwidth limit")
+    q.cmd("migrate", uri=uri)
+
+
+def save_vm(p, qga=None, sync=True, codec="none", bandwidth_mib=None):
     """Quiesce, migrate RAM and devices to a file, quit QEMU. Returns timings, CPU time and sampled peak RSS."""
     uri = state_uri(codec, p.statefile, "save")
     vm = read_vm(p)
@@ -628,7 +640,11 @@ def save_vm(p, qga=None, sync=True, codec="none"):
     peak, last = rss_before, 0
     base = disk_base_id(p)
     q = Qmp(p.qmp)
-    q.cmd("migrate", uri=uri)
+    try:
+        start_save_migration(q, uri, bandwidth_mib)
+    except Exception:
+        q.close()
+        raise
     deadline = time.monotonic() + 60
     while True:
         if time.monotonic() >= deadline:
@@ -654,7 +670,7 @@ def save_vm(p, qga=None, sync=True, codec="none"):
     t3 = time.time()
     if not gone:
         sys.exit("qemu did not exit after quit")
-    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size}
+    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size, "requested_bandwidth_mib": bandwidth_mib}
     p.statemeta.write_text(json.dumps(meta))
     p.vm.unlink(missing_ok=True)
     return {"quiesce_s": round(t1 - t0, 3), "migrate_s": round(t2 - t1, 3), "exit_s": round(t3 - t2, 3),
@@ -708,7 +724,7 @@ def restore_vm(p, fixture_port):
 
 
 def cmd_stop(a, p):
-    print(json.dumps(save_vm(p, codec=a.codec)))
+    print(json.dumps(save_vm(p, codec=a.codec, bandwidth_mib=a.bandwidth_mib)))
 
 
 def cmd_restore(a, p):
@@ -797,6 +813,7 @@ def main(argv=None):
     s.add_argument("--timeout", type=int, default=120)
     s.set_defaults(f=cmd_start)
     s = sub.add_parser("stop", help="save RAM and devices, then exit QEMU")
+    s.add_argument("--bandwidth-mib", type=int, choices=(128, 512), default=512, help="save migration cap in MiB/s (default: 512; use 128 for the original cap)")
     s.add_argument("--codec", default="none", help="state file codec: none (default) or zstd-N; restore reads it from the saved record")
     s.set_defaults(f=cmd_stop)
     sub.add_parser("restore", help="restore the saved state onto its paired disk").set_defaults(f=cmd_restore)

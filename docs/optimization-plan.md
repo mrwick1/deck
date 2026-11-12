@@ -128,3 +128,7 @@ A sleep/wake CPU quotient alone cannot set the idle timeout. Response latency, m
 ## Memory pass disposition
 
 The versioned memory run produced two complete boots and one partial boot, then stopped on host CPU pressure. Preserve the incomplete planned repetition. Use the observations to bound hypotheses, not to claim capacity, a host plateau or uncontended performance. Proceed to the already planned short idle attribution without another long memory rerun. Keep CPU-pressure safety stops; do not relax them to complete the dataset.
+
+## Applied bounded save optimization
+
+D53 selects a 512 MiB/s cap for the one-bot server save command after a controlled 12-cycle comparison and a corrected integrated smoke. Direct benchmark calls preserve their current QEMU limit. The CLI can select 128 MiB/s. Faster saves release VM resources sooner; work is concentrated into a shorter burst. Keep peak CPU, physical disk behavior, concurrent saves and slow storage as explicit follow-ups. The codec remains `none`.

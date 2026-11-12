@@ -4,7 +4,7 @@ Date: 2026-11-12.
 
 ## Purpose
 
-Test one hypothesis. QEMU's default `max-bandwidth` of 128 MiB/s limits the saved-state write. Compare it with 512 MiB/s in a controlled run. Do not change any production setting from this evidence.
+Test one hypothesis. QEMU's default `max-bandwidth` of 128 MiB/s limits the saved-state write. Compare it with 512 MiB/s in a controlled run. The comparison itself changed no production setting. The parent adoption and its limits are recorded below.
 
 ## Method
 
@@ -96,13 +96,13 @@ The first-after-boot sample is too small to separate from the outlier.
 
 ## Conclusion
 
-On a warm cache, the 128 MiB/s default limits the save. Raising it to 512 MiB/s cut the median migrate step by 2.31 s (74%) and the save call by 2.31 s, from 3.39 s to 1.08 s. The achieved rate moved from about 137 MiB/s to about 518 MiB/s. The 512 MiB/s arm did not reach its limit's ceiling in any cycle, so the device or QEMU's single migration thread may bound it. The cost was small. VM CPU did not rise. Harness and observer CPU fell, because they polled for a shorter time. Peak RSS did not rise.
+On a warm cache, the 128 MiB/s default limits the save. Raising it to 512 MiB/s cut the median migrate step by 2.31 s (74%) and the save call by 2.31 s, from 3.39 s to 1.08 s. The achieved rate moved from about 137 MiB/s to about 518 MiB/s. Normalized rates cluster near the configured cap and sometimes exceed it over a short window. Bursts or timing boundaries may explain this, but the mechanism was not measured. These data do not establish a physical-device or thread throughput ceiling. The measured cumulative costs are limited to this workload. Median cumulative VM CPU did not rise; the shorter save concentrates work into a smaller interval. Peak CPU was not measured. Harness and observer CPU fell, because they polled for a shorter time. Median sampled peak RSS fell; its ranges overlap, and the largest sampled value was slightly higher in B.
 
 Restore latency did not change in a way the data can show. The first-shell ranges overlap. The first bare eval was slower by 0.05 s in the median, inside a range of 0.2 to 0.42 s.
 
-## Proposal (not applied)
+## One-bot adoption and parent validation
 
-Set `max-bandwidth` to 512 MiB/s on the save migration through QMP before `migrate`, in the production save path. It costs no extra memory or CPU that this run could measure. It shortens the time a bot holds its resources before the VM exits. It lets the host write at up to 512 MiB/s for about 0.8 s per save. This may matter when several bots save at once. Test that case before adoption.
+D53 selects 512 MiB/s for the configured one-bot CLI/server save path, with a CLI override of 128 MiB/s. Direct benchmark calls preserve their QEMU setting. Median cumulative VM CPU and median sampled peak RSS did not increase. Peak CPU and physical-device I/O were not measured. It shortens the time a bot holds its resources before the VM exits. It allows a higher migration-stream rate for a shorter interval. Cached stream throughput is not measured physical-disk throughput. This may matter when several bots save at once. Concurrent adoption remains deferred pending its own measurements.
 
 ## Not tested
 
@@ -112,3 +112,15 @@ Set `max-bandwidth` to 512 MiB/s on the save migration through QMP before `migra
 - A disk-cold state file and a slower disk.
 - Rates above 512 MiB/s. Only two values were compared.
 - Source-host contention remains unproven; one slow A cycle coincided with CPU pressure.
+
+## Parent implementation and validation
+
+The parent reproduced the raw arm medians and the cycle summary. The configured server invokes `vmproto.py stop`, which now requests and verifies 512 MiB/s before dispatching migration. `stop --bandwidth-mib 128` selects the original cap. Direct Python benchmark callers preserve the current QEMU setting by default, so reference and paired-arm experiments remain valid. Saved-state metadata records the requested cap. No codec or VM resource setting changed.
+
+The first integrated smoke failed because the new QMP call nested `max-bandwidth` in an extra `parameters` object. The save reported failure and no successful save was recorded; the smoke did not pass. The parent corrected the flat QMP arguments and added a regression that rejects the wrong shape. The failed log and runtime remain retained.
+
+A fresh integrated real-server/scripted-model smoke passed task, browser, shell, file, idle-save, restore and chat-continuity assertions. The saved-state metadata recorded 512 MiB/s. Capture stopped after the viewer disconnected, and idle/saved model and capture counters stayed flat. The frozen base digest remained correct and no QEMU process remained. This is functional validation of the selected save path, not a second speed benchmark.
+
+Two parallel code and evidence reviews found a direct-test-discovery issue and unsupported cost wording. The parent moved the direct unittest entry point after the new tests and qualified stream throughput, cumulative CPU, sampled peak RSS and concurrency claims. The sampler-start clock race also has a failing-before regression and a fix that retains failure evidence and cleanup.
+
+All 197 Python tests pass. The cycle suite passed six further consecutive runs after its startup-race fix. Direct execution of the VM harness suite ran all 35 tests. Compilation, help and diff checks pass. No Rust code changed, and its suite was not repeated for this Python-only implementation.

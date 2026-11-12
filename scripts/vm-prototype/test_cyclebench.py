@@ -185,6 +185,15 @@ class EvidenceRetention(unittest.TestCase):
             self.assertIn('sampler read failed', status['sampler_errors'][0])
             self.assertFalse(json.loads((root / 'summary.json').read_text())['ok'])
 
+    def test_sampler_clock_lookup_race_is_reported_and_cleanup_runs(self):
+        def boot(ctx, n):
+            ctx.sampler_errors.append('sampler died during startup')
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cb, 'cleanup_owned') as cleanup, patch.object(cb.time, 'pthread_getcpuclockid', side_effect=ProcessLookupError):
+            with self.assertRaisesRegex(RuntimeError, 'sampler'):
+                self.run_with(boot, tmp)
+            cleanup.assert_called_once()
+            self.assertTrue((Path(tmp) / 'cb/evidence-status.json').exists())
+
     def test_successful_run_records_samples_and_a_valid_status(self):
         def boot(ctx, n):
             import time

@@ -170,3 +170,11 @@ Bare process memory showed no significant late trend in the two complete boots. 
 The connected-executor Stage 3 experiment completed three boots and six valid 60-second idle windows. The parent reproduced all 168 Python tests and recalculated the window gates and host deltas from raw records. Model and capture counters stayed flat. No observer or retention error was recorded, the base stayed unchanged and no QEMU remained. See [idle-benchmark-results.md](idle-benchmark-results.md).
 
 The executor timeout is a small switch-rate source, not an explanation for most host work. QEMU main-thread switches and guest local timers recur, but no causal timer/device change is justified. This closes the planned idle attribution pass with a negative tuning finding. Memory still lacks its third full repetition and a host plateau. The next bounded candidate is a controlled migration-bandwidth comparison, not generic idle tuning. No production performance gain is claimed.
+
+## First measured optimization applied: one-bot save rate
+
+The controlled migration comparison passed 12 cycles across three boots. Raising the cap from 128 to 512 MiB/s reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. The parent reproduced the raw medians. D53 applies the selected cap to the one-bot CLI/server save path with read-back verification and an original-cap CLI override.
+
+An initial integration smoke caught a QMP argument-shape error. Its evidence is retained. After a strict regression and correction, a fresh integrated smoke passed save/restore and chat/file/browser gates and recorded the requested 512 MiB/s cap. All 197 Python tests pass; the previously flaky cycle suite passed six repeat runs. Parallel code and evidence reviews were incorporated. See [migration-bandwidth-results.md](migration-bandwidth-results.md).
+
+This is a warm-cache single-bot save improvement. Peak CPU and physical-disk bandwidth are unmeasured, concurrent saves and slow storage remain untested, and memory still lacks its third full repetition and a host plateau. No running local service was restarted or deployed.
