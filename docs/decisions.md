@@ -539,3 +539,11 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Complete the three-stage integration, then profile and optimize one bot. Measure working, awake-idle and saved states separately. Keep progress and performance evidence current. Defer concurrent capacity testing until this pass ends.
 
 **Reason:** The integrated lifecycle gives performance work a useful workload. Lower single-bot overhead improves the basis for scaling. Distributed ownership and resource controls still need separate validation.
+
+## D52. Keep browser sessions in files under `state_dir` (2026-11-12)
+
+**Decision:** `[bare] state_dir` names a folder. deck gives each `save_state` and `ensure_session` call a file `<name>.state` in it. The session name must match `A-Za-z0-9_-`, 1 to 64 characters. The model never sets the path. The folder is created with mode 0700 on Unix.
+
+**Reason:** Without a file, a login lives only in one `bare-mcp` process. A new deck process or an eval run must log in again. Some logins need a phone approval each time.
+
+**Boundary:** The files hold live credentials. Keep the folder outside the repository. VM mode does not change: the guest sets its own paths, and the relay path is unchanged. This entry takes number D52 because D23 already names a different decision.

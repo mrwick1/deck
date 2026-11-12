@@ -75,6 +75,8 @@ pub struct Tools {
     files_dir: PathBuf,
     /// The secrets file of the owner, from the config. The model never sees its path or values.
     secrets: Option<PathBuf>,
+    /// The folder of the session files. The model never sees its path.
+    state_dir: Option<PathBuf>,
     /// The computer of the bot. When set, shell and files run there, and no host path is used.
     guest: Option<Arc<Hub>>,
 }
@@ -203,6 +205,7 @@ impl Tools {
             workspace,
             files_dir: data_dir.join("files"),
             secrets: None,
+            state_dir: None,
             guest: None,
         }
     }
@@ -234,6 +237,12 @@ impl Tools {
     /// Give bare the secrets file, so that `${NAME}` in typed text becomes the value.
     pub fn with_secrets(mut self, secrets: Option<PathBuf>) -> Self {
         self.secrets = secrets;
+        self
+    }
+
+    /// Keep each browser session in a file of this folder, so a login survives restarts.
+    pub fn with_state_dir(mut self, state_dir: Option<PathBuf>) -> Self {
+        self.state_dir = state_dir;
         self
     }
 
@@ -325,6 +334,25 @@ impl Tools {
         // A new session reads the secrets file of the config. Its tabs copy the secrets.
         if let (Some(f), "open" | "ensure_session") = (&self.secrets, bare_name) {
             a.insert("secrets_file".into(), json!(f));
+        }
+        // A session file lives in the state folder. The model names the session, never the path.
+        if let (Some(dir), "save_state" | "ensure_session") = (&self.state_dir, bare_name) {
+            let name = a
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| {
+                    (1..=64).contains(&n.len())
+                        && n.bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                })
+                .ok_or_else(|| anyhow!("session name must be 1 to 64 characters of A-Za-z0-9_-"))?;
+            let file = dir.join(format!("{name}.state"));
+            let mut b = std::fs::DirBuilder::new();
+            b.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+            b.create(dir)?;
+            a.insert("file".into(), json!(file));
         }
         if bare_name == "open" {
             let dir = self.workspace.join("downloads");
@@ -659,6 +687,55 @@ mod tests {
         let calls = host.calls.lock().unwrap();
         assert_eq!(calls[0].1["secrets_file"], json!(secrets));
         assert_eq!(calls[1].1["secrets_file"], json!(secrets));
+    }
+
+    #[tokio::test]
+    async fn session_files_live_under_the_state_dir() {
+        let (_, store, chat, ws) = setup().await;
+        let host = Arc::new(FakeHost::default());
+        let state = ws.join("state");
+        let tools =
+            Tools::new(host.clone(), store, ws.clone(), &ws).with_state_dir(Some(state.clone()));
+        for name in ["browser_save_state", "browser_ensure_session"] {
+            let out = tools
+                .execute(chat, name, &json!({"name": "google", "file": "/etc/x"}))
+                .await;
+            assert!(out.ok, "{}", out.content);
+        }
+        assert!(state.is_dir());
+        let calls = host.calls.lock().unwrap();
+        assert_eq!(calls[0].1["file"], json!(state.join("google.state")));
+        assert_eq!(calls[1].1["file"], json!(state.join("google.state")));
+    }
+
+    #[tokio::test]
+    async fn a_bad_session_name_makes_no_host_call() {
+        let (_, store, chat, ws) = setup().await;
+        let host = Arc::new(FakeHost::default());
+        let tools =
+            Tools::new(host.clone(), store, ws.clone(), &ws).with_state_dir(Some(ws.join("state")));
+        let out = tools
+            .execute(chat, "browser_save_state", &json!({"name": "../x"}))
+            .await;
+        assert!(!out.ok, "{}", out.content);
+        assert!(out.content.contains("session name must be 1 to 64"));
+        assert!(host.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn without_a_state_dir_no_file_is_sent() {
+        let (_, store, chat, ws) = setup().await;
+        let host = Arc::new(FakeHost::default());
+        let tools = Tools::new(host.clone(), store, ws.clone(), &ws);
+        let out = tools
+            .execute(
+                chat,
+                "browser_save_state",
+                &json!({"name": "google", "file": "/etc/x"}),
+            )
+            .await;
+        assert!(out.ok, "{}", out.content);
+        assert!(host.calls.lock().unwrap()[0].1.get("file").is_none());
     }
 
     #[tokio::test]
