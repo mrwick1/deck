@@ -1,0 +1,3 @@
+default_border pixel 2
+exec foot -e nano /home/deck/notes.txt
+exec /usr/local/bin/bare-session

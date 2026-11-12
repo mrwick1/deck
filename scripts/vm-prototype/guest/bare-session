@@ -1,0 +1,6 @@
+#!/bin/sh
+# Keeps one bare-mcp alive for the desktop session. Requests go in through a FIFO, replies come out in a file.
+d=$XDG_RUNTIME_DIR/bare
+mkdir -p "$d"; rm -f "$d/in" "$d/out"; mkfifo "$d/in"
+exec 3<>"$d/in"
+exec bare-mcp <&3 >"$d/out" 2>>"$d/err"

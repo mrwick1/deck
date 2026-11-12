@@ -3,3 +3,6 @@
 deck.toml
 /web/node_modules
 /web/dist
+
+/scripts/vm-prototype/run/
+/scripts/vm-prototype/__pycache__/
