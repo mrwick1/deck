@@ -47,3 +47,7 @@ Each error has a code, the failed part and a hint for the next step.
 
 - Tabs or windows.
 - A stream of page captures for the live view in the web app.
+
+## Status (2026-11-12)
+
+`bare-mcp` now has the tools of the proposed design, and more. See [progress.md](progress.md) for the list and the open gaps.

@@ -218,12 +218,38 @@ impl Tools {
             _ => return Err(anyhow!("the arguments must be an object")),
         };
         a.retain(|k, _| !HIDDEN_ARGS.contains(&k.as_str()));
-        // Screenshots land in the workspace, so send_file can send them.
+        // Screenshots and downloads land in the workspace, so send_file can send them.
         if bare_name == "screenshot" {
             let dir = self.workspace.join("shots");
             tokio::fs::create_dir_all(&dir).await?;
             let path = dir.join(format!("{}.png", uuid::Uuid::new_v4()));
             a.insert("path".into(), json!(path));
+        }
+        if bare_name == "open" {
+            let dir = self.workspace.join("downloads");
+            tokio::fs::create_dir_all(&dir).await?;
+            a.insert("downloads_dir".into(), json!(dir));
+        }
+        // An upload sends a local file to a site: only files of the workspace may go.
+        if let Some(files) = a.get("files").and_then(Value::as_array) {
+            for f in files {
+                let ok = f
+                    .as_str()
+                    .and_then(|f| std::fs::canonicalize(f).ok())
+                    .is_some_and(|p| self.allowed(&p));
+                if !ok {
+                    return Err(anyhow!("upload path not allowed: {f}"));
+                }
+            }
+        }
+        if bare_name == "step"
+            && a.get("steps")
+                .and_then(Value::as_str)
+                .is_some_and(|t| t.lines().any(|l| l.trim_start().starts_with("upload")))
+        {
+            return Err(anyhow!(
+                "upload is not allowed in steps: use browser_act with op upload"
+            ));
         }
         Ok(match self.host.call(bare_name, Value::Object(a)).await? {
             Value::String(text) if text.chars().count() > MAX_TEXT => {
@@ -439,7 +465,10 @@ mod tests {
         assert!(out.ok);
         assert_eq!(
             host.calls.lock().unwrap()[0],
-            ("open".to_owned(), json!({"url":"https://example.test"}))
+            (
+                "open".to_owned(),
+                json!({"url":"https://example.test", "downloads_dir": ws.join("downloads")})
+            )
         );
         let bad = tools.execute(chat, "browser_run_steps", &json!({})).await;
         assert!(!bad.ok);
@@ -477,6 +506,55 @@ mod tests {
             .await;
         assert!(out.ok, "{}", out.content);
         assert_eq!(out.content, r#"[{"t":"a"}]"#);
+    }
+
+    #[tokio::test]
+    async fn downloads_land_in_the_workspace_and_uploads_stay_in_it() {
+        let (_, store, chat, ws) = setup().await;
+        let host = Arc::new(FakeHost::default());
+        let tools = Tools::new(host.clone(), store, ws.clone(), &ws);
+        let out = tools
+            .execute(
+                chat,
+                "browser_open",
+                &json!({"url": "https://x.test", "downloads_dir": "/tmp"}),
+            )
+            .await;
+        assert!(out.ok, "{}", out.content);
+        let dl = host.calls.lock().unwrap()[0].1["downloads_dir"].clone();
+        assert_eq!(dl, json!(ws.join("downloads")));
+        // A file outside the workspace never reaches bare.
+        let bad = tools
+            .execute(
+                chat,
+                "browser_act",
+                &json!({"op": "upload", "ref": "e1", "files": ["/etc/passwd"]}),
+            )
+            .await;
+        assert!(
+            !bad.ok && bad.content.contains("not allowed"),
+            "{}",
+            bad.content
+        );
+        let bad = tools
+            .execute(
+                chat,
+                "browser_step",
+                &json!({"steps": "upload css=\"input\" \"/etc/passwd\""}),
+            )
+            .await;
+        assert!(!bad.ok, "{}", bad.content);
+        assert_eq!(host.calls.lock().unwrap().len(), 1);
+        let f = ws.join("doc.txt");
+        std::fs::write(&f, "x").unwrap();
+        let ok = tools
+            .execute(
+                chat,
+                "browser_act",
+                &json!({"op": "upload", "ref": "e1", "files": [f]}),
+            )
+            .await;
+        assert!(ok.ok, "{}", ok.content);
     }
 
     #[test]

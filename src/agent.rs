@@ -562,11 +562,7 @@ mod tests {
             hang: true,
             ..FakeHost::default()
         };
-        let script = vec![call_reply(
-            "c1",
-            "browser_open",
-            json!({"url":"https://x.test"}),
-        )];
+        let script = vec![call_reply("c1", "browser_snapshot", json!({}))];
         let f = fixture(script, host, 5).await;
         let mut rx = f.agent.subscribe(f.chat);
         let (run_id, h) = f.agent.start(f.chat, "go".into()).await.unwrap().unwrap();

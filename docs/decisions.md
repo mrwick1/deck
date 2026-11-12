@@ -127,3 +127,9 @@ Each decision has a date, the decision and the reason.
 **Decision:** `deck` reads the tool list of `bare-mcp` at the start of a run. It offers each tool to the model as `browser_<name>`. It does not offer `run_steps`. It removes the arguments `window`, `secrets_file`, `file`, `path`, `downloads_dir` and `inline`. A screenshot always goes to `shots/` in the workspace.
 
 **Reason:** A new `bare` tool reaches the model with no change in `deck`. The model reads pages as an outline with refs, so it needs fewer screenshots. The model cannot write files outside the workspace.
+
+## D19. deck controls the files of the browser tools (2026-11-12)
+
+**Decision:** `deck` sets the folder of `browser_open` downloads to `downloads/` in the workspace. An upload may send only files of the workspace. A `browser_step` line with `upload` is refused.
+
+**Reason:** `send_file` can send a downloaded file. A page must never get a file from outside the workspace.
