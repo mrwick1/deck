@@ -520,3 +520,16 @@ Stage 2 is accepted as a developer control path. It is not a production bot runt
 **Reason:** The owner approved continuing after choosing integration-time optimization over another separate tuning phase.
 
 **Boundary:** Start with one bot. Keep multi-bot capacity tests, further compression matrices and real account integrations outside this stage. Preserve pause, budget hold and unknown-outcome rules. Test with synthetic data and a scripted model.
+
+
+## Stage 3 verification result (2026-11-12)
+
+The parent reviewed the integration and operated its real-server UI in bare. A separate strict real-VM run passed browser, shell and file delivery, automatic idle save, wake and chat continuity. Model-call and capture counters stayed flat in the awake-idle and saved windows. Direct viewer disconnect stopped the capture worker. Guest receipts confirmed active cgroup containment. No owned VM or UI helper remained after verification.
+
+Review added failing regressions and fixes for active commands mislabeled as unknown outcomes, later tasks starting while an outcome remained unresolved, waiting-task resume bypassing pause, and interrupted browser bridges reported as a known cancellation. A browser bridge can stop while its persistent browser completes an external action. Such outcomes now remain unknown.
+
+The overview is the landing view. Chat opens when the owner opens the bot. Capture is requested during browser activity in an open bot chat or by explicit screen control. Navigation was checked in bare after the landing fix.
+
+One hundred thirty Rust unit tests, three non-live integration tests, sixty-two Python tests, twenty-two web tests, type checking, build, formatting and clippy pass. Live browser integration tests remain ignored; dedicated parent UI checks ran separately. The strict smoke contains explicit idle and capture assertions. An earlier UI-proxy run is not a resource baseline because its proxy delayed viewer disconnects.
+
+Stage 3 is accepted for one configured bot with synthetic events and a scripted model. This is not a declaration that the full product vision is complete. Automatic spending accounting, fresh provisioning, real accounts and event sources, memory integrations and real halfway-save failure remain unverified or deferred. No deployment or production merge occurred. Implementation report: `docs/stage3-results.md` on the implementation branch.

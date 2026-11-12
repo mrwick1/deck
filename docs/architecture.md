@@ -197,5 +197,6 @@ This section records prototype results. It does not show that the target exists.
 
 - **Stage 1:** VM feasibility reproduced. Only feasibility is accepted (see Measured evidence).
 - **Stage 2:** the developer executor and host journal are implemented on the implementation branch. The parent reproduced a serial VM smoke test. The long-running service, agent tools and UI are not connected to this path. Fresh setup and multi-bot behavior remain untested.
-- **Later stages:** UI integration, real accounts, MFA, event integrations, conversational creation, and the home screen redesign.
-- **Carryover:** idle sleep, event batching, live-view subscriptions, unchanged-frame suppression in Deck, and the saved-state codec default (D47, D48). Each item stays unchecked until its real caller exists.
+- **Stage 3:** one configured bot is integrated on the implementation branch. Parent verification covered the real-server UI in bare, guest tools, queue controls, idle save/wake and capture shutdown. Generic event batching is integrated.
+- **Further product work:** automatic spending accounting, real accounts, MFA, service event integrations, memory integration, conversational creation and visual redesign.
+- **Optimization status:** idle sleep, generic event batching, live-view subscriptions and unchanged-frame delivery suppression have Stage 3 callers and verification. Optional codecs retain the uncompressed default. See the carryover checklist for remaining robustness and performance work.

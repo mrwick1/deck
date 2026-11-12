@@ -35,4 +35,4 @@ One implementation agent owns the existing implementation worktree. The parent e
 
 The parent reviews the full diff and reproduces key checks. Update `optimization-plan.md` carryover only when the actual caller and test exist. Record incomplete behavior explicitly. No deployment or production merge is authorized by the stage plan.
 
-Status: authorized to implement. No Stage 3 behavior is verified yet.
+Status: the one-configured-bot integration is reviewed and verified with a scripted model, synthetic data and one real VM. Parent review included bare UI checks and a strict idle/capture smoke run. Automatic spending accounting, fresh provisioning and real service/account integrations remain outside the verified result. See `docs/stage3-results.md` on the implementation branch.

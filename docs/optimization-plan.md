@@ -71,10 +71,10 @@ Status: the harness pass is implemented and reviewed. Shared overlays, service t
 
 The owner asked to keep these items explicit so work can resume later. Do not mark them complete from harness measurements alone.
 
-- [ ] Automatic idle sleep. Depends on executor status, cancellation and durable task ownership in Stage 2. Integrate the idle policy after the queue exists. Verify no save while work or an unresolved action owns the computer.
-- [ ] Event batching and wake coalescing. Depends on durable event ingestion and the task queue. Test duplicate events, bounded delay, restart, priority, automation pause and budget holds before service integrations.
-- [ ] Live-view capture subscriptions. Depends on Stage 3 UI and executor integration. Test zero capture while unsubscribed, one producer per bot, bounded work under slow viewers and disconnect cleanup.
-- [ ] Unchanged-frame suppression in Deck. The harness measured transmission savings only. Wire it into the actual display path and measure capture CPU and transmitted bytes separately.
+- [x] Automatic idle sleep. Implemented and verified in the one-bot Stage 3 flow. Depends on executor status, cancellation and durable task ownership in Stage 2. Integrate the idle policy after the queue exists. Verify no save while work or an unresolved action owns the computer.
+- [x] Event batching and wake coalescing. Implemented for generic authenticated events; real service sources remain deferred. Depends on durable event ingestion and the task queue. Test duplicate events, bounded delay, restart, priority, automation pause and budget holds before service integrations.
+- [x] Live-view capture subscriptions. Integrated; direct viewer disconnect stopped capture in the real-VM smoke. Depends on Stage 3 UI and executor integration. Test zero capture while unsubscribed, one producer per bot, bounded work under slow viewers and disconnect cleanup.
+- [x] Unchanged-frame suppression in Deck. Integrated and observed on the real display path. The harness measured transmission savings only. Wire it into the actual display path and measure capture CPU and transmitted bytes separately.
 - [ ] Revisit the default saved-state codec. Optional codecs exist. Keep `none` until a controlled measurement and deployment prerequisites justify a change. Do not require another benchmark matrix before executor work.
 - [ ] Controlled performance follow-up. Existing optimization runs had overlapping sessions. Before asserting a product speedup or capacity, measure one owned workload at a time. Preserve separate datasets and report CPU, host memory, guest memory and total storage.
 
@@ -95,3 +95,12 @@ Measure the actual integrated bot in three states:
 The next implementation priority is the real one-bot lifecycle through the server, executor and durable task ownership. Automatic idle sleep must respect running and unknown work, automation pause and budget holds. Event batching follows durable event ingestion. Keep the full desktop requirement.
 
 The current measurements are baselines. They do not establish an optimized integrated bot. Keep multi-bot correctness tests, but postpone concurrent load tests. Do not run another broad benchmark matrix before the lifecycle integration exists.
+
+
+## Stage 3 completion scope
+
+One configured bot now uses the guest tools through the server. The persistent queue and hold gates feed automatic idle save and wake. Generic event batching and capture subscriptions have real callers. Parent verification covered a browser/shell/file task, idle save, restore with chat continuity, zero idle and saved captures/model calls, and no capture worker after direct viewer disconnect. UI controls were operated in bare.
+
+The parent fixed active-command inbox labeling, unresolved-work queue gating, pause gating on waiting-task resume and conservative browser-relay cancellation. Full test and build checks pass. These results close the four integration checkboxes above for the synthetic single-bot scope.
+
+Automatic spending accounting, real accounts and event sources, memory integrations, fresh provisioning and real halfway-save failure remain open. Optional codec selection stays unchanged. Final observations are single-run data, not a new performance matrix or a concurrent-capacity claim.
