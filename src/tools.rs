@@ -230,7 +230,8 @@ impl Tools {
                 text.chars().take(MAX_TEXT).collect::<String>() + "…[truncated]"
             }
             Value::String(text) => text,
-            report => trim_report(report),
+            report @ Value::Object(_) => trim_report(report),
+            other => other.to_string().chars().take(MAX_TEXT).collect(),
         })
     }
 
@@ -463,6 +464,19 @@ mod tests {
                 .unwrap()
                 .starts_with(ws.join("shots").to_str().unwrap())
         );
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_is_not_an_object_goes_back_as_text() {
+        let (_, store, chat, ws) = setup().await;
+        let host = Arc::new(FakeHost::default());
+        host.replies.lock().unwrap().push_back(json!([{"t": "a"}]));
+        let tools = Tools::new(host.clone(), store, ws.clone(), &ws);
+        let out = tools
+            .execute(chat, "browser_eval", &json!({"js": "x"}))
+            .await;
+        assert!(out.ok, "{}", out.content);
+        assert_eq!(out.content, r#"[{"t":"a"}]"#);
     }
 
     #[test]

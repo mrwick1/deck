@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -168,7 +168,18 @@ impl Agent {
 
     async fn drive(&self, run: Run) {
         self.emit(&run, "run_started", json!({}), true).await;
-        let result = self.run_loop(&run).await;
+        // A panic in the loop must still finish the run and free the chat.
+        let result = std::panic::AssertUnwindSafe(self.run_loop(&run))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|p| {
+                let why = p
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| p.downcast_ref::<String>().cloned())
+                    .unwrap_or_default();
+                Err(anyhow::anyhow!("the run panicked: {why}"))
+            });
         let (status, error) = match result {
             Ok(s) => (s.as_str(), None),
             Err(e) => ("failed", Some(format!("{e:#}"))),
@@ -577,6 +588,26 @@ mod tests {
         assert!(tool["content"].as_str().unwrap().contains("cancelled"));
         assert!(!f.agent.cancel(run_id));
         assert_eq!(f.host.calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_panic_fails_the_run_and_frees_the_chat() {
+        let host = FakeHost {
+            panic: true,
+            ..FakeHost::default()
+        };
+        let script = vec![call_reply("c1", "browser_close", json!({}))];
+        let f = fixture(script, host, 5).await;
+        let (run_id, h) = f.agent.start(f.chat, "go".into()).await.unwrap().unwrap();
+        h.await.unwrap();
+        assert_eq!(
+            f.store.run_status(run_id).await.unwrap().as_deref(),
+            Some("failed")
+        );
+        let events = f.store.list_events(f.chat, 0).await.unwrap();
+        let fin: Value = serde_json::from_str(&events.last().unwrap().payload).unwrap();
+        assert!(fin["error"].as_str().unwrap().contains("panicked"), "{fin}");
+        assert!(f.agent.start(f.chat, "again".into()).await.unwrap().is_ok());
     }
 
     #[tokio::test]
