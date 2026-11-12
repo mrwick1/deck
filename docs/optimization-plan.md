@@ -65,4 +65,4 @@ Implement overlay, service and compression work on the existing harness first. K
 
 The parent reviews each implementation diff and reproduces critical checks. Preserve raw local measurements outside Git. Commit only sanitized evidence. Keep all VM correctness gates and the bare-only policy intact.
 
-Status: planned. Stage 1 baseline exists. No optimization gain is established yet.
+Status: the harness pass is implemented and reviewed. Shared overlays, service trimming and optional codecs have recorded experiments. Capture behavior is audited and benchmarked. The parent ran fast checks and inspected raw results but did not repeat the live optimization matrix. Idle sleep, event batching and UI capture subscriptions remain pending their executor, queue and integration dependencies. See the implementation branch report `docs/vm-optimization-results.md`.

@@ -446,3 +446,13 @@ Only Stage 1 feasibility is accepted by this verification. The complete prototyp
 **Reason:** The owner approved all five optimization areas after reviewing Stage 1 resource usage.
 
 **Boundary:** Preserve VM isolation, saved-state correctness, pause and budget holds. Keep baseline behavior when a proposed tuning does not improve measured results. A benchmark is not evidence of production integration.
+
+## Optimization harness review (2026-11-12)
+
+The implementation branch contains shared base images and private overlays, guest service trimming, optional saved-state codecs and capture benchmarks. The parent reviewed the diff and recorded experiment evidence. The parent did not repeat the live optimization matrix.
+
+The recorded compression experiment has twenty successful restore cycles across four codecs. Overlay evidence records an unchanged base digest and separate private artifacts. Capture suppression reduces transmitted data in the fixture; it does not eliminate capture work. Compression remains optional with the uncompressed default unchanged.
+
+Parent review fixed multi-base storage accounting, missing-codec preflight, invalid-codec state preservation and unbounded state polling. Twenty-nine unit tests and syntax checks pass. The new failure paths use mocked tests, not live VM experiments.
+
+Idle sleep and event batching still require the executor and durable queue. UI capture subscriptions still require Deck integration. These approved optimizations are not complete. The results report is `docs/vm-optimization-results.md` in the implementation branch.
