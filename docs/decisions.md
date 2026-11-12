@@ -456,3 +456,9 @@ The recorded compression experiment has twenty successful restore cycles across 
 Parent review fixed multi-base storage accounting, missing-codec preflight, invalid-codec state preservation and unbounded state polling. Twenty-nine unit tests and syntax checks pass. The new failure paths use mocked tests, not live VM experiments.
 
 Idle sleep and event batching still require the executor and durable queue. UI capture subscriptions still require Deck integration. These approved optimizations are not complete. The results report is `docs/vm-optimization-results.md` in the implementation branch.
+
+## Optimization coordination correction (2026-11-12)
+
+The parent started a replacement task before the original task's background work and continuation fully settled. Both used the implementation worktree. This caused overlapping measurements and conflicting ownership reports. Both tasks have now ended. The parent verified a clean worktree and no running prototype VM, fixture or benchmark driver before recording the correction.
+
+Performance comparisons remain provisional because sessions overlapped or competed for a fixture port. Keep datasets separate. Functional marker and checksum evidence remains useful, but no uncontended speedup is established. Keep compression optional and its default unchanged. The implementation report records commit ownership and dataset provenance. Do not run another benchmark matrix merely to close this reporting gap.
