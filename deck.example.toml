@@ -30,3 +30,22 @@ args = []
 [agent]
 # Most model calls in one run.
 max_steps = 30
+
+# The desktop computer of one bot. Remove this section to use a local bare, as before.
+# Set up the disk with scripts/vm-prototype/vmproto.py. See docs/stage3-results.md.
+# [vm]
+# version = 1
+# bot_id = "main"
+# runtime_dir = "/path/outside/git/deck-vm"
+# harness = "scripts/vm-prototype/vmproto.py"
+# idle_secs = 120
+# command_secs = 120
+# lifecycle_secs = 120
+# state_codec = "none"
+# screen_interval_ms = 1000
+
+# Synthetic event intake for the bot above (POST /api/bot/events with a bearer token).
+# [events]
+# token_env = "DECK_EVENTS_TOKEN"
+# batch_window_ms = 2000
+# batch_max_delay_ms = 10000

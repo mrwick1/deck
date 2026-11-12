@@ -95,6 +95,58 @@ CREATE TABLE executor_artifacts(
 );
 ";
 
+/// The bot runtime: flags, durable tasks, steering, ingested events and owner decisions.
+/// They live in the host database, outside the VM, so a saved or lost computer keeps them.
+const SCHEMA_V4: &str = "
+CREATE TABLE bot_state(
+    bot_id TEXT PRIMARY KEY,
+    chat_id INTEGER NOT NULL REFERENCES chats(id),
+    automation_paused INTEGER NOT NULL DEFAULT 0,
+    budget_hold INTEGER NOT NULL DEFAULT 0,
+    budget_reason TEXT
+);
+CREATE TABLE tasks(
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    bot_id TEXT NOT NULL,
+    chat_id INTEGER NOT NULL,
+    source TEXT NOT NULL CHECK(source IN ('message','event')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    priority INTEGER NOT NULL CHECK(priority BETWEEN 0 AND 2),
+    state TEXT NOT NULL CHECK(state IN ('queued','running','waiting','done','failed','cancelled','held')),
+    detail TEXT,
+    run_id INTEGER,
+    created_at TEXT NOT NULL,
+    ended_at TEXT
+);
+CREATE TABLE steering(
+    id INTEGER PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE bot_events(
+    id INTEGER PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    received_ms INTEGER NOT NULL,
+    task_id TEXT,
+    UNIQUE(bot_id, source, event_id)
+);
+CREATE TABLE inbox_decisions(
+    command_id TEXT PRIMARY KEY,
+    decision TEXT NOT NULL CHECK(decision IN ('ran','not_run','dismissed')),
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -179,6 +231,11 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if version < 3 {
         conn.execute_batch(&format!(
             "BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"
+        ))?;
+    }
+    if version < 4 {
+        conn.execute_batch(&format!(
+            "BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"
         ))?;
     }
     Ok(())
@@ -308,7 +365,6 @@ impl Store {
         .await
     }
 
-    #[cfg(test)]
     pub async fn run_status(&self, run_id: i64) -> anyhow::Result<Option<String>> {
         self.run(move |c| {
             c.query_row("SELECT status FROM runs WHERE id = ?1", [run_id], |r| {
@@ -443,7 +499,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
     }
 
     #[test]

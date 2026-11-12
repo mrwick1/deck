@@ -15,7 +15,7 @@ use anyhow::{Context, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::net::UnixStream;
 use tokio::net::unix::OwnedWriteHalf;
-use tokio::sync::oneshot;
+use tokio::sync::{Notify, oneshot};
 use tokio::time::{Instant, sleep, timeout};
 
 use super::journal::Cmd;
@@ -61,6 +61,8 @@ pub struct Session {
     pending: Pending,
     seq: AtomicU64,
     reader: tokio::task::JoinHandle<()>,
+    /// Woken when a result changes a journal row, so waiters need no fast poll.
+    changed: Arc<Notify>,
 }
 
 impl Drop for Session {
@@ -147,8 +149,14 @@ impl Session {
         store.pin_guest(opts.bot.clone(), guest_id.clone()).await?;
         let (mut r, w) = stream.into_split();
         let pending: Pending = Arc::default();
+        let changed = Arc::new(Notify::new());
         let reader = tokio::spawn({
-            let (pending, store, bot) = (pending.clone(), store.clone(), opts.bot.clone());
+            let (pending, store, bot, changed) = (
+                pending.clone(),
+                store.clone(),
+                opts.bot.clone(),
+                changed.clone(),
+            );
             async move {
                 while let Ok(v) = read_frame(&mut r).await {
                     if v["epoch"].as_u64() != Some(epoch) {
@@ -167,6 +175,7 @@ impl Session {
                         match serde_json::from_value::<Receipt>(v["receipt"].clone()) {
                             Ok(rc) => {
                                 let _ = store.apply_receipt(bot.clone(), epoch, rc).await;
+                                changed.notify_waiters();
                             }
                             Err(e) => {
                                 let _ = store
@@ -188,6 +197,7 @@ impl Session {
                     }
                 }
                 pending.lock().unwrap().clear(); // wakes every waiter with "connection lost"
+                changed.notify_waiters();
             }
         });
         Ok(Self {
@@ -200,7 +210,13 @@ impl Session {
             pending,
             seq: AtomicU64::new(0),
             reader,
+            changed,
         })
+    }
+
+    /// False once the connection is gone. The server then connects again with a new epoch.
+    pub fn is_alive(&self) -> bool {
+        !self.reader.is_finished()
     }
 
     /// Send one request and wait for the reply with the same ID.
@@ -350,14 +366,23 @@ impl Session {
     pub async fn wait(&self, id: &str, limit: Duration) -> anyhow::Result<Cmd> {
         let end = Instant::now() + limit;
         loop {
+            // Arm the wake-up before the read, so a result between them is not lost.
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
             let c = self.get(id).await?;
             if c.is_final()
                 || matches!(c.state.as_str(), "unknown" | "not_delivered")
                 || Instant::now() >= end
+                || !self.is_alive()
             {
                 return Ok(c);
             }
-            sleep(Duration::from_millis(25)).await;
+            let left = end.saturating_duration_since(Instant::now());
+            tokio::select! {
+                _ = &mut changed => {}
+                _ = sleep(left.min(Duration::from_secs(2))) => {}
+            }
         }
     }
 

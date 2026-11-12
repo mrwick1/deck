@@ -33,6 +33,10 @@ pub enum StartError {
 enum Status {
     Done,
     Cancelled,
+    /// The agent asked the owner and waits. The task keeps the computer.
+    Waiting,
+    /// A budget hold stopped the run at a model-call boundary.
+    Held,
 }
 
 impl Status {
@@ -40,6 +44,8 @@ impl Status {
         match self {
             Self::Done => "done",
             Self::Cancelled => "cancelled",
+            Self::Waiting => "waiting",
+            Self::Held => "held",
         }
     }
 }
@@ -49,6 +55,8 @@ struct Run {
     chat_id: i64,
     id: i64,
     cancel: CancellationToken,
+    /// The task that this run works for. Steering and holds apply to it.
+    task_id: Option<String>,
 }
 
 pub struct Agent {
@@ -58,6 +66,7 @@ pub struct Agent {
     tools: Tools,
     active: Mutex<HashMap<i64, (i64, CancellationToken)>>,
     buses: Mutex<HashMap<i64, broadcast::Sender<Event>>>,
+    model_calls: std::sync::atomic::AtomicU64,
 }
 
 fn summary(text: &str) -> String {
@@ -71,8 +80,16 @@ impl Agent {
         model: ModelClient,
         host: Arc<dyn BrowserHost>,
     ) -> Self {
-        let tools = Tools::new(host, store.clone(), config.workspace(), &config.data_dir)
-            .with_secrets(config.bare.secrets_file.clone());
+        Self::with_tools(
+            config.clone(),
+            store.clone(),
+            model,
+            Tools::new(host, store, config.workspace(), &config.data_dir)
+                .with_secrets(config.bare.secrets_file.clone()),
+        )
+    }
+
+    pub fn with_tools(config: Arc<Config>, store: Store, model: ModelClient, tools: Tools) -> Self {
         Self {
             config,
             store,
@@ -80,7 +97,13 @@ impl Agent {
             tools,
             active: Mutex::default(),
             buses: Mutex::default(),
+            model_calls: Default::default(),
         }
+    }
+
+    /// Model calls since the server started.
+    pub fn model_calls(&self) -> u64 {
+        self.model_calls.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn bus(&self, chat_id: i64) -> broadcast::Sender<Event> {
@@ -115,16 +138,28 @@ impl Agent {
         chat_id: i64,
         user_text: String,
     ) -> anyhow::Result<Result<(i64, JoinHandle<()>), StartError>> {
+        self.start_for(chat_id, Some(user_text), None).await
+    }
+
+    /// Start a run for a task. `user_text` is stored as the user message; `None` resumes a chat
+    /// whose last message is already stored.
+    pub async fn start_for(
+        self: &Arc<Self>,
+        chat_id: i64,
+        user_text: Option<String>,
+        task_id: Option<String>,
+    ) -> anyhow::Result<Result<(i64, JoinHandle<()>), StartError>> {
         // Run in a task, so a dropped request cannot stop between the reserved slot,
         // the stored message and the new run.
         let this = self.clone();
-        tokio::spawn(async move { this.start_inner(chat_id, user_text).await }).await?
+        tokio::spawn(async move { this.start_inner(chat_id, user_text, task_id).await }).await?
     }
 
     async fn start_inner(
         self: &Arc<Self>,
         chat_id: i64,
-        user_text: String,
+        user_text: Option<String>,
+        task_id: Option<String>,
     ) -> anyhow::Result<Result<(i64, JoinHandle<()>), StartError>> {
         if !self.store.chat_exists(chat_id).await? {
             return Ok(Err(StartError::NoChat));
@@ -139,10 +174,12 @@ impl Agent {
             active.insert(chat_id, (0, cancel.clone()));
         }
         let created = async {
-            let msg = json!({"role":"user","content":user_text});
-            self.store
-                .add_message(chat_id, "user".into(), msg.to_string())
-                .await?;
+            if let Some(text) = &user_text {
+                let msg = json!({"role":"user","content":text});
+                self.store
+                    .add_message(chat_id, "user".into(), msg.to_string())
+                    .await?;
+            }
             self.store.create_run(chat_id).await
         }
         .await;
@@ -161,6 +198,7 @@ impl Agent {
             chat_id,
             id: run_id,
             cancel,
+            task_id,
         };
         let this = self.clone();
         let handle = tokio::spawn(async move { this.drive(run).await });
@@ -269,9 +307,15 @@ impl Agent {
                 Vec::new()
             }
         };
-        let tool_schemas = schemas(&bare);
+        let tool_schemas = schemas(&bare, self.tools.has_guest());
         for _ in 0..self.config.agent.max_steps {
+            // The model-call boundary: a budget hold stops the run here, and steering joins it here.
+            if self.boundary(run).await? {
+                return Ok(Status::Held);
+            }
             let messages = self.history(run.chat_id).await?;
+            self.model_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut stream = Box::pin(self.model.stream(
                 &self.config.model.agent_model,
                 &messages,
@@ -355,12 +399,47 @@ impl Agent {
                     )
                     .await;
                 }
+                if let Some(question) = outcome.wait {
+                    // Later calls of this turn get an error result, so the history stays valid.
+                    self.interrupt(run, &calls[i + 1..]).await?;
+                    self.emit(run, "waiting", json!({"question": question}), true)
+                        .await;
+                    return Ok(Status::Waiting);
+                }
             }
         }
         Err(anyhow::anyhow!(
             "stopped after {} model calls (max_steps)",
             self.config.agent.max_steps
         ))
+    }
+
+    /// Returns true when a budget hold stops the run. Otherwise stores the steering that arrived.
+    async fn boundary(&self, run: &Run) -> anyhow::Result<bool> {
+        let Some(task) = &run.task_id else {
+            return Ok(false);
+        };
+        if self.hold_check(run).await? {
+            self.emit(run, "held", json!({"reason": "budget hold"}), true)
+                .await;
+            return Ok(true);
+        }
+        for text in self.store.take_steering(task).await? {
+            let msg = json!({"role":"user","content":format!("The owner sent this while you work. Follow it now: {text}")});
+            self.store
+                .add_message(run.chat_id, "user".into(), msg.to_string())
+                .await?;
+            self.emit(run, "steer_applied", json!({"text": text}), true)
+                .await;
+        }
+        Ok(false)
+    }
+
+    async fn hold_check(&self, run: &Run) -> anyhow::Result<bool> {
+        let Some(bot) = self.config.vm.as_ref().map(|v| v.bot_id.as_str()) else {
+            return Ok(false);
+        };
+        Ok(run.task_id.is_some() && self.store.budget_held(bot).await?)
     }
 
     /// Give each tool call without a result an error result, so the history stays valid.
