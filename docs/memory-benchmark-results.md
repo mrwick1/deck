@@ -308,3 +308,11 @@ The bare output file grew 843 bytes per request. The guest runtime tmpfs grew wi
 The unchanged host-wide `swap_out` rule stopped two full attempts (1,551 s and 497.6 s) with VM swap at 0 and over 12 GiB free. On this busy host the rule measures other work. The full experiment cannot finish under it. A stop rule on the VM's own swap and cgroup events, with host paging kept as context, is the next candidate. It needs a decision before any change. It is a proposal, not a user requirement. The other option is a run on a quiet host.
 
 Run history addition: **Run 2** stopped at 497.6 s of boot 1 on `swap_out`. No retry followed.
+
+## Prospective method revision: host paging context
+
+The parent verified that the second full attempt remains failed in its raw summary, with one partial boot, no sampler/retention error and no remaining QEMU process. Neither failed attempt is relabelled.
+
+Method `memory-v2-host-paging-context` changes only future memory experiments. A host-wide swap-out threshold crossing is retained in a `host_context` trace record, summary and evidence status. The summary marks such runs as host-paging-contended. The workload can continue unless another guard fires. VM/guest swap, OOM and cgroup limits, host CPU/memory pressure and low available memory still stop the run. The cycle benchmark policy is unchanged. See D52.
+
+Two regressions failed before this revision and pass after it. One verifies that host paging alone does not stop the run while actual VM swap, pressure and low memory do. The other verifies that the paging window remains recorded. All 132 Python tests pass. This policy change is not a clean-performance claim. A new attempt must use a fresh output directory and retain all contention windows.

@@ -219,8 +219,8 @@ def identity_changes(prev, cur):
 
 
 def guardrails(host, cg_prev, cg_cur, guest):
-    """Stop reasons. host: window metrics with the cyclebench thresholds, unchanged. guest: (previous, current)."""
-    out = cb.contention(host) if host else []
+    """Memory-run stop reasons. Host-wide paging is recorded as context, not attributed to this VM."""
+    out = [reason for reason in cb.contention(host) if reason != "swap_out"] if host else []
     if cg_cur is not None:
         base = cg_prev or {}
         if cg_cur.get("oom", 0) + cg_cur.get("oom_kill", 0) > base.get("oom", 0) + base.get("oom_kill", 0):
@@ -452,6 +452,10 @@ def evaluate(ctx, rec):
     host = None
     if rec["mono"] - ctx.ref["mono"] >= 60:
         host, ctx.ref = window_metrics(ctx.ref, rec), rec
+    if host and host["swapout_pages"] > cb.SWAP_OUT_LIMIT_PAGES:
+        context = {"boot": rec["boot"], "mono": rec["mono"], "reason": "host_swap_out", "host": host}
+        ctx.context_windows.append(context)
+        ctx.log("host_context", **context)
     ev = ((rec["vm"] or {}).get("cg") or {}).get("events")
     pev = ((prev["vm"] or {}).get("cg") or {}).get("events") if prev else None
     zero = {"oom_kill": 0, "swap_used_kib": 0}
@@ -480,6 +484,7 @@ class Ctx(cb.Ctx):
     def __init__(self, root, args):
         super().__init__(root, args)
         self.stop_reasons, self.failures, self.boot, self.phase = [], [], 0, "idle"
+        self.context_windows = []
         self.guest, self.guest_lock, self.dl_dir, self.ref, self.prev = None, threading.Lock(), None, None, None
         self.last_observer_cpu = 0.0
 
@@ -835,7 +840,8 @@ def write_summary(ctx, ok, error, base):
             boots.setdefault(r["boot"], {}).update({k: x for k, x in r.items() if k != "kind"})
     growth = analyze(ctx.root, boots)
     (ctx.root / "summary.json").write_text(json.dumps({"ok": ok, "error": repr(error) if error else None, "stop_reasons": ctx.stop_reasons, "base": base,
-                                                         "boots": [boots[k] for k in sorted(boots)], "growth": growth}, indent=1, default=str))
+                                                         "boots": [boots[k] for k in sorted(boots)], "growth": growth, "host_paging_windows": ctx.context_windows,
+                                                         "host_paging_contended": bool(ctx.context_windows)}, indent=1, default=str))
 
 
 def run(a):
@@ -848,6 +854,7 @@ def run(a):
     ctx.deadline = time.monotonic() + a.max_wall_s
     before = base_digest(a)
     ctx.log("metadata", **preflight(a), base_digest_before=before, revision=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=HERE).strip(),
+            method_version="memory-v2-host-paging-context", host_paging_policy="record threshold crossings; do not claim clean latency comparisons",
             script_sha256=cb.s1_hash(__file__), fixture_sha256=cb.s1_hash(HERE / "fixture.py"), boots=a.boots, workload_s=a.workload_s, pace_s=a.pace_s, sample_s=a.sample_s,
             max_wall_s=a.max_wall_s, round=ROUND, session_cap=SESSION_CAP, download_cap_bytes=DL_CAP_BYTES, pages=fixture.MEM_PAGES, page_bytes=fixture.MEM_PAGE_BYTES,
             download_bytes=fixture.MEM_DOWNLOAD_BYTES, download_files=fixture.MEM_DOWNLOADS)
@@ -885,7 +892,7 @@ def run(a):
         ok = False
     try:
         (root / "evidence-status.json").write_text(json.dumps({"sampler_errors": ctx.sampler_errors, "retention_errors": ctx.retention_errors, "base_unchanged": base_ok,
-                                                               "stop_reasons": ctx.stop_reasons}, indent=1))
+                                                               "stop_reasons": ctx.stop_reasons, "host_paging_windows": ctx.context_windows}, indent=1))
     except OSError as e:
         ctx.retention_errors.append(repr(e))
     if error:

@@ -152,3 +152,9 @@ Two fresh one-minute smoke attempts passed workload bounds but stopped at the pr
 Screenshots and compositor trees identified tiling geometry as the earlier pixel mismatch. The parent inspected those images, reproduced all 131 Python tests, then ran one fresh smoke with the fixed terminal. Workload bounds, save/restore, unsaved terminal pixels and process, browser session, file/download hashes, base integrity and cleanup all passed. No sampler, retention or stop error was recorded.
 
 This closes the short smoke gap. It does not complete the three independent 30-minute memory runs. The fixed terminal changes browser geometry, so future memory curves need a separate baseline. The next action is one fresh full attempt under unchanged resource guards.
+
+## Second full memory attempt and revised observation policy
+
+The second full attempt stopped in boot 1 after 497.6 seconds on host-wide paging. It remains incomplete; boots 2 and 3 did not run. The parent verified its failed summary and retained evidence.
+
+D52 versions future memory runs separately: host-wide paging is context, while VM, OOM, limit, pressure and low-memory guards remain safety stops. Paging windows are explicit and cannot support clean latency comparisons. All 132 Python tests pass. The next attempt uses this revised method, not a retroactive pass for earlier data.

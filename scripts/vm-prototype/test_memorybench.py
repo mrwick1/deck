@@ -327,10 +327,23 @@ class Guardrails(unittest.TestCase):
         self.assertIn("guest_swap", mb.guardrails(self.QUIET, None, None, (g0, dict(g0, swap_used_kib=4))))
         self.assertEqual(mb.guardrails(self.QUIET, None, None, (g0, dict(g0))), [])
 
-    def test_existing_cyclebench_thresholds_apply_unchanged(self):
+    def test_host_paging_is_context_but_resource_pressure_still_stops(self):
         self.assertIn("memory_pressure", mb.guardrails(dict(self.QUIET, psi_memory_some_us=5_000_000), None, None, None))
         self.assertEqual(mb.guardrails(dict(self.QUIET, swapout_pages=717), None, None, None), [])  # a few background pages
-        self.assertIn("swap_out", mb.guardrails(dict(self.QUIET, swapout_pages=20000), None, None, None))
+        self.assertNotIn("swap_out", mb.guardrails(dict(self.QUIET, swapout_pages=20000), None, None, None))
+        self.assertIn("vm_swapped", mb.guardrails(dict(self.QUIET, vm_swap_kib=4), None, None, None))
+        self.assertIn("low_memory", mb.guardrails(dict(self.QUIET, mem_available_kib=1024), None, None, None))
+
+    def test_host_paging_window_is_retained_without_clearing_other_stops(self):
+        records = []
+        ctx = SimpleNamespace(ref=None, prev=None, stop_reasons=[], context_windows=[], log=lambda kind, **kw: records.append((kind, kw)))
+        start = {"phase": "load", "boot": 1, "mono": 0, "psi": {"cpu": {"some": 0}, "memory": {"some": 0}},
+                 "swap": {"out": 0}, "mem_available_kib": 20 << 20, "vm": {"swap_kib": 0}, "guest": None}
+        mb.evaluate(ctx, start)
+        mb.evaluate(ctx, dict(start, mono=61, swap={"out": 20000}))
+        self.assertEqual(ctx.stop_reasons, [])
+        self.assertEqual(ctx.context_windows[0]["host"]["swapout_pages"], 20000)
+        self.assertEqual(records[0][0], "host_context")
 
 
 class EvidenceRetention(unittest.TestCase):

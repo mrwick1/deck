@@ -539,3 +539,11 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Complete the three-stage integration, then profile and optimize one bot. Measure working, awake-idle and saved states separately. Keep progress and performance evidence current. Defer concurrent capacity testing until this pass ends.
 
 **Reason:** The integrated lifecycle gives performance work a useful workload. Lower single-bot overhead improves the basis for scaling. Distributed ownership and resource controls still need separate validation.
+
+## D52. Separate memory safety stops from host paging context (2026-11-12)
+
+**Decision:** For future sustained memory experiments, record host-wide swap-out above the existing threshold as a contended window. Do not stop only for that signal. Keep VM swap, guest swap, OOM, cgroup limit, host CPU/memory pressure and low available-memory stops. Do not change the cycle benchmark policy.
+
+**Reason:** Two incomplete attempts crossed the host-wide paging threshold while the VM reported zero swap, no limit event and substantial host memory remained available. That counter does not identify which process caused paging. Memory-workload completion and clean latency comparisons need separate labels.
+
+**Evidence rule:** Preserve both failed attempts under their original method. Version the revised method and retain paging windows in the trace, summary and status. A completed workload under paging is observational evidence, not proof of uncontended performance or a leak. No production setting changes.
