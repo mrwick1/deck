@@ -30,3 +30,8 @@ The parent reviews the full diff and reproduces the critical checks. No second a
 Idle sleep, event batching and UI capture subscriptions remain on the carryover checklist in `optimization-plan.md`. Stage 2 supplies dependencies; it does not complete those integrations. Conversational creation, real accounts, MFA, model spending enforcement, automatic memory and the home-screen redesign are outside this stage.
 
 Status: the developer executor path is implemented and independently smoke-tested on one VM. The parent verified execution, process-group cancellation, artifacts, reconnect, saved-state resume and crash recovery. This is not integrated with the long-running server or agent tools. Fresh provisioning, escaped process sessions and multi-bot behavior remain untested. See the implementation branch report `docs/stage2-results.md`.
+
+
+## Next-stage resource priority
+
+Optimize one integrated bot first, as D49 requires. Its working, awake-idle and saved states need measured budgets and lifecycle behavior. Do not replace this goal with a multi-bot capacity exercise. The detailed priority is in `optimization-plan.md`.

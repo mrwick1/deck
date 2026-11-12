@@ -79,3 +79,19 @@ The owner asked to keep these items explicit so work can resume later. Do not ma
 - [ ] Controlled performance follow-up. Existing optimization runs had overlapping sessions. Before asserting a product speedup or capacity, measure one owned workload at a time. Preserve separate datasets and report CPU, host memory, guest memory and total storage.
 
 Implemented harness work: shared base/private overlays, service trimming and optional state codecs. Remaining robustness checks include safe base updates with dependent overlays, concurrent bot loads and missing-codec recovery on a real VM. Keep these out of Stage 2 unless its implementation needs them.
+
+## Priority correction: one lean bot first
+
+The owner clarified that the next resource milestone is one optimized bot. Multi-bot capacity testing is deferred.
+
+Measure the actual integrated bot in three states:
+
+| State | Required behavior |
+| --- | --- |
+| Working | Bound commands, output buffers, artifacts and workers. Capture only when needed. Measure peak memory and CPU for a fixed useful task. |
+| Awake but idle | No repeated model calls, status polling or screen capture without a caller. Use a configurable idle interval before saving. Measure residual host and guest work. |
+| Saved | No VM or dedicated capture process. Keep only necessary host records and wake subscriptions. Measure remaining per-bot host overhead separately from shared Deck. |
+
+The next implementation priority is the real one-bot lifecycle through the server, executor and durable task ownership. Automatic idle sleep must respect running and unknown work, automation pause and budget holds. Event batching follows durable event ingestion. Keep the full desktop requirement.
+
+The current measurements are baselines. They do not establish an optimized integrated bot. Keep multi-bot correctness tests, but postpone concurrent load tests. Do not run another broad benchmark matrix before the lifecycle integration exists.

@@ -500,3 +500,15 @@ Review found that a remembered epoch plus a missing receipt cannot exclude rollb
 Eighty-three Rust unit tests, three non-live integration tests, fifty Python tests, formatting, clippy and syntax checks pass. Live browser tests remain ignored. No optimization benchmark matrix ran.
 
 Stage 2 is accepted as a developer control path. It is not a production bot runtime. Fresh provisioning, multi-bot execution, real dropped-reply injection and escaped process sessions remain untested. Process-group cancellation does not provide cgroup containment. Stage 3 must connect the long-running server and agent tools, define queue ownership and surface unknown outcomes. The results report is `docs/stage2-results.md` on the implementation branch.
+
+## D49. Optimize one bot before testing multi-bot capacity (2026-11-12)
+
+**Decision:** Focus resource work on one bot. Keep it lean while working and minimize its footprint while idle. Do not make multi-bot load testing the next performance milestone.
+
+**Reason:** The owner wants low cost per bot first. That foundation should allow more bots later.
+
+**Checks:** Distinguish working, awake-idle and saved states. Measure CPU, peak and steady resident memory, background work, capture activity and storage separately. Include the guest executor and attribute host-side bot overhead separately from the shared Deck service. Do not substitute configured guest RAM for measured usage.
+
+**Next priority:** Integrate automatic idle sleep with durable command and task ownership. Keep screen capture off unless requested. Bound active commands, output, artifact transfers and background workers. Preserve pause, budget and unknown-outcome rules. Do not save a computer while unresolved work owns it.
+
+**Boundary:** Multiple-bot isolation remains a correctness requirement. Concurrent capacity testing and further compression matrices are deferred until one bot's integrated lifecycle is lean and verified.
