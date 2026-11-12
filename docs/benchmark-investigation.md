@@ -18,7 +18,7 @@ The failure-retention regression uses synthetic receipt bytes. It tests file ret
 
 ## Idle attribution
 
-One fresh guest boot ran three 20-second intervals with the prototype editor open, then three with it closed. Each interval records guest process identity and cumulative CPU ticks at both boundaries. Reused PIDs are excluded through process start-time checks. The profiler retains both snapshots and calculated deltas.
+One fresh guest boot ran three 20-second intervals with the prototype editor open, then three with it and its terminal closed. Each interval records guest process identity and cumulative CPU ticks at both boundaries. Reused PIDs are excluded through process start-time checks. The profiler retains both snapshots and calculated deltas.
 
 | Interval | Editor open: host VM CPU | Editor closed: host VM CPU |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ A separate 15-second host-thread sample during the closed-editor phase measured 
 
 A separate cold boot then collected a 20-second software CPU-clock profile. It captured 177 samples with zero reported lost samples. Visible stacks include GLib main-context preparation/checks, `main_loop_wait`, clock reads, timer deadline calculation, polling and KVM paths. Many symbols remain unresolved. Individual symbol percentages are too noisy to rank exact causes.
 
-**Finding:** The data point toward host VM event-loop and virtual CPU overhead. They do not support blaming the editor or a busy agent loop. The exact wakeup source remains unproven. Display/device timer attribution needs further tracing before changing QEMU settings. The profile was collected separately from the integrated server tests.
+**Attribution hypothesis:** The data point toward host VM event-loop and virtual CPU overhead. They do not support blaming the editor or a busy agent loop. The exact wakeup source remains unproven. Display/device timer attribution needs further tracing before changing QEMU settings. The profile was collected separately from the integrated server tests.
 
 The first profiler attempt failed before collecting intervals because its wrapper expected two guest-command return values instead of three. The corrected attempt used a fresh directory. The failed log and cleanup record remain retained. Its VM stopped.
 

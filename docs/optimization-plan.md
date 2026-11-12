@@ -112,3 +112,15 @@ The owner approved this pass after Stage 3. Update [progress.md](progress.md) wi
 Profile residual awake-idle guest CPU first. Then inspect active command polling, artifact transfer, viewer capture cost and the web bundle. Change one cause at a time. Record the baseline revision, workload, run count, variation and correctness checks. Keep saved-state codecs unchanged until measurements justify a default change.
 
 This pass optimizes one useful bot before concurrent load tests. It does not replace future work on task ownership and resource control across machines.
+
+## Reviewed experiment order
+
+The two-round design discussion and preparation reviews set this order. They did not authorize a new production default.
+
+1. Measure saved-state cycle cost across fresh boots. This runtime-only pass is complete. Its report separates first cycles, later cycles, host pressure and observer CPU.
+2. Measure sustained synthetic browser memory growth over three independent fresh overlays and boots. Sample host RSS/PSS and guest memory counters separately. Include runtime reply/error file sizes and bounded tab/download counts. Do not infer a leak from cache or host RSS alone. Do not drop caches or reduce guest RAM by default.
+3. Attribute idle work with host-thread and guest interrupt/CPU counters across boots. Context switches are proxies, not exact wakeup counts. The previous editor comparison closed its terminal too. The small CPU profile cannot identify a specific timer or device.
+
+Only one live VM experiment runs at a time. Preparation can run in parallel. Use dynamically discovered guest user/runtime paths. Keep thresholds exploratory and report unavailable counters. Stop on correctness, evidence or resource failures. Do not add global cache eviction, generic QEMU flag sweeps, a backend rewrite or concurrent capacity testing to this pass.
+
+A sleep/wake CPU quotient alone cannot set the idle timeout. Response latency, memory pressure, write volume and future event frequency also matter. Cache dropping does not guarantee lower host RSS or smaller migration files.

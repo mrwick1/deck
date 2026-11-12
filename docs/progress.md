@@ -130,3 +130,9 @@ The browser-tools checkpoint reported merged branches and bare main `052736a7`. 
 ## Evidence and attribution follow-up
 
 The evidence-gap fixes have three passing regressions. All 65 Python tests pass. Repeated guest idle snapshots, a separate host-thread sample and a software CPU profile point toward VM event-loop overhead, but do not prove a specific timer or device cause. Closing the editor did not eliminate variation. Two marker-aligned synthetic tool tests passed with complete retained evidence. See [the investigation report](benchmark-investigation.md). No production tuning or capacity claim follows from these data.
+
+## Saved-state cost pass
+
+The runtime-only saved-state experiment completed three fresh boots and five cycles per boot. All 15 cycles passed desktop, browser, file and transfer checks. The parent reproduced the raw summary and all 87 Python tests. No sampler or retention error was recorded. The base digest stayed unchanged and no QEMU process remained. See [cycle-benchmark-results.md](cycle-benchmark-results.md).
+
+No server-path speedup is claimed. Restores were warm in the host page cache. The sampler has material CPU overhead. Migration bandwidth and the post-agent restore gap are hypotheses for controlled follow-up. The next live experiment is sustained memory growth; idle attribution follows it.
