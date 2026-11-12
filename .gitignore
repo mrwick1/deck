@@ -7,3 +7,5 @@ deck.toml
 /scripts/vm-prototype/run/
 /scripts/vm-prototype/__pycache__/
 /scripts/vm-prototype/guest/__pycache__/
+/evals/results
+__pycache__/
