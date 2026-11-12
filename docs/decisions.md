@@ -482,3 +482,10 @@ Performance comparisons remain provisional because sessions overlapped or compet
 **Reason:** The owner authorized Stage 2 and asked to retain the remaining work for later.
 
 **Boundary:** Use one implementation writer. Complete and clean up owned work before parent review. Do not repeat the optimization matrix as part of the executor stage.
+
+
+## Documentation reconciliation (2026-11-12)
+
+Main already assigned D21 to secret-file configuration and D22 to the fixed evaluation task set. Preserve those published IDs. Renumber this discussion's draft bot decisions from 21–46 to 23–48. Update target-design references in the architecture, vision and open-questions documents. This changes identifiers only, not the agreed behavior.
+
+Keep the proposed domain approval list open in the new per-bot flow. The approved permission model uses trusted instructions. Do not claim that domain rules establish hard cross-tool enforcement.
