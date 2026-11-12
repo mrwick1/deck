@@ -66,3 +66,16 @@ Implement overlay, service and compression work on the existing harness first. K
 The parent reviews each implementation diff and reproduces critical checks. Preserve raw local measurements outside Git. Commit only sanitized evidence. Keep all VM correctness gates and the bare-only policy intact.
 
 Status: the harness pass is implemented and reviewed. Shared overlays, service trimming and optional codecs have recorded experiments. Capture behavior is audited and benchmarked. The parent ran fast checks and inspected raw results but did not repeat the live optimization matrix. Idle sleep, event batching and UI capture subscriptions remain pending their executor, queue and integration dependencies. See the implementation branch report `docs/vm-optimization-results.md`.
+
+## Carryover checklist
+
+The owner asked to keep these items explicit so work can resume later. Do not mark them complete from harness measurements alone.
+
+- [ ] Automatic idle sleep. Depends on executor status, cancellation and durable task ownership in Stage 2. Integrate the idle policy after the queue exists. Verify no save while work or an unresolved action owns the computer.
+- [ ] Event batching and wake coalescing. Depends on durable event ingestion and the task queue. Test duplicate events, bounded delay, restart, priority, automation pause and budget holds before service integrations.
+- [ ] Live-view capture subscriptions. Depends on Stage 3 UI and executor integration. Test zero capture while unsubscribed, one producer per bot, bounded work under slow viewers and disconnect cleanup.
+- [ ] Unchanged-frame suppression in Deck. The harness measured transmission savings only. Wire it into the actual display path and measure capture CPU and transmitted bytes separately.
+- [ ] Revisit the default saved-state codec. Optional codecs exist. Keep `none` until a controlled measurement and deployment prerequisites justify a change. Do not require another benchmark matrix before executor work.
+- [ ] Controlled performance follow-up. Existing optimization runs had overlapping sessions. Before asserting a product speedup or capacity, measure one owned workload at a time. Preserve separate datasets and report CPU, host memory, guest memory and total storage.
+
+Implemented harness work: shared base/private overlays, service trimming and optional state codecs. Remaining robustness checks include safe base updates with dependent overlays, concurrent bot loads and missing-codec recovery on a real VM. Keep these out of Stage 2 unless its implementation needs them.

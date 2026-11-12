@@ -462,3 +462,11 @@ Idle sleep and event batching still require the executor and durable queue. UI c
 The parent started a replacement task before the original task's background work and continuation fully settled. Both used the implementation worktree. This caused overlapping measurements and conflicting ownership reports. Both tasks have now ended. The parent verified a clean worktree and no running prototype VM, fixture or benchmark driver before recording the correction.
 
 Performance comparisons remain provisional because sessions overlapped or competed for a fixture port. Keep datasets separate. Functional marker and checksum evidence remains useful, but no uncontended speedup is established. Keep compression optional and its default unchanged. The implementation report records commit ownership and dataset provenance. Do not run another benchmark matrix merely to close this reporting gap.
+
+## D46. Start the executor stage and retain unfinished optimizations (2026-11-12)
+
+**Decision:** Start Stage 2 under `stage2-plan.md`. Keep unfinished optimization integrations on the explicit carryover checklist in `optimization-plan.md`.
+
+**Reason:** The owner authorized Stage 2 and asked to retain the remaining work for later.
+
+**Boundary:** Use one implementation writer. Complete and clean up owned work before parent review. Do not repeat the optimization matrix as part of the executor stage.
