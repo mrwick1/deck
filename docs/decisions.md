@@ -40,7 +40,7 @@ Each decision has a date, the decision and the reason.
 
 **Reason:** `bare` is a Rust workspace. One language makes fixes in both repositories easier. Later, `deck` can call `bare` crates in the same process instead of through MCP.
 
-## D7. The web app is a Svelte SPA (2026-11-11, replaced by D19)
+## D7. The web app is a Svelte SPA (2026-11-11, replaced by D20)
 
 **Decision:** The web app uses Svelte and Vite. The service serves the built static files.
 
@@ -128,7 +128,13 @@ Each decision has a date, the decision and the reason.
 
 **Reason:** A new `bare` tool reaches the model with no change in `deck`. The model reads pages as an outline with refs, so it needs fewer screenshots. The model cannot write files outside the workspace.
 
-## D19. The web app is a React SPA on shadcn/ui and assistant-ui (2026-11-12)
+## D19. deck controls the files of the browser tools (2026-11-12)
+
+**Decision:** `deck` sets the folder of `browser_open` downloads to `downloads/` in the workspace. An upload may send only files of the workspace. A `browser_step` line with `upload` is refused.
+
+**Reason:** `send_file` can send a downloaded file. A page must never get a file from outside the workspace.
+
+## D20. The web app is a React SPA on shadcn/ui and assistant-ui (2026-11-12)
 
 **Decision:** The web app uses React, Vite, Tailwind CSS and shadcn/ui. The chat uses assistant-ui components. Motion, Vaul and Sonner give animations, a swipe drawer and toasts. The app is phone first and works on a desktop too. It is still a static SPA that the service serves. This replaces D7.
 
