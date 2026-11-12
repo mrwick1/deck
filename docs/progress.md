@@ -164,3 +164,9 @@ D52 versions future memory runs separately: host-wide paging is context, while V
 The parent verified the failed raw summary: boots 1 and 2 completed 30-minute workloads and passed save/restore, desktop, session and file gates. Boot 3 stopped at 1,057.8 seconds on CPU pressure and did not reach save. The three-boot completion claim does not hold. No sampler or retention error was recorded; the base stayed unchanged and no QEMU remained.
 
 Bare process memory showed no significant late trend in the two complete boots. Host VM memory and guest cache kept growing; no host plateau or leak cause was established. Paging context prevents clean latency comparisons. The report retains the failed run and layout-specific data. No further long memory rerun is scheduled on this host. The shorter idle attribution experiment is next; the missing third full repetition remains explicit.
+
+## Idle attribution verified
+
+The connected-executor Stage 3 experiment completed three boots and six valid 60-second idle windows. The parent reproduced all 168 Python tests and recalculated the window gates and host deltas from raw records. Model and capture counters stayed flat. No observer or retention error was recorded, the base stayed unchanged and no QEMU remained. See [idle-benchmark-results.md](idle-benchmark-results.md).
+
+The executor timeout is a small switch-rate source, not an explanation for most host work. QEMU main-thread switches and guest local timers recur, but no causal timer/device change is justified. This closes the planned idle attribution pass with a negative tuning finding. Memory still lacks its third full repetition and a host plateau. The next bounded candidate is a controlled migration-bandwidth comparison, not generic idle tuning. No production performance gain is claimed.
