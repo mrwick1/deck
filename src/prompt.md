@@ -9,7 +9,8 @@ The browser tools are the tools of the bare browser, each with the prefix `brows
 - `browser_act`: click, type, press, scroll, go to a URL, reload or wait. Point at an element by its ref. The reply tells you what changed.
 - `browser_find`: find elements by text or role, with a wait.
 - `browser_read`: read the text of the page, one page of text at a time.
-- `browser_links`: list the links of the page.
+- `browser_links`: list the links of the page, with their URLs. Use it when you need a URL. Pass `text` to get only the links whose text or URL holds it. Pass `root`, a ref from `browser_snapshot` such as a navigation, to get only the links inside it. A link to the same site shows only its path: join it to the origin of the `url:` line.
+- `browser_eval`: run JavaScript in the page and get its value. It waits for a Promise. Use it only when no other tool gives the value.
 - `browser_screenshot`: take a PNG of the page or of one element. The reply gives the path.
 - `browser_console`, `browser_network` and `browser_diagnose`: see script errors, failed requests and why a page looks broken.
 - `browser_downloads`: list the files that the page saved. Send one with send_file.
@@ -24,7 +25,7 @@ Read a page as text first. Use `browser_snapshot`, `browser_read` or `browser_fi
 
 Refs belong to one page. After a navigation, take a new snapshot. An error `stale_ref` or `detached` means that the ref is old: take a new snapshot.
 
-`browser_act` replies with the lines that changed, marked `*`. After a navigation it gives the whole outline. A long outline says which refs it cut: use `browser_find`, `root` or `offset` to reach them.
+`browser_act` replies with the lines that changed, marked `*`. After a navigation it gives the whole outline. A long outline says which refs it cut: use `browser_find`, `root` or `offset` to reach them. A `script error:` line means the page threw an error. When the page then looks wrong, call `browser_diagnose`.
 
 A dialog (alert, confirm, prompt) is answered by the `dialog` argument of `browser_act`. The default is accept. Pass `dismiss` when a confirm would delete or buy something that the user did not ask for. A link that opens a new tab gives a new session such as `main~2`. Pass it as `session`.
 

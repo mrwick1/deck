@@ -16,7 +16,7 @@ logins_ok = 1
 id = "wizard-form"
 fixture = true
 timeout_s = 300
-prompt = "Fill in the signup form at {{base}}/wizard.html and submit it. Full name: Ada Lovelace. Company: Analytical Engines Ltd. Seats: 12. Plan: Team. Billing: yearly. Accept the terms."
+prompt = "Fill in the signup form at {{base}}/wizard.html and submit it. Full name: 'Ada Lovelace'. Company: 'Analytical Engines Ltd'. Seats: 12. Plan: Team. Billing: yearly. Accept the terms."
 [task.check.posted]
 path = "/wizard/submit"
 count = 1
