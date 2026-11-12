@@ -85,7 +85,8 @@ impl Agent {
             store.clone(),
             model,
             Tools::new(host, store, config.workspace(), &config.data_dir)
-                .with_secrets(config.bare.secrets_file.clone()),
+                .with_secrets(config.bare.secrets_file.clone())
+                .with_state_dir(config.bare.state_dir.clone()),
         )
     }
 

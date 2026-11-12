@@ -26,6 +26,8 @@ command = "bare-mcp"
 args = []
 # Optional: a file of NAME=value lines (mode 0600). The model types ${NAME}; bare fills in the value.
 # secrets_file = "/path/to/secrets.env"
+# Optional: a folder for browser session files (one <name>.state per session, mode 0700). Holds live logins; keep it outside the repository.
+# state_dir = "/path/to/state"
 
 [agent]
 # Most model calls in one run.
