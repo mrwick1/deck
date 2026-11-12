@@ -20,6 +20,7 @@ Without `web/dist`, `cargo build` embeds a placeholder page.
 `bare-mcp` must be on `PATH`, or set `bare.command` in `deck.toml`. The agent starts it on the first browser tool call.
 Run `cargo test -- --ignored` to run the live tests. They start the real `bare-mcp`, so it must be on `PATH`.
 `tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
+A `[vm]` section in `deck.toml` gives the bot its own guest computer. See [docs/stage3-results.md](docs/stage3-results.md).
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
 
 ## Rules
@@ -38,4 +39,5 @@ Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commi
 | [docs/rakazo-lessons.md](docs/rakazo-lessons.md) | What we learned from Rakazo |
 | [docs/inspiration.md](docs/inspiration.md) | What we take from other open-source agents |
 | [docs/bare-gaps.md](docs/bare-gaps.md) | What `bare-mcp` must add for `deck` |
+| [docs/stage3-results.md](docs/stage3-results.md) | The lean bot on its own computer: gates, measures and gaps |
 | [docs/open-questions.md](docs/open-questions.md) | Design questions and their answers |
