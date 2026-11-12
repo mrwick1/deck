@@ -137,3 +137,13 @@ The review added regression coverage and fixes for counting more than one distin
 The missing-tool and stalled-restore paths were verified with mocks. They were not rerun on a live VM. The performance figures above remain delegated experiment results inspected by the parent; the parent did not independently reproduce these optimization benchmarks. Earlier Stage 1 baseline reproduction remains separate.
 
 Compression stays optional. No default codec change is approved by this report. Idle sleep, event batching and view subscriptions remain pending integration.
+
+## Benchmark ownership correction
+
+The parent started a replacement implementation task before the original task's background work and continuation had fully settled. Both tasks used this worktree. The parent owns this coordination error.
+
+Commit `3fd3d28` contains the original base and overlay work. Commit `fa60db7` contains the replacement task's completion work and report. Commit `05a7963` contains the parent's review fixes. The final worktree is clean. Both delegated tasks have ended. The parent found no running prototype VM, fixture or benchmark driver after their final reports.
+
+The original task used `isolation.json`, `capture.json` and separate compression runs. This report's isolation and capture figures use `isolation2.json` and `capture2.json`. Its compression table uses `rt-C2/results.json`. Do not combine these datasets as independent replications.
+
+Some benchmark sessions overlapped or competed for a fixture port. Treat performance comparisons as provisional. The successful marker and checksum records remain functional evidence. They do not establish uncontended timing or a reliable speedup. No further benchmark matrix was run to resolve this limitation. Compression remains optional and the default remains unchanged.
