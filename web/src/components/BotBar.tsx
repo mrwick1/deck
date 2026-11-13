@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
-import { PRIORITIES, describeBot, type Tone } from "@/lib/bot";
+import { PRIORITIES, ceilingAnswer, describeBot, type Tone } from "@/lib/bot";
 import { cn } from "@/lib/utils";
 import {
   BellIcon,
@@ -194,6 +194,38 @@ export function SendOptions({
   );
 }
 
+/** The owner's answer to a request to raise the spending ceiling. */
+function CeilingForm({ r, done }: { r: api.CeilingRequest; done: () => void }) {
+  const [amount, setAmount] = useState("");
+  const send = (decision: "approve" | "deny") => {
+    const a = ceilingAnswer(r, decision, amount, crypto.randomUUID());
+    if (!a) return toast.error("Enter an amount above the current ceiling.");
+    api.botAnswerCeiling(a).then(done, fail);
+  };
+  const shown = (r.current_ceiling_minor / 10 ** r.precision).toFixed(r.precision);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-muted-foreground text-xs">
+        Ceiling now {shown} {r.currency}. {r.reason}
+      </span>
+      <input
+        className="bg-background w-28 rounded border px-1 py-0.5 text-xs"
+        inputMode="decimal"
+        aria-label={`New ceiling in ${r.currency}`}
+        placeholder={`New ceiling (${r.currency})`}
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+      />
+      <Button size="sm" onClick={() => send("approve")}>
+        Raise the ceiling
+      </Button>
+      <Button size="sm" variant="outline" onClick={() => send("deny")}>
+        Keep the ceiling
+      </Button>
+    </div>
+  );
+}
+
 const ACTIONS: Record<string, (i: api.InboxItem, done: () => void) => React.ReactNode> = {
   unknown_outcome: (i, done) => (
     <div className="flex flex-wrap gap-2">
@@ -214,10 +246,16 @@ const ACTIONS: Record<string, (i: api.InboxItem, done: () => void) => React.Reac
     </div>
   ),
   budget_hold: (_i, done) => (
-    <Button size="sm" onClick={() => api.botApprove().then(done, fail)}>
-      Approve and continue
+    <Button
+      size="sm"
+      variant="outline"
+      title="Releases this hold only. It does not change the spending ceiling."
+      onClick={() => api.botApprove().then(done, fail)}
+    >
+      Release the hold
     </Button>
   ),
+  ceiling_request: (i, done) => (i.ceiling ? <CeilingForm r={i.ceiling} done={done} /> : null),
   held_task: (i, done) => (
     <div className="flex gap-2">
       <Button size="sm" variant="outline" onClick={() => api.botRetryTask(i.id).then(done, fail)}>

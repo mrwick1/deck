@@ -86,6 +86,15 @@ export interface BotScreenStats {
   delivered: number;
   unchanged: number;
 }
+/** An open request to raise the absolute spending ceiling. Only the owner can answer it. */
+export interface CeilingRequest {
+  id: string;
+  version: number;
+  currency: string;
+  precision: number;
+  current_ceiling_minor: number;
+  reason: string;
+}
 export interface BotStatus {
   bot_id: string;
   chat_id: number;
@@ -93,6 +102,8 @@ export interface BotStatus {
   automation_paused: boolean;
   budget_hold: boolean;
   budget_reason: string | null;
+  /** Set by a server with a ledger. Absent from a server without one. */
+  ceiling_request?: CeilingRequest | null;
   working: BotTask | null;
   waiting: BotTask | null;
   queued: number;
@@ -105,11 +116,21 @@ export interface BotStatus {
   screen: BotScreenStats;
 }
 export interface InboxItem {
-  kind: "budget_hold" | "unknown_outcome" | "waiting_task" | "held_task";
+  kind: "budget_hold" | "ceiling_request" | "unknown_outcome" | "waiting_task" | "held_task";
   id: string;
   title: string;
   detail: string;
   task_id: string | null;
+  ceiling?: CeilingRequest;
+}
+export interface CeilingAnswer {
+  request_id: string;
+  version: number;
+  decision: "approve" | "deny";
+  amount_minor?: number;
+  currency?: string;
+  precision?: number;
+  idempotency_key: string;
 }
 export const botStatusUrl = "/api/bot/stream";
 export const botScreenUrl = "/api/bot/screen";
@@ -125,7 +146,10 @@ export const botPause = (paused: boolean) => act("automation", { paused });
 export const botSleep = () => act("sleep");
 export const botWake = () => act("wake");
 export const botHold = (reason: string) => act("budget-hold", { reason });
+/** Releases the old flag hold only. It does not change the spending ceiling. */
 export const botApprove = () => act("budget-hold/approve");
+export const botAnswerCeiling = (a: CeilingAnswer) =>
+  act("ceiling-requests/respond", a);
 export const botCancelTask = (id: string) => act(`tasks/${id}/cancel`);
 export const botRetryTask = (id: string) => act(`tasks/${id}/retry`);
 export const botPriority = (id: string, priority: number) =>

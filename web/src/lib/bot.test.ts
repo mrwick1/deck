@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BotStatus } from "./api";
-import { describeBot } from "./bot";
+import type { CeilingRequest } from "./api";
+import { ceilingAnswer, describeBot, parseMinor } from "./bot";
 
 const base: BotStatus = {
   bot_id: "main",
@@ -41,5 +42,50 @@ describe("describeBot", () => {
   });
   it("shows a failed computer first", () => {
     expect(describeBot({ ...base, computer: "failed", working: task }).tone).toBe("error");
+  });
+});
+
+const req: CeilingRequest = {
+  id: "r1",
+  version: 2,
+  currency: "USD",
+  precision: 2,
+  current_ceiling_minor: 2000,
+  reason: "next call does not fit",
+};
+
+describe("ceiling request", () => {
+  it("is not the same state as a plain budget hold", () => {
+    const s = { ...base, budget_hold: true, ceiling_request: req };
+    expect(describeBot(s).label).toBe("Spending ceiling needs your decision");
+    expect(describeBot({ ...base, budget_hold: true }).label).toBe("Budget hold");
+  });
+  it("reads amounts with integers only", () => {
+    expect(parseMinor("50", 2)).toBe(5000);
+    expect(parseMinor("12.5", 2)).toBe(1250);
+    expect(parseMinor("0.07", 2)).toBe(7);
+    for (const bad of ["", "-1", "1e3", "1.234", "0", "0.00", "abc", "99999999999999999999"])
+      expect(parseMinor(bad, 2), bad).toBeNull();
+  });
+  it("answers with the version, currency and precision of the request", () => {
+    expect(ceilingAnswer(req, "approve", "50", "k")).toEqual({
+      request_id: "r1",
+      version: 2,
+      decision: "approve",
+      amount_minor: 5000,
+      currency: "USD",
+      precision: 2,
+      idempotency_key: "k",
+    });
+    expect(ceilingAnswer(req, "deny", "", "k")).toEqual({
+      request_id: "r1",
+      version: 2,
+      decision: "deny",
+      idempotency_key: "k",
+    });
+  });
+  it("refuses an approval that does not raise the ceiling", () => {
+    expect(ceilingAnswer(req, "approve", "20", "k")).toBeNull();
+    expect(ceilingAnswer(req, "approve", "", "k")).toBeNull();
   });
 });

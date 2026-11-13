@@ -5,6 +5,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -15,6 +16,7 @@ use futures_util::Stream;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::authority::{CeilingResponse, Rejection, validate};
 use super::{Bot, BotError, Mode};
 
 impl IntoResponse for BotError {
@@ -43,6 +45,7 @@ pub fn routes() -> Router<Arc<Bot>> {
         .route("/api/bot/wake", post(wake))
         .route("/api/bot/budget-hold", post(budget_hold))
         .route("/api/bot/budget-hold/approve", post(budget_approve))
+        .route("/api/bot/ceiling-requests/respond", post(ceiling_respond))
         .route("/api/bot/tasks", get(tasks))
         .route("/api/bot/tasks/{id}/cancel", post(task_cancel))
         .route("/api/bot/tasks/{id}/priority", post(task_priority))
@@ -143,6 +146,40 @@ async fn budget_hold(State(b): B, Json(h): Json<Hold>) -> R<StatusCode> {
 async fn budget_approve(State(b): B) -> R<StatusCode> {
     b.approve_budget().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The owner answers a request to raise the spending ceiling. This route is owner-only: it sits
+/// behind the user session and never on `event_routes`.
+///
+/// The ledger that holds the ceiling and the pending request does not exist yet. The route checks
+/// the answer and then says plainly that it cannot apply it. It changes no state and clears no
+/// hold. Wiring: load the pending request, run `authority::check`, apply once by
+/// `idempotency_key`, then re-evaluate every hold.
+async fn ceiling_respond(body: Bytes) -> Response {
+    let r: CeilingResponse = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(_) => return reject(Rejection::Invalid("the body is not a ceiling answer")),
+    };
+    if let Err(e) = validate(&r) {
+        return reject(e);
+    }
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({
+            "error": "The spending ceiling cannot change yet: the ledger is not available. Nothing changed and no hold was cleared.",
+            "unavailable": "ceiling_ledger",
+        })),
+    )
+        .into_response()
+}
+
+fn reject(e: Rejection) -> Response {
+    match e {
+        Rejection::Invalid(m) => BotError::Invalid(m).into_response(),
+        Rejection::Stale => {
+            BotError::Conflict("the request changed; reload it".into()).into_response()
+        }
+    }
 }
 
 async fn tasks(State(b): B) -> R<Json<Value>> {
@@ -263,4 +300,55 @@ async fn screen_latest(State(b): B) -> Response {
         f.png.as_ref().clone(),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn answer(body: &str) -> (StatusCode, Value) {
+        let res = ceiling_respond(Bytes::from(body.to_string())).await;
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    const GOOD: &str = r#"{"request_id":"r1","version":1,"decision":"approve","amount_minor":5000,"currency":"USD","precision":2,"idempotency_key":"k"}"#;
+
+    #[tokio::test]
+    async fn a_malformed_ceiling_answer_is_a_bad_request() {
+        for body in [
+            "not json",
+            "{}",
+            r#"{"request_id":"r1","version":1,"decision":"approve","idempotency_key":"k"}"#,
+            r#"{"request_id":"r1","version":1,"decision":"deny","idempotency_key":"k","by":"bot"}"#,
+        ] {
+            assert_eq!(answer(body).await.0, StatusCode::BAD_REQUEST, "{body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_valid_ceiling_answer_is_unavailable_not_applied() {
+        let (s, v) = answer(GOOD).await;
+        assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(v["unavailable"], "ceiling_ledger");
+    }
+
+    #[test]
+    fn the_machine_route_carries_no_owner_control() {
+        let src = include_str!("api.rs");
+        let events = src
+            .split("pub fn event_routes()")
+            .nth(1)
+            .and_then(|s| s.split("\n}\n").next())
+            .unwrap();
+        assert_eq!(events.matches(".route(").count(), 1);
+        assert!(events.contains("\"/api/bot/events\""));
+        let owner = src
+            .split("pub fn routes()")
+            .nth(1)
+            .and_then(|s| s.split("\n}\n").next())
+            .unwrap();
+        assert!(owner.contains("/api/bot/ceiling-requests/respond"));
+    }
 }
