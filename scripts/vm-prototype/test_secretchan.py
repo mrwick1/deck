@@ -59,7 +59,7 @@ class Base(unittest.TestCase):
 
     def assert_no_leak(self, *extra):
         blob = json.dumps(self.qga.argv_log) + "".join(self.qga.output_log) + "".join(extra)
-        self.assertNotIn(self.value, blob)
+        self.assertTrue(self.value not in blob, "protected value escaped")
 
 
 class EnvName(unittest.TestCase):
@@ -81,7 +81,7 @@ class Deliver(Base):
     def test_writes_private_file_and_returns_metadata_only(self):
         r = self.deliver()
         self.assertEqual(r, {"ok": True, "bot_id": BOT, "request_id": "req-1", "label": "API_TOKEN"})
-        self.assertEqual(self.env().read_text(), f"API_TOKEN={self.value}\n")
+        self.assertTrue(self.env().read_text() == f"API_TOKEN={self.value}\n", "stored value differs")
         self.assertEqual(stat.S_IMODE(self.env().stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(self.env().parent.stat().st_mode), 0o700)
         self.assert_no_leak(json.dumps(r))
@@ -98,8 +98,14 @@ class Deliver(Base):
         self.assertEqual(e.exception.code, "bot_mismatch")
         self.assertFalse(self.env().exists())
 
+    def test_setup_wait_identity_can_reach_the_guest(self):
+        request_id = BOT + ":1"
+        result = self.deliver(request_id=request_id)
+        self.assertEqual(result["request_id"], request_id)
+        self.assertTrue(sc.receipt(self.qga, BOT, request_id)["ok"])
+
     def test_bad_request_id_and_value_rejected_before_guest_call(self):
-        for rid in ("", "a b", "x" * 65, "../x"):
+        for rid in ("", "a b", "x" * 129, "../x"):
             with self.assertRaises(sc.SecretError):
                 self.deliver(request_id=rid)
         for val in ("", "a\nb", "a\rb", "a\x00b", "x" * 4097, 7):
@@ -117,7 +123,7 @@ class Deliver(Base):
         with self.assertRaises(sc.SecretError) as e:
             self.deliver(value=secrets.token_urlsafe(18))
         self.assertEqual(e.exception.code, "request_mismatch")
-        self.assertEqual(self.env().read_text(), f"API_TOKEN={self.value}\n")
+        self.assertTrue(self.env().read_text() == f"API_TOKEN={self.value}\n", "stored value differs")
 
     def test_same_request_other_label_is_mismatch(self):
         self.deliver()
@@ -151,20 +157,20 @@ class Deliver(Base):
         self.deliver()
         self.assertEqual(stat.S_IMODE(self.env().stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(self.env().parent.stat().st_mode), 0o700)
-        self.assertIn("OLD=1", self.env().read_text())
+        self.assertTrue("OLD=1" in self.env().read_text(), "existing reference missing")
 
     def test_transport_failure_hides_value(self):
         self.qga.fail = "transport"
         with self.assertRaises(sc.SecretError) as e:
             self.deliver()
         self.assertEqual(e.exception.code, "transport_error")
-        self.assertNotIn(self.value, str(e.exception))
+        self.assertTrue(self.value not in str(e.exception), "protected value escaped in error")
 
     def test_guest_error_output_hides_value(self):
         self.qga.fail = "leaky"
         with self.assertRaises(sc.SecretError) as e:
             self.deliver()
-        self.assertNotIn(self.value, str(e.exception))
+        self.assertTrue(self.value not in str(e.exception), "protected value escaped in error")
 
     def test_garbage_guest_output_is_an_error(self):
         class Junk(FakeQga):
@@ -179,6 +185,23 @@ class Reconcile(Base):
         self.deliver()
         r = sc.receipt(self.qga, BOT, "req-1")
         self.assertEqual(r, {"ok": True, "bot_id": BOT, "request_id": "req-1", "label": "API_TOKEN"})
+
+    def test_completed_receipt_is_invalid_after_a_later_request_replaces_the_value(self):
+        self.deliver()
+        self.deliver("req-2", "API_TOKEN", secrets.token_urlsafe(18))
+        with self.assertRaises(sc.SecretError) as error:
+            sc.receipt(self.qga, BOT, "req-1")
+        self.assertEqual(error.exception.code, "not_delivered")
+
+    def test_receipt_tightens_existing_private_files(self):
+        self.deliver()
+        receipt = Path(self.home, ".local/state/deck-secrets/receipts/req-1.json")
+        lock = receipt.parent.parent / "lock"
+        for path in (self.env(), receipt, lock):
+            os.chmod(path, 0o644)
+        sc.receipt(self.qga, BOT, "req-1")
+        for path in (self.env(), receipt, lock):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_receipt_unknown_request_is_not_delivered(self):
         with self.assertRaises(sc.SecretError) as e:
@@ -207,7 +230,7 @@ class Reconcile(Base):
 
     def test_crash_after_write_before_receipt_reconciles_without_value(self):
         self._crash_after_env_write()
-        self.assertIn("API_TOKEN=", self.env().read_text())
+        self.assertTrue("API_TOKEN=" in self.env().read_text(), "expected secret reference missing")
         r = sc.receipt(self.qga, BOT, "req-1")
         self.assertTrue(r["ok"])
         self.assertEqual(sc.receipt(self.qga, BOT, "req-1"), r)
@@ -230,7 +253,7 @@ class Reconcile(Base):
         for f in files:
             if f.is_file():
                 self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
-                self.assertNotIn(self.value, f.read_text())
+                self.assertTrue(self.value not in f.read_text(), "protected value escaped in receipt")
 
 
 class Cli(Base):

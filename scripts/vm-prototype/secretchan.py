@@ -16,7 +16,7 @@ import re
 import sys
 
 MAX_VALUE = 4096
-REQUEST_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+REQUEST_RE = re.compile(r"[A-Za-z0-9_:-]{1,128}")
 NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]{0,63}")
 
 
@@ -78,6 +78,7 @@ def check_file(path):
         return False
     if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
         fail("unsafe_path")
+    os.chmod(path, 0o600)
     return True
 
 def write_atomic(path, text):
@@ -134,7 +135,13 @@ private_dir(cfg, True)
 private_dir(os.path.join(home, ".local", "state"))
 private_dir(state, True)
 private_dir(rdir, True)
-lock = os.open(os.path.join(state, "lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+lock_path = os.path.join(state, "lock")
+check_file(lock_path)
+lock = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+lock_info = os.fstat(lock)
+if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_uid != os.getuid():
+    fail("unsafe_path")
+os.fchmod(lock, 0o600)
 fcntl.flock(lock, fcntl.LOCK_EX)
 rpath = os.path.join(rdir, rid + ".json")
 rec = None
@@ -152,12 +159,12 @@ def finish(rec):
 if mode == "receipt":
     if rec is None:
         fail("not_delivered")
+    cur = env_value(rec["name"])
+    if cur is None or not hmac.compare_digest(digest(rec["salt"], cur), rec["digest"]):
+        fail("not_delivered")
     if rec["status"] == "done":
         ok(rec)
     else:
-        cur = env_value(rec["name"])
-        if cur is None or not hmac.compare_digest(digest(rec["salt"], cur), rec["digest"]):
-            fail("not_delivered")
         finish(rec)
     sys.exit(0)
 
@@ -169,6 +176,9 @@ if rec is not None:
     if rec["name"] != name or not hmac.compare_digest(digest(rec["salt"], value), rec["digest"]):
         fail("request_mismatch")
     if rec["status"] == "done":
+        cur = env_value(name)
+        if cur is None or not hmac.compare_digest(digest(rec["salt"], cur), rec["digest"]):
+            fail("not_delivered")
         ok(rec)
         sys.exit(0)
 else:
