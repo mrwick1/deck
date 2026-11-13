@@ -161,3 +161,7 @@ The parent added two regressions. Both failed before the fixes. The fixture outp
 Navigation report `afc10e3` is integrated as `9d091f1`. Sidebar bot routing, review toggle, keyboard entry and seeded responses pass. Bare issue 464 blocks phone colors. [Bare issue 467](https://github.com/mrwick1/bare/issues/467) blocks unbroken-text wrapping. Deck adds no fallback. The owned UI fixtures and their synthetic values were removed after cleanup; sanitized reports and external screenshot evidence remain.
 
 All previous delegates and VM processes are terminal at this checkpoint. The next real run will use the complete `synthetic-login` mode, one fresh overlay and the shared VM lock. No competing VM run may start. Raster secrecy, saved-state second-task and phone rendering remain separate limits.
+
+## Whole-service live run assignment
+
+The complete synthetic-login live run started from `7ae4a72`. It is the sole VM owner. It uses the verified frozen base, one fresh overlay and default host-pressure limits. The worker must retain every failed gate and clean up before returning. All previous VM and browser workers are terminal. The optional raster, saved-state wake and second-task gates remain explicit. The draft PR will receive the final evidence after integration.
