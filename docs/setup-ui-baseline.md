@@ -74,3 +74,11 @@ Every check used bare in headless mode, one session per viewport. No bare call f
 ## Reproduction
 
 The stack files are not committed. They used the synthetic config, a fake harness and a model stub. Rebuild them from the repo's `deck.example.toml`, with a `[provisioning]` section. The harness path must point to a local fixture that answers the protocol in `src/bot/setup.rs`.
+
+## Parent integration follow-up
+
+At `e3ad16e`, the parent moved credential-label normalization to save time. The editor no longer removes spaces or newlines while the owner types. Type checking and the production build pass. A repeat browser check remains open.
+
+The parent also reconciled challenge fields with the backend. A regression showed that an answered request appeared expired. The corrected UI reads `instructions`, `match_number` and `answered`. All 44 web tests pass. This is deterministic evidence, not a new browser run. Other baseline findings remain open unless later evidence closes them.
+
+The invalid-budget save regression failed before the storage fix and passed after it. The combined rerun passes 249 Rust unit tests and four integration tests. Two live tests remain ignored. Draft saves now validate a supplied budget before committing. A repeat browser run remains open.

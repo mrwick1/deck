@@ -90,7 +90,11 @@ The guest secret channel and its small parent review fixes are integrated at `1a
 
 The reference report and protected-input UI are integrated as `34bc352` and `5995b3b`. Parent UI review adds fixed error messages and the guest byte limit. All 43 web tests pass. Browser validation remains open. The failure-test harness returned `a262434`; it remains unintegrated until the missing endpoints land. Its baseline has four passes, one skipped capture gate and eighteen expected endpoint failures.
 
-Four delegates have not reported completion: host lifecycle, login challenges, real VM acceptance and bare UI acceptance. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
+Challenge handling is integrated as `cb38eab`. Bare baseline evidence is integrated as `0aa1e33`. The parent reconciled challenge DTO fields after a failing regression. All 44 web tests, type checking and the production build pass. These checks do not prove a live sign-in. See the completion plan for the baseline findings.
+
+The parent reproduced the invalid-budget save in a failing Store regression. The save now validates the supplied budget before committing. The combined rerun passes 249 Rust unit tests and four integration tests. Two live tests remain ignored. Formatting and clippy pass.
+
+Two delegates have not reported completion: host lifecycle and real VM acceptance. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
 
 ## Current work and next edits
 

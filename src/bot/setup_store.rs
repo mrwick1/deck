@@ -39,6 +39,9 @@ fn save(c: &Connection, expected: i64, setup: &Setup) -> rusqlite::Result<i64> {
     {
         return Err(conflict());
     }
+    if let Some(budget) = &setup.draft.budget {
+        budget.validate().map_err(encoded)?;
+    }
     let version = expected.checked_add(1).ok_or_else(conflict)?;
     t.execute("UPDATE bot_setup_drafts SET revision=?2, body=?3, updated_at=?4 WHERE draft_id=?1 AND lifecycle=1", params![setup.id, version, serde_json::to_string(setup).map_err(encoded)?, now()])?;
     t.commit()?;
@@ -212,6 +215,29 @@ mod tests {
                 .name,
             "Changed"
         );
+    }
+
+    #[tokio::test]
+    async fn invalid_draft_budget_cannot_replace_the_saved_snapshot() {
+        let store = Store::open_memory().unwrap();
+        store
+            .create_setup(&Setup::new("budget", draft()).unwrap())
+            .await
+            .unwrap();
+        let before = store.setup_record("budget").await.unwrap().unwrap();
+        let mut changed = before.setup.clone();
+        changed
+            .edit(1, |d| d.budget.as_mut().unwrap().allowance = 101)
+            .unwrap();
+        assert!(
+            store
+                .save_setup_state(before.version, &changed)
+                .await
+                .is_err()
+        );
+        let after = store.setup_record("budget").await.unwrap().unwrap();
+        assert_eq!(after.version, before.version);
+        assert_eq!(after.setup, before.setup);
     }
 
     #[tokio::test]

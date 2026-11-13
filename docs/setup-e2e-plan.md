@@ -63,3 +63,13 @@ The protected-input reference report is integrated as `34bc352`. It distinguishe
 Parent review added regressions for value-bearing exception messages and the guest UTF-8 size limit. Both tests failed before the fixes. All 43 web tests now pass. Type checking and the production build also pass. The existing bundle-size warning remains.
 
 The failure-test worker returned commit `a262434`. Its baseline has four passing tests, one skipped capture gate and eighteen failing endpoint checks. Integration waits for the host and challenge implementations. This is dependency evidence, not an end-to-end pass. The host lifecycle, login challenges, real VM and bare UI workers have not yet reported completion.
+
+## Challenge and browser-baseline checkpoint: 2026-11-13
+
+Challenge commit `01af1e4` is integrated as `cb38eab`. The state distinguishes an owner answer from verified service success. The old completion control refuses task login waits. The Tools adapter and real service verification remain open. The child reports 19 new deterministic tests; parent verification is in progress.
+
+Bare baseline report `22ed7c5` is integrated as `0aa1e33`. It checked the real baseline UI with a fake guest at desktop and phone widths. Review, approval and wait persistence passed. It did not test protected input, a first task or a real VM. See [the full baseline](setup-ui-baseline.md).
+
+Parent integration found different challenge field names in the UI and backend. A new regression failed before the fix. The UI now reads `instructions`, `match_number` and `answered`. Answered task challenges remain pending after their original expiry. All 44 web tests, type checking and the production build pass. Credential labels now retain spaces and line breaks during editing; normalization occurs only on save. Browser confirmation of this edit remains open.
+
+The baseline also found invalid budget drafts accepted by the save path. The Store regression failed on the accepted invalid save: 248 other Rust tests passed. The parent now validates a supplied budget before committing a snapshot. The rerun passes: 249 Rust unit tests and four integration tests. Two live tests remain ignored. Formatting and clippy pass. The host lifecycle worker still owns `setup_api.rs`; the parent does not edit that file while the worker runs. Remaining findings include title synchronization, pause visibility and executor readiness. They require explicit verification before closure. Host lifecycle and real VM acceptance have not reported completion.
