@@ -213,3 +213,7 @@ The capture review fixed publication after an open gate and stale-cache reuse af
 The parent integrated the durable privacy generation and reproduced 313 Rust tests. Formatting, clippy and the rebuilt binary passed. The generation prevents reuse of a capture that spans an open-and-close transition. The held-capture tests do not prove real-pixel secrecy.
 
 The combined UI/VM controller preparation check passed. Its live start exited 3 before starting any process. Host load was 8.99, above the configured 8.0 limit. No VM or browser started. The parent did not override the limit. The combined browser run remains pending normal host capacity.
+
+## Combined run retry
+
+The next combined UI/VM start also exited 3 before launch. Host load was 10.25, above the unchanged 8.0 limit. No process or VM started. Both phone rendering issues remain open in bare. The latest verified privacy and saved-state work is ready for draft review while live browser acceptance waits for host capacity.
