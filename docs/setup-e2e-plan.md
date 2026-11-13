@@ -187,3 +187,7 @@ Report `ff66d60` is integrated as `2d3a463`. Every live behavior gate passes: ex
 The parent replaced path matching with registered process identities. Subprocess roots and verified VM PID files supply ownership. Descendants are captured before their parents stop. The audit compares process birth times, retains reparented helpers and ignores reused PIDs and unrelated observers. The manifest now records registered identities and survivors. A new regression failed before this registry existed.
 
 A fixture test also incorrectly required a repeated completion to fail. The endpoint permits an idempotent answer. The corrected test pauses the driver and requires 204 with the same snapshot, version, installer count and holds. The complete Python suite passes 366 tests with one screenshot gate skipped. A final fresh live run must verify the new audit and the aggregate gate.
+
+## Tracked-cleanup live acceptance assignment
+
+The next exclusive live run started from `7118ba2`. It must preserve the already-passing behavior gates and verify the registered process audit. Its manifest will contain the registered identities and any survivors. All prior workers are terminal. The worker may run once, retain failures and clean up before returning. No competing VM may start. The optional visual and saved-state limits remain unchanged.
