@@ -9,10 +9,17 @@ Faults come from RUNTIME/fault.json: {"mode": MODE, "remaining": N}. Modes apply
   fail                no storage, no receipt, exit 1
   partial             value stored, no receipt, exit 1
   crash_after_deliver value stored, receipt written, exit 1 and no output
-Without a fault, delivery stores NAME=value in RUNTIME/guest/secrets.env (mode 0600) and writes a
-receipt with identifiers only. A bot that differs from the executor binding is refused.
+Without a fault, delivery stores NAME=value in RUNTIME/guest/secrets.env (mode 0600, one line per
+name, replaced on overwrite) and writes a receipt: identifiers plus a salted digest that stays in
+RUNTIME/guest/receipts.jsonl. A bot that differs from the executor binding is refused.
+
+Receipt contract, as in `secretchan.py`. Every answer is {"ok": true, bot_id, request_id, label} or
+exit 1 with {"ok": false, "error": CODE}. A missing receipt, or a receipt whose stored value was
+overwritten since, is exit 1 "not_delivered". A replay of a request with another value is exit 1
+"request_mismatch". This file does not copy the production lifecycle: no locks, no real QGA.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -47,11 +54,38 @@ def bound_bot(root):
         return None
 
 
+def public(r):
+    return {k: r[k] for k in ("bot_id", "request_id", "label")}
+
+
 def receipts(root):
     path = root / "guest" / "receipts.jsonl"
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+
+def digest(salt, value):
+    return hashlib.sha256(bytes.fromhex(salt) + value.encode()).hexdigest()
+
+
+def env_pairs(root):
+    path = root / "guest" / "secrets.env"
+    if not path.exists():
+        return {}
+    return dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line)
+
+
+def store(root, label, value):
+    """Private env store: one line per name, replaced on overwrite, mode 0600."""
+    guest = root / "guest"
+    guest.mkdir(exist_ok=True, mode=0o700)
+    pairs = env_pairs(root)
+    pairs[label] = value
+    fd = os.open(guest / "secrets.env", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("".join(f"{k}={v}\n" for k, v in pairs.items()))
+    os.chmod(guest / "secrets.env", 0o600)
 
 
 def die(message):
@@ -101,40 +135,46 @@ def main():
         (root / "executor.json").write_text(json.dumps({"bot_id": a.bot, "guest_id": "g" * 32}))
     elif a.sub == "secret-receipt":
         if bound_bot(root) != a.bot:
-            die("bot is not bound to this guest")
+            die("bot_mismatch")
         hit = [r for r in receipts(root) if r["request_id"] == a.request_id and r["bot_id"] == a.bot]
-        if not hit:
-            die("no receipt")
-        print(json.dumps({"ok": True, **hit[-1]}))
+        # a receipt counts only while the stored value still matches its digest
+        if not hit or env_pairs(root).get(hit[-1]["label"]) is None or \
+                digest(hit[-1]["salt"], env_pairs(root)[hit[-1]["label"]]) != hit[-1]["digest"]:
+            die("not_delivered")
+        print(json.dumps({"ok": True, **public(hit[-1])}))
     else:
         deliver(root, a, stdin)
 
 
 def deliver(root, a, stdin):
     if bound_bot(root) != a.bot:
-        die("bot is not bound to this guest")
+        die("bot_mismatch")
     mode = fault(root)
     if mode == "fail":
-        die("injected delivery failure")
+        die("guest_error")
     try:
         req = json.loads(stdin)
         label, value = req["label"], req["value"]
     except (ValueError, KeyError, TypeError):
-        die("stdin is not {label,value}")
+        die("invalid_value")
     if not (isinstance(label, str) and NAME.fullmatch(label) and isinstance(value, str)):
-        die("invalid label or value")
+        die("invalid_value")
     if not value or len(value.encode()) > MAX_VALUE or any(c in value for c in "\0\r\n"):
-        die("value rejected")
-    guest = root / "guest"
-    guest.mkdir(exist_ok=True, mode=0o700)
-    fd = os.open(guest / "secrets.env", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(fd, "a") as f:
-        f.write(f"{label}={value}\n")
+        die("invalid_value")
+    prior = [r for r in receipts(root) if r["request_id"] == a.request_id and r["bot_id"] == a.bot]
+    if prior:
+        if prior[-1]["label"] != label or digest(prior[-1]["salt"], value) != prior[-1]["digest"]:
+            die("request_mismatch")
+        store(root, label, value)  # a replay restores a value that was overwritten
+        print(json.dumps({"ok": True, **public(prior[-1])}))
+        return
+    store(root, label, value)
     if mode == "partial":
-        die("injected partial delivery")
+        die("guest_error")
+    salt = os.urandom(8).hex()
     receipt = {"bot_id": a.bot, "request_id": a.request_id, "label": label}
-    with open(guest / "receipts.jsonl", "a") as f:
-        f.write(json.dumps(receipt) + "\n")
+    with open(root / "guest" / "receipts.jsonl", "a") as f:
+        f.write(json.dumps({**receipt, "salt": salt, "digest": digest(salt, value)}) + "\n")
     if mode == "crash_after_deliver":
         sys.exit(1)
     print(json.dumps({"ok": True, **receipt}))

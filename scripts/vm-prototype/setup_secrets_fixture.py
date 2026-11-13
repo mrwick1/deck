@@ -49,7 +49,8 @@ class Sentinel:
     def __init__(self):
         self.value = "SYN-" + secrets.token_urlsafe(24)
         raw = self.value.encode()
-        self.variants = [raw, base64.b64encode(raw), base64.urlsafe_b64encode(raw), raw.hex().encode()]
+        self.variants = [raw, base64.b64encode(raw), base64.urlsafe_b64encode(raw), raw.hex().encode(),
+                         hashlib.sha256(raw).hexdigest().encode()]
         self.digest = hashlib.sha256(raw).hexdigest()
 
     def count(self, data: bytes) -> int:
@@ -301,7 +302,18 @@ request_usage = false
 
     def receipts(self, sid):
         p = self.rt(sid) / "guest" / "receipts.jsonl"
-        return [json.loads(l) for l in p.read_text().splitlines()] if p.exists() else []
+        rows = [json.loads(l) for l in p.read_text().splitlines()] if p.exists() else []
+        return [{k: r[k] for k in ("bot_id", "request_id", "label")} for r in rows]
+
+    def argv_count(self):
+        """Sentinel matches in the live process arguments and environment of deck."""
+        n = 0
+        for name in ("cmdline", "environ"):
+            try:
+                n += self.sentinel.count(Path(f"/proc/{self.proc.pid}/{name}").read_bytes())
+            except OSError:
+                pass
+        return n
 
     def patch_setup(self, sid, fn):
         """Fixture seeding: rewrite one snapshot body through SQLite and bump its revision."""
@@ -328,6 +340,7 @@ request_usage = false
             "model-requests": s.count_file(self.model.log),
             "responses": s.count_file(self.wire),
             "deck-log": s.count_file(self.log),
+            "deck-argv-env": self.argv_count() if self.proc and self.proc.poll() is None else 0,
         }
         for name in ("deck.db", "deck.db-wal", "deck.db-shm"):
             counts[name] = s.count_file(self.data / name)

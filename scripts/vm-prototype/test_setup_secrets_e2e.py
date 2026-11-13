@@ -79,12 +79,21 @@ class Harness(Base):
         rec = run("secret-receipt", "--bot", sid, "--request-id", "r1")
         self.assertEqual(rec.returncode, 0)
         self.assertEqual(self.s.sentinel.count(rec.stdout), 0)
-        self.assertEqual(run("secret-receipt", "--bot", "other", "--request-id", "r1").returncode, 1)
-        self.assertEqual(run("secret-receipt", "--bot", sid, "--request-id", "r2").returncode, 1)
+        for args, code in ((("--bot", "other", "--request-id", "r1"), "bot_mismatch"), (("--bot", sid, "--request-id", "r2"), "not_delivered")):
+            miss = run("secret-receipt", *args)
+            self.assertEqual((miss.returncode, json.loads(miss.stdout)), (1, {"ok": False, "error": code}), "as secretchan.py: exit 1 with a code")
         for bad in ("a\nb", "a\rb", "a\0b", "x" * 5000, ""):
             r = run("deliver-secret", "--bot", sid, "--request-id", "r3", stdin=json.dumps({"label": "FIXTURE_PASS", "value": bad}).encode())
             self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self.s.guest_secrets(sid)), 1, "a rejected value must store nothing")
+        # a replay with another value is refused; an overwrite by another request voids the first receipt
+        other = json.dumps({"label": "FIXTURE_PASS", "value": "synthetic-other"}).encode()
+        self.assertEqual(json.loads(run("deliver-secret", "--bot", sid, "--request-id", "r1", stdin=other).stdout)["error"], "request_mismatch")
+        self.assertEqual(run("deliver-secret", "--bot", sid, "--request-id", "r4", stdin=other).returncode, 0)
+        self.assertEqual(self.s.guest_secrets(sid), ["FIXTURE_PASS=synthetic-other"], "one line per name")
+        gone = run("secret-receipt", "--bot", sid, "--request-id", "r1")
+        self.assertEqual((gone.returncode, json.loads(gone.stdout)["error"]), (1, "not_delivered"))
+        self.assertEqual(run("secret-receipt", "--bot", sid, "--request-id", "r4").returncode, 0)
         self.assertEqual(self.s.sentinel.count_file(rt / "journal.jsonl"), 0)
 
     def test_legacy_wait_route_never_accepts_a_credential_wait(self):
@@ -263,6 +272,53 @@ class ProtectedSecret(Base):
         self.assertEqual(self.s.sentinel.count_file(self.s.log), 0)
 
 
+    def test_a_missing_receipt_probe_falls_through_to_delivery(self):
+        """secretchan.py answers a missing receipt with exit 1 {"ok":false,"error":"not_delivered"}.
+        The host must read that as "deliver now", not as a failed delivery."""
+        sid = self.s.new_waiting_setup()
+        self.need_secret(sid)
+        v, rid = self.req(sid)
+        st = self.s.secret(sid, v, rid)[0]
+        subs = [c["argv"][c["argv"].index("--request-id") - 3] for c in self.s.journal(sid) if "--request-id" in c["argv"]]
+        self.assertEqual((st, subs), (204, ["secret-receipt", "deliver-secret"]), "first delivery after a not_delivered probe")
+        self.assert_clean()
+
+    def test_a_receipt_voided_by_an_overwrite_is_delivered_again(self):
+        """Guest stored the value and the host never heard. Another request then overwrites the name.
+        The first receipt no longer matches, so a retry must store the value again, once."""
+        import subprocess, sys
+        from setup_secrets_fixture import GUEST
+        sid = self.s.new_waiting_setup()
+        self.need_secret(sid)
+        v, rid = self.req(sid)
+
+        def guest(request_id, value):
+            return subprocess.run([sys.executable, "-I", str(GUEST), "--dir", str(self.s.rt(sid)), "deliver-secret", "--bot", sid, "--request-id", request_id],
+                                  input=json.dumps({"label": "FIXTURE_PASS", "value": value}).encode(), capture_output=True).returncode
+        # the crash window, built directly so it does not depend on host handling: stored, receipt written, host never told
+        self.assertEqual(guest(rid, self.s.sentinel.value), 0)
+        self.assertEqual(guest("other-req", "synthetic-overwrite"), 0)
+        self.assert_open_credential_wait(sid, rid)
+        v = self.s.setup(sid)["version"]
+        self.assertEqual(self.s.secret(sid, v, rid)[0], 204, "a retry must restore the value and finish")
+        self.assertEqual(self.s.guest_secrets(sid), [f"FIXTURE_PASS={self.s.sentinel.value}"], "the retried value, once, no residue")
+        self.assert_clean()
+
+    def test_the_task_secret_route_needs_auth_and_an_open_request(self):
+        """Task delivery and resume crash safety need a ready bot and a model `request_secret`
+        call. A setup stack has neither. Only the reachable guards run here."""
+        sid = self.s.new_waiting_setup()
+        path = f"/api/bots/{sid}/secret"
+        body = {"request_id": "secret-none", "value": self.s.sentinel.value}
+        if self.s.call("POST", path, body)[0] in (404, 405):
+            self.fail("RED: POST /api/bots/{id}/secret is not routed")
+        self.assertEqual(self.s.call("POST", path, body, user=None)[0], 401)
+        self.assertEqual(self.s.call("POST", path, body, user="intruder")[0], 403)
+        self.assertGreaterEqual(self.s.call("POST", path, body)[0], 400)
+        self.assert_no_delivery(sid)
+        self.assert_clean()
+
+
 class Holds(Base):
     """Independent holds survive a secret delivery. The secret never dispatches work."""
 
@@ -283,9 +339,9 @@ class Holds(Base):
             db.execute("INSERT INTO bot_holds(bot_id,kind,reason,created_at) VALUES (?,?,?,datetime('now'))", (sid, kind, "fixture"))
         db.commit()
         db.close()
-        before = self.s.sql("SELECT paused FROM bot_state WHERE bot_id=?", (sid,))
+        before = self.s.sql("SELECT automation_paused, budget_hold FROM bot_state WHERE bot_id=?", (sid,))
         self.delivered(sid)
-        self.assertEqual(self.s.sql("SELECT paused FROM bot_state WHERE bot_id=?", (sid,)), before)
+        self.assertEqual(self.s.sql("SELECT automation_paused, budget_hold FROM bot_state WHERE bot_id=?", (sid,)), before)
         self.assertEqual(sorted(k for (k,) in self.s.sql("SELECT kind FROM bot_holds WHERE bot_id=?", (sid,))),
                          ["ceiling", "investigation", "unknown_outcome"])
         self.assertEqual(self.s.sql("SELECT count(*) FROM tasks WHERE bot_id=?", (sid,)), [(0,)])
@@ -299,11 +355,12 @@ class Holds(Base):
         def fn(o):
             o["steps"][0]["status"] = "Unknown"
         self.s.patch_setup(sid, fn)
+        starts = len(self.s.calls(sid, "start"))
         v, rid = self.req(sid)
         st, _ = self.s.secret(sid, v, rid)
         steps = {x["step"] if isinstance(x["step"], str) else "cred": x["status"] for x in self.s.setup(sid)["setup"]["steps"]}
-        self.assertEqual(steps["Allocate"], "Unknown")
-        self.assertEqual(len(self.s.calls(sid, "start")), 0 if st != 204 else len(self.s.calls(sid, "start")))
+        self.assertEqual(steps["Allocate"], "Unknown", "delivery must not resolve an unknown step outcome")
+        self.assertEqual(len(self.s.calls(sid, "start")), starts, "delivery must not run guest start again")
         self.assert_clean()
 
 
@@ -342,10 +399,77 @@ class Challenges(Base):
         self.need_respond(sid)
         self.seed(sid, expires_at=1)
         v, rid = self.req(sid)
-        self.assertGreaterEqual(self.s.respond(sid, v, rid, "completed")[0], 400)
+        installs = len(self.s.calls(sid, "install-executor"))
+        self.assertEqual(self.s.respond(sid, v, rid, "completed")[0], 409, "an expired request is a conflict")
         w = self.s.setup(sid)["setup"]["wait"]
         self.assertIsNotNone(w, "an expired answer must not resume work")
-        self.assertEqual(len(self.s.calls(sid, "install-executor")), 1, "no resume after expiry")
+        self.assertNotEqual(w["request_id"], rid, "a fresh request replaces it")
+        self.assertGreater(w["expires_at"], 1)
+        self.s.restart()
+        self.assertEqual(self.s.setup(sid)["setup"]["wait"]["request_id"], w["request_id"], "the fresh request persists")
+        v2 = self.s.setup(sid)["version"]
+        self.assertGreaterEqual(self.s.respond(sid, v2, rid, "completed")[0], 400, "the old identity stays dead")
+        self.assertEqual(len(self.s.calls(sid, "install-executor")), installs, "no resume after expiry")
+
+    def login_wait(self, sid, expires_at=None):
+        """Snapshot seeding of a task sign-in wait (Step::Login). Only the seed bypasses the API."""
+        def fn(o):
+            o["wait_seq"] += 1
+            o["wait"] = {"request_id": f"{sid}:{o['wait_seq']}", "step": {"Login": "fixture-service"}, "kind": "PhoneApproval",
+                         "expires_at": expires_at, "ttl_secs": 60, "instructions": "Approve on the fixture", "match_number": "17"}
+        self.s.patch_setup(sid, fn)
+
+    def test_a_task_login_wait_is_answered_not_verified(self):
+        sid = self.s.new_waiting_setup()
+        self.need_respond(sid)
+        self.login_wait(sid)
+        v, rid = self.req(sid)
+        w = self.s.setup(sid)["setup"]["wait"]
+        self.assertEqual((w["instructions"], w["match_number"], w.get("answered", False)), ("Approve on the fixture", "17", False))
+        st, _ = self.s.call("POST", f"/api/setups/{sid}/control", {"version": v, "command": {"action": "complete_wait", "request_id": rid}})
+        self.assertGreaterEqual(st, 400, "the legacy control must refuse a task Login wait")
+        self.assertFalse(self.s.setup(sid)["setup"]["wait"].get("answered", False))
+        v = self.s.setup(sid)["version"]
+        self.assertEqual(self.s.respond(sid, v, rid, "completed")[0], 204)
+        cur = self.s.setup(sid)
+        w = cur["setup"]["wait"]
+        self.assertEqual((w["request_id"], w["answered"]), (rid, True), "an owner answer waits for the task to verify")
+        self.assertFalse([r for r in cur["setup"].get("resolved", []) if r["request_id"] == rid and r["outcome"] in ("verified", "owner_completed")])
+        # still answered after its original expiry and after a restart
+        self.s.patch_setup(sid, lambda o: o["wait"].update(expires_at=1))
+        self.s.restart()
+        w = self.s.setup(sid)["setup"]["wait"]
+        self.assertEqual((w["request_id"], w["answered"]), (rid, True))
+        self.assertEqual(self.s.respond(sid, self.s.setup(sid)["version"], rid, "completed")[0], 204, "a duplicate answer changes nothing")
+        self.assertEqual(self.s.setup(sid)["setup"]["wait"]["request_id"], rid)
+
+    def test_an_unanswered_login_wait_expires_into_a_replacement(self):
+        sid = self.s.new_waiting_setup()
+        self.need_respond(sid)
+        self.login_wait(sid, expires_at=1)
+        v, rid = self.req(sid)
+        self.assertEqual(self.s.respond(sid, v, rid, "completed")[0], 409)
+        w = self.s.setup(sid)["setup"]["wait"]
+        self.assertNotEqual(w["request_id"], rid)
+        self.assertFalse(w.get("answered", False), "the owner never answered the fresh request")
+        self.assertEqual((w["instructions"], w["match_number"]), ("Approve on the fixture", "17"))
+
+    def test_a_credential_wait_refuses_a_plain_completion(self):
+        sid = self.s.new_waiting_setup()
+        self.need_respond(sid)
+        v, rid = self.req(sid)
+        self.assertEqual(self.s.respond(sid, v, rid, "completed")[0], 400, "a credential needs protected input")
+        self.assert_open_credential_wait(sid, rid)
+
+    def test_a_phone_wait_completes_as_owner_completed_and_reruns_the_step(self):
+        sid = self.s.new_waiting_setup()
+        self.need_respond(sid)
+        self.seed(sid)
+        v, rid = self.req(sid)
+        self.assertEqual(self.s.respond(sid, v, rid, "completed")[0], 204)
+        cur = self.s.setup(sid)
+        self.assertEqual([r["outcome"] for r in cur["setup"].get("resolved", []) if r["request_id"] == rid], ["owner_completed"])
+        self.assertNotIn("verified", json.dumps(cur["setup"].get("resolved", [])))
 
     def test_completion_resumes_the_driver_but_is_not_service_success(self):
         sid = self.s.new_waiting_setup()
@@ -363,8 +487,7 @@ class Challenges(Base):
         self.seed(sid)
         v, rid = self.req(sid)
         before = len(self.s.calls(sid, "install-executor"))
-        st = self.s.respond(sid, v, rid, "cancel")[0]
-        self.assertIn(st, (200, 204, 409))
+        self.assertEqual(self.s.respond(sid, v, rid, "cancel")[0], 204)
         steps = {x["step"] if isinstance(x["step"], str) else "cred": x["status"] for x in self.s.setup(sid)["setup"]["steps"]}
         self.assertNotEqual(steps["InstallExecutor"], "Done")
         self.assertEqual(len(self.s.calls(sid, "install-executor")), before)
