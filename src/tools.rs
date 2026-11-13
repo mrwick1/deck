@@ -141,6 +141,33 @@ pub fn schemas(bare: &[Value], computer: bool) -> Vec<Value> {
             json!({"label": {"type":"string"}, "purpose": {"type":"string"}}),
             &["label", "purpose"],
         ));
+        out.push(closed(tool(
+            "request_owner_help",
+            "Ask the owner to finish a sign-in step that only a person can do: approve a login on a phone, or solve a CAPTCHA. Give short instructions for the owner and, when the service shows one, the number to match. Never put a code, password or other secret in any field: use request_secret for those. The reply has a request_id. Your task waits until the owner answers. The answer is not proof of success.",
+            json!({
+                "kind": {"type":"string","enum":["phone","captcha","unsupported"],"description":"unsupported: nobody can complete this challenge here. It blocks and opens no request."},
+                "instructions": {"type":"string","maxLength":500},
+                "match_number": {"type":"string","description":"1 to 8 digits shown by the service"},
+                "ttl_secs": {"type":"integer","minimum":1}
+            }),
+            &["kind", "instructions"],
+        )));
+        out.push(closed(tool(
+            "owner_help_status",
+            "Read the state of an owner help request that you opened: open, answered or closed. Answered means the owner says the step is done. It does not mean the sign-in worked.",
+            json!({"request_id": {"type":"string"}}),
+            &["request_id"],
+        )));
+        out.push(closed(tool(
+            "report_help_verification",
+            "After the owner answered, check the service yourself with a read-only browser tool, then report what you saw. Only your own observation can verify. Use not_verified to ask the owner to try again. Use blocked when the sign-in cannot go on.",
+            json!({
+                "request_id": {"type":"string"},
+                "result": {"type":"string","enum":["verified","not_verified","blocked"]},
+                "observation": {"type":"string","maxLength":200,"description":"What you saw on the service. Never a secret."}
+            }),
+            &["request_id", "result", "observation"],
+        )));
         out.push(tool(
             "signin_verified",
             "Call this after a sign-in with a protected value has succeeded. Screenshots stay off until you do.",
@@ -149,6 +176,12 @@ pub fn schemas(bare: &[Value], computer: bool) -> Vec<Value> {
         ));
     }
     out
+}
+
+/// A tool schema that refuses extra keys.
+fn closed(mut t: Value) -> Value {
+    t["function"]["parameters"]["additionalProperties"] = json!(false);
+    t
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -285,6 +318,11 @@ impl Tools {
             "request_secret" if self.guest.is_some() => {
                 return self.request_secret(chat_id, args).await;
             }
+            "request_owner_help" | "owner_help_status" | "report_help_verification"
+                if self.guest.is_some() =>
+            {
+                return self.owner_help(chat_id, name, args).await;
+            }
             "signin_verified" if self.guest.is_some() => {
                 self.signin_verified(chat_id).await.map(|c| (c, None))
             }
@@ -315,11 +353,19 @@ impl Tools {
     /// A screenshot could show a value that sign-in typed. Refuse it while the bot's privacy gate
     /// is open. A failed lookup also refuses.
     async fn screen_refused(&self, chat_id: i64, name: &str, args: &Value) -> Option<&'static str> {
+        // bare writes a PNG with the step line `shot NAME`. Comment lines start with `#`.
         let shot = name == "browser_screenshot"
             || (name == "browser_step"
-                && args["steps"]
-                    .as_str()
-                    .is_some_and(|t| t.lines().any(|l| l.trim_start().starts_with("screenshot"))));
+                && args["steps"].as_str().is_some_and(|t| {
+                    t.lines().any(|l| {
+                        let w = l
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("")
+                            .to_ascii_lowercase();
+                        w == "shot" || w == "screenshot"
+                    })
+                }));
         if !shot || self.guest.is_none() {
             return None;
         }
@@ -329,6 +375,204 @@ impl Tools {
             Err(_) => true,
         };
         open.then_some("Screenshots are off until the sign-in is verified. Call signin_verified after it succeeds.")
+    }
+
+    /// Owner help for a sign-in step. Metadata only. The request belongs to the running task: its
+    /// key is the task id. The owner's answer never counts as a verified sign-in. Only the task's
+    /// own observation can verify, and deck cannot check that observation against the service.
+    async fn owner_help(&self, chat_id: i64, name: &str, args: &Value) -> Outcome {
+        use crate::bot::challenge::{self, Challenge, Requested, State, Verification};
+        use crate::bot::setup::{Help, Step, Wait};
+        let reply = |ok: bool, v: Value, wait: Option<String>| Outcome {
+            ok,
+            content: v.to_string(),
+            file: None,
+            wait,
+        };
+        let fail = |why: &str| reply(false, json!({"ok": false, "error": why}), None);
+        let (allowed, required): (&[&str], &[&str]) = match name {
+            "request_owner_help" => (
+                &["kind", "instructions", "match_number", "ttl_secs"],
+                &["kind", "instructions"],
+            ),
+            "owner_help_status" => (&["request_id"], &["request_id"]),
+            _ => (
+                &["request_id", "result", "observation"],
+                &["request_id", "result", "observation"],
+            ),
+        };
+        let Some(obj) = args.as_object() else {
+            return fail("the arguments must be an object");
+        };
+        if obj.keys().any(|k| !allowed.contains(&k.as_str())) {
+            return fail(
+                "Pass only the documented fields. Never pass a code, password or other secret",
+            );
+        }
+        let text = |k: &str, max: usize| {
+            obj.get(k)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| {
+                    !t.is_empty() && t.chars().count() <= max && !t.chars().any(char::is_control)
+                })
+        };
+        if required.iter().any(|k| text(k, 500).is_none()) {
+            return fail("a required field is missing, empty, too long or not plain text");
+        }
+        let task = async {
+            let bot = self
+                .store
+                .bot_for_chat(chat_id)
+                .await?
+                .ok_or_else(|| anyhow!("no bot for this chat"))?;
+            self.store
+                .owner_task(&bot)
+                .await?
+                .filter(|t| t.state == "running")
+                .ok_or_else(|| anyhow!("no running task"))
+        }
+        .await;
+        let Ok(task) = task else {
+            return fail("no running task for this chat");
+        };
+        let now = crate::bot::secrets::unix_now();
+        // The open request of this task, if any. A request of another task or session is not.
+        let mine = || async {
+            let rows = self.store.setup_records().await.ok()?;
+            let row = rows.into_iter().find(|r| r.chat_id == chat_id)?;
+            row.setup
+                .wait
+                .filter(|w: &Wait| w.step == Step::Login(task.id.clone()))
+        };
+        let waiting =
+            |id: &str, what: &str| Some(format!("Owner help needed ({what}), request {id}"));
+        let unavailable = |_| fail("could not read or save the owner help request");
+        match name {
+            "request_owner_help" => {
+                let kind = match text("kind", 20) {
+                    Some("phone") => Challenge::Phone,
+                    Some("captcha") => Challenge::Captcha,
+                    Some("unsupported") => Challenge::Unsupported,
+                    _ => return fail("kind must be phone, captcha or unsupported"),
+                };
+                let ttl = match obj.get("ttl_secs") {
+                    None => None,
+                    Some(v) => match v.as_u64().filter(|t| *t > 0) {
+                        Some(t) => Some(t),
+                        None => return fail("ttl_secs must be a whole number above zero"),
+                    },
+                };
+                let instructions = text("instructions", 500).map(str::to_owned);
+                let help = Help {
+                    instructions: instructions.clone(),
+                    match_number: obj
+                        .get("match_number")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                };
+                if obj.contains_key("match_number") && help.match_number.is_none() {
+                    return fail("match_number must be a string of 1 to 8 digits");
+                }
+                match challenge::request_login_help(
+                    &self.store,
+                    chat_id,
+                    &task.id,
+                    kind,
+                    help,
+                    ttl,
+                    now,
+                )
+                .await
+                {
+                    Ok(Ok(Requested::Open(id))) => reply(
+                        true,
+                        json!({"ok": true, "request_id": id, "waiting": "the owner was asked"}),
+                        waiting(&id, instructions.as_deref().unwrap_or("")),
+                    ),
+                    Ok(Ok(Requested::Blocked(id))) => reply(
+                        false,
+                        json!({"ok": false, "blocked": true, "request_id": id, "error": "nobody can complete this challenge here. Tell the owner and stop this sign-in"}),
+                        None,
+                    ),
+                    Ok(Err(e)) => fail(&e.to_string()),
+                    Err(e) => unavailable(e),
+                }
+            }
+            "owner_help_status" => {
+                let id = text("request_id", 128).unwrap_or_default().to_owned();
+                let state = match challenge::challenge_state(&self.store, chat_id, &id, now).await {
+                    Ok(s) => s,
+                    Err(e) => return unavailable(e),
+                };
+                let current = mine().await;
+                let owned = current.as_ref().is_some_and(|w| w.request_id == id);
+                match state {
+                    State::Open { expires_at } if owned => reply(
+                        true,
+                        json!({"ok": true, "state": "open", "request_id": id, "expires_at": expires_at}),
+                        waiting(&id, "still open"),
+                    ),
+                    State::Answered if owned => reply(
+                        true,
+                        json!({"ok": true, "state": "answered", "request_id": id, "note": "The owner says the step is done. That is not proof. Check the service with a read-only tool, then call report_help_verification."}),
+                        None,
+                    ),
+                    State::Closed(outcome) => {
+                        let mut v = json!({"ok": true, "state": "closed", "request_id": id, "outcome": outcome});
+                        let again = matches!(outcome, challenge::Outcome::Expired)
+                            .then_some(current)
+                            .flatten();
+                        match again {
+                            Some(w) => {
+                                v["replacement_request_id"] = json!(w.request_id);
+                                reply(
+                                    true,
+                                    v,
+                                    waiting(&w.request_id, "request expired and was renewed"),
+                                )
+                            }
+                            None => reply(true, v, None),
+                        }
+                    }
+                    _ => reply(
+                        true,
+                        json!({"ok": true, "state": "unknown", "request_id": id}),
+                        None,
+                    ),
+                }
+            }
+            _ => {
+                let id = text("request_id", 128).unwrap_or_default().to_owned();
+                let note = text("observation", 200).map(str::to_owned);
+                let Some(note) = note else {
+                    return fail("observation must be up to 200 characters");
+                };
+                let v = match text("result", 20) {
+                    Some("verified") => Verification::Verified,
+                    Some("not_verified") => Verification::NotVerified(note),
+                    Some("blocked") => Verification::Blocked(note),
+                    _ => return fail("result must be verified, not_verified or blocked"),
+                };
+                if mine().await.is_none_or(|w| w.request_id != id) {
+                    return fail("this is not an open help request of your task");
+                }
+                let retry = matches!(v, Verification::NotVerified(_));
+                match challenge::verify_login_help(&self.store, chat_id, &id, v, now).await {
+                    Ok(Ok(())) if retry => match mine().await {
+                        Some(w) => reply(
+                            true,
+                            json!({"ok": true, "request_id": w.request_id, "waiting": "the owner was asked again"}),
+                            waiting(&w.request_id, "try again"),
+                        ),
+                        None => reply(true, json!({"ok": true}), None),
+                    },
+                    Ok(Ok(())) => reply(true, json!({"ok": true}), None),
+                    Ok(Err(e)) => fail(&e.to_string()),
+                    Err(e) => unavailable(e),
+                }
+            }
+        }
     }
 
     async fn signin_verified(&self, chat_id: i64) -> anyhow::Result<String> {
@@ -1079,5 +1323,441 @@ mod tests {
                 .await
                 .ok
         );
+    }
+
+    /// A ready, set-up bot with a running task, as the driver leaves it. Returns the task id.
+    async fn help_bot() -> (Tools, Store, i64, String, Arc<FakeHost>) {
+        use crate::bot::setup::{Authority, Budget, Draft, Limits, Resources, Setup, Status};
+        let (_, store, _, ws) = setup().await;
+        let id = "help-bot".to_string();
+        let s = Setup::new(
+            &id,
+            Draft {
+                revision: 1,
+                name: "Fixture".into(),
+                instructions: "Use the local fixture".into(),
+                model: "fixture".into(),
+                authority: Authority::Full,
+                resources: Resources {
+                    cpus: 2,
+                    memory_mib: 2048,
+                    disk_gib: 10,
+                },
+                budget: Some(Budget {
+                    currency: "TST".into(),
+                    exponent: 2,
+                    period: "test".into(),
+                    allowance: 10,
+                    ceiling: 100,
+                }),
+                credentials: vec![],
+                task: Some("Sign in to the fixture".into()),
+            },
+        )
+        .unwrap();
+        store.create_setup(&s).await.unwrap();
+        let v = store.setup_record(&id).await.unwrap().unwrap().version;
+        let limits = Limits {
+            max_cpus: 2,
+            max_memory_mib: 2048,
+            max_disk_gib: 10,
+        };
+        store
+            .approve_setup(&id, v, 1, "test-owner", &limits, "fixture")
+            .await
+            .unwrap();
+        let row = store.setup_record(&id).await.unwrap().unwrap();
+        let mut s = row.setup;
+        s.steps.iter_mut().for_each(|t| t.status = Status::Done);
+        store.save_setup_state(row.version, &s).await.unwrap();
+        store.finish_setup(&id).await.unwrap();
+        let chat = store.setup_record(&id).await.unwrap().unwrap().chat_id;
+        let task = store
+            .add_task(&id, chat, "message", "t".into(), "work".into(), 1)
+            .await
+            .unwrap();
+        store
+            .move_task(&task.id, &["queued"], "running", None)
+            .await
+            .unwrap();
+        let host = Arc::new(FakeHost::default());
+        let hub = Hub::new(
+            store.clone(),
+            &id,
+            ws.clone(),
+            crate::bot::vm::FakeVm::new(true, false),
+            5,
+        );
+        let tools = Tools::new(host.clone(), store.clone(), ws.clone(), &ws).with_guest(hub);
+        (tools, store, chat, task.id, host)
+    }
+
+    async fn wait_of(store: &Store, chat: i64) -> Option<crate::bot::setup::Wait> {
+        let rows = store.setup_records().await.unwrap();
+        rows.into_iter()
+            .find(|r| r.chat_id == chat)
+            .unwrap()
+            .setup
+            .wait
+    }
+
+    /// What the owner route does: the owner marks the action done.
+    async fn owner_says_done(store: &Store, chat: i64, request: &str) {
+        let row = store
+            .setup_records()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|r| r.chat_id == chat)
+            .unwrap();
+        let mut s = row.setup;
+        s.respond(request, crate::bot::challenge::Decision::Completed, 0)
+            .unwrap();
+        store.save_setup_state(row.version, &s).await.unwrap();
+    }
+
+    fn request_id(out: &Outcome) -> String {
+        let v: Value = serde_json::from_str(&out.content).unwrap();
+        v["request_id"].as_str().unwrap().to_owned()
+    }
+
+    fn phone() -> Value {
+        json!({"kind": "phone", "instructions": "Approve the sign-in on your phone", "match_number": "42"})
+    }
+
+    #[test]
+    fn the_help_tools_have_closed_schemas_and_only_a_computer_bot_gets_them() {
+        let names = |computer| -> Vec<String> {
+            schemas(&[], computer)
+                .iter()
+                .map(|t| t["function"]["name"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        for n in [
+            "request_owner_help",
+            "owner_help_status",
+            "report_help_verification",
+        ] {
+            assert!(names(true).contains(&n.to_owned()), "{n}");
+            assert!(!names(false).contains(&n.to_owned()), "{n}");
+        }
+        let all = schemas(&[], true);
+        let get = |n: &str| {
+            all.iter().find(|t| t["function"]["name"] == n).unwrap()["function"]["parameters"]
+                .clone()
+        };
+        let ask = get("request_owner_help");
+        assert_eq!(ask["additionalProperties"], false);
+        assert_eq!(
+            ask["properties"]["kind"]["enum"],
+            json!(["phone", "captcha", "unsupported"])
+        );
+        assert_eq!(ask["required"], json!(["kind", "instructions"]));
+        let st = get("owner_help_status");
+        assert_eq!(st["additionalProperties"], false);
+        assert_eq!(st["required"], json!(["request_id"]));
+        let rep = get("report_help_verification");
+        assert_eq!(rep["additionalProperties"], false);
+        assert_eq!(
+            rep["properties"]["result"]["enum"],
+            json!(["verified", "not_verified", "blocked"])
+        );
+        assert_eq!(
+            rep["required"],
+            json!(["request_id", "result", "observation"])
+        );
+    }
+
+    #[tokio::test]
+    async fn owner_help_waits_for_the_owner_and_ends_the_run_with_a_request_identity() {
+        let (tools, store, chat, task, _) = help_bot().await;
+        let out = tools.execute(chat, "request_owner_help", &phone()).await;
+        assert!(out.ok, "{}", out.content);
+        let id = request_id(&out);
+        assert!(out.wait.as_deref().is_some_and(|w| w.contains(&id)));
+        let w = wait_of(&store, chat).await.unwrap();
+        assert_eq!(w.request_id, id);
+        assert_eq!(w.step, crate::bot::setup::Step::Login(task));
+        // The same ask returns the same request. A different kind is refused.
+        assert_eq!(
+            request_id(&tools.execute(chat, "request_owner_help", &phone()).await),
+            id
+        );
+        let other = tools
+            .execute(
+                chat,
+                "request_owner_help",
+                &json!({"kind": "captcha", "instructions": "Solve it"}),
+            )
+            .await;
+        assert!(!other.ok && other.wait.is_none());
+        assert_eq!(wait_of(&store, chat).await.unwrap().request_id, id);
+    }
+
+    #[tokio::test]
+    async fn owner_help_takes_metadata_only_and_rejects_anything_else() {
+        let (tools, store, chat, _, _) = help_bot().await;
+        let bad = [
+            json!({"kind": "phone", "instructions": "x", "code": "123456"}),
+            json!({"kind": "phone", "instructions": "x", "value": "sentinel"}),
+            json!({"kind": "sms", "instructions": "x"}),
+            json!({"kind": "phone"}),
+            json!({"kind": "phone", "instructions": "  "}),
+            json!({"kind": "phone", "instructions": "x", "match_number": "12ab"}),
+            json!({"kind": "phone", "instructions": "x", "ttl_secs": 0}),
+            json!({"kind": "phone", "instructions": "x", "ttl_secs": "9"}),
+            json!({"kind": "phone", "instructions": 5}),
+            json!(null),
+        ];
+        for args in bad {
+            let out = tools.execute(chat, "request_owner_help", &args).await;
+            assert!(!out.ok && out.wait.is_none(), "{args}");
+            assert!(!out.content.contains("sentinel") && !out.content.contains("123456"));
+        }
+        assert!(wait_of(&store, chat).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_challenge_blocks_without_a_wait() {
+        let (tools, store, chat, _, _) = help_bot().await;
+        let out = tools
+            .execute(
+                chat,
+                "request_owner_help",
+                &json!({"kind": "unsupported", "instructions": "A hardware key is required"}),
+            )
+            .await;
+        assert!(!out.ok && out.wait.is_none());
+        assert!(out.content.contains("blocked"), "{}", out.content);
+        assert!(wait_of(&store, chat).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_owner_answer_is_not_proof_and_the_task_verifies_what_it_saw() {
+        let (tools, store, chat, _, _) = help_bot().await;
+        store
+            .set_hold(
+                "help-bot",
+                crate::bot::state::HoldKind::AutomationPause,
+                "owner",
+            )
+            .await
+            .unwrap();
+        let id = request_id(&tools.execute(chat, "request_owner_help", &phone()).await);
+        let status = |id: String| {
+            let tools = &tools;
+            async move {
+                tools
+                    .execute(chat, "owner_help_status", &json!({"request_id": id}))
+                    .await
+            }
+        };
+        // Still open: the status re-parks the task instead of letting it poll.
+        let s = status(id.clone()).await;
+        assert!(
+            s.ok && s.content.contains("\"open\"") && s.wait.is_some(),
+            "{}",
+            s.content
+        );
+        // A verification before the owner answers fails and changes nothing.
+        let report = |id: String, result: &str, note: &str| {
+            let args = json!({"request_id": id, "result": result, "observation": note});
+            let tools = &tools;
+            async move { tools.execute(chat, "report_help_verification", &args).await }
+        };
+        assert!(!report(id.clone(), "verified", "inbox is visible").await.ok);
+        assert_eq!(wait_of(&store, chat).await.unwrap().request_id, id);
+        owner_says_done(&store, chat, &id).await;
+        let s = status(id.clone()).await;
+        assert!(s.ok && s.content.contains("answered") && s.wait.is_none());
+        assert!(s.content.contains("not proof"), "{}", s.content);
+        // The observation is required, and the task must not close on the answer alone.
+        assert!(!report(id.clone(), "verified", "  ").await.ok);
+        assert!(wait_of(&store, chat).await.is_some());
+        let v = report(id.clone(), "verified", "the inbox page showed the mailbox").await;
+        assert!(v.ok && v.wait.is_none(), "{}", v.content);
+        assert!(wait_of(&store, chat).await.is_none());
+        let s = status(id.clone()).await;
+        assert!(s.content.contains("closed") && s.content.contains("verified"));
+        // A report cannot close the same request twice.
+        assert!(!report(id, "verified", "again").await.ok);
+        // Holds stay in force through the whole exchange.
+        assert!(!store.holds("help-bot").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_rejected_verification_opens_a_fresh_request_and_waits() {
+        let (tools, store, chat, _, _) = help_bot().await;
+        let id = request_id(&tools.execute(chat, "request_owner_help", &phone()).await);
+        owner_says_done(&store, chat, &id).await;
+        let args = json!({"request_id": id, "result": "not_verified", "observation": "the page still asks for approval"});
+        let out = tools.execute(chat, "report_help_verification", &args).await;
+        assert!(out.ok, "{}", out.content);
+        let fresh = request_id(&out);
+        assert_ne!(fresh, id);
+        assert!(out.wait.as_deref().is_some_and(|w| w.contains(&fresh)));
+        assert_eq!(wait_of(&store, chat).await.unwrap().request_id, fresh);
+        // Blocked closes the exchange without a wait.
+        owner_says_done(&store, chat, &fresh).await;
+        let args = json!({"request_id": fresh, "result": "blocked", "observation": "the account is locked"});
+        let out = tools.execute(chat, "report_help_verification", &args).await;
+        assert!(out.ok && out.wait.is_none() && wait_of(&store, chat).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_task_cannot_verify_or_read_the_request_of_another_task() {
+        let (tools, store, chat, _, _) = help_bot().await;
+        let theirs = match crate::bot::challenge::request_login_help(
+            &store,
+            chat,
+            "another-task",
+            crate::bot::challenge::Challenge::Phone,
+            crate::bot::setup::Help {
+                instructions: Some("Approve".into()),
+                match_number: None,
+            },
+            None,
+            0,
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        {
+            crate::bot::challenge::Requested::Open(id) => id,
+            other => panic!("{other:?}"),
+        };
+        owner_says_done(&store, chat, &theirs).await;
+        let args = json!({"request_id": theirs, "result": "verified", "observation": "seen"});
+        assert!(
+            !tools
+                .execute(chat, "report_help_verification", &args)
+                .await
+                .ok
+        );
+        let s = tools
+            .execute(chat, "owner_help_status", &json!({"request_id": theirs}))
+            .await;
+        assert!(!s.content.contains("answered"), "{}", s.content);
+        // Asking is refused while the other request is open.
+        assert!(!tools.execute(chat, "request_owner_help", &phone()).await.ok);
+        let w = wait_of(&store, chat).await.unwrap();
+        assert!(w.answered && w.request_id == theirs);
+    }
+
+    #[tokio::test]
+    async fn an_expired_help_request_reports_its_replacement() {
+        let (tools, store, chat, task, _) = help_bot().await;
+        let old = match crate::bot::challenge::request_login_help(
+            &store,
+            chat,
+            &task,
+            crate::bot::challenge::Challenge::Phone,
+            crate::bot::setup::Help {
+                instructions: Some("Approve".into()),
+                match_number: None,
+            },
+            Some(5),
+            1,
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        {
+            crate::bot::challenge::Requested::Open(id) => id,
+            other => panic!("{other:?}"),
+        };
+        let s = tools
+            .execute(chat, "owner_help_status", &json!({"request_id": old}))
+            .await;
+        assert!(s.ok && s.content.contains("expired"), "{}", s.content);
+        let fresh = wait_of(&store, chat).await.unwrap().request_id;
+        assert_ne!(fresh, old);
+        assert!(s.content.contains(&fresh), "{}", s.content);
+        assert!(s.wait.as_deref().is_some_and(|w| w.contains(&fresh)));
+    }
+
+    #[tokio::test]
+    async fn an_expired_secret_request_gets_a_fresh_identity() {
+        let (tools, store, chat, _) = computer_bot().await;
+        let args = json!({"label": "Site password", "purpose": "sign in"});
+        let first = tools.execute(chat, "request_secret", &args).await;
+        let old = first
+            .wait
+            .unwrap()
+            .split("request ")
+            .nth(1)
+            .unwrap()
+            .trim_end_matches(')')
+            .to_owned();
+        let o = old.clone();
+        store
+            .run(move |c| {
+                c.execute(
+                    "UPDATE secret_requests SET expires_at=1 WHERE request_id=?1",
+                    [&o],
+                )
+            })
+            .await
+            .unwrap();
+        let again = tools.execute(chat, "request_secret", &args).await;
+        let new = again
+            .wait
+            .unwrap()
+            .split("request ")
+            .nth(1)
+            .unwrap()
+            .trim_end_matches(')')
+            .to_owned();
+        assert_ne!(old, new);
+        assert!(
+            store
+                .pending_secret_request("b", &old)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .pending_secret_request("b", &new)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn read_only_checks_work_while_the_screenshot_gate_is_open() {
+        let (tools, store, chat, host) = computer_bot().await;
+        store
+            .record_secret("b", "r1", "L", "DECK_X", None)
+            .await
+            .unwrap();
+        for name in [
+            "browser_snapshot",
+            "browser_read",
+            "browser_find",
+            "browser_links",
+        ] {
+            host.replies.lock().unwrap().push_back(json!({"ok": true}));
+            assert!(tools.execute(chat, name, &json!({})).await.ok, "{name}");
+        }
+        // A step list without a screenshot also works. One with a screenshot does not.
+        host.replies.lock().unwrap().push_back(json!({"ok": true}));
+        assert!(
+            tools
+                .execute(chat, "browser_step", &json!({"steps": "snapshot"}))
+                .await
+                .ok
+        );
+        // bare writes a PNG with the `shot NAME` step line.
+        let comment = json!({"steps": "# shot later\nsnapshot"});
+        host.replies.lock().unwrap().push_back(json!({"ok": true}));
+        assert!(tools.execute(chat, "browser_step", &comment).await.ok);
+        for steps in ["shot a", "snapshot\n  shot x", "SHOT x", "screenshot"] {
+            let out = tools
+                .execute(chat, "browser_step", &json!({"steps": steps}))
+                .await;
+            assert!(!out.ok, "{steps}");
+        }
     }
 }

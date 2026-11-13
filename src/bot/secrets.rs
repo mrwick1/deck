@@ -130,6 +130,8 @@ pub enum Failure {
     Failed,
     #[error("The guest receipt does not match this request")]
     Mismatch,
+    #[error("The guest no longer holds this value. Start a new request.")]
+    NotDelivered,
 }
 
 /// The harness commands `deliver-secret` and `secret-receipt` of `vmproto.py`.
@@ -150,7 +152,12 @@ impl HarnessChannel {
         }
     }
 
-    async fn run(&self, sub: &[&str], input: Option<Vec<u8>>) -> Result<Vec<u8>, Failure> {
+    /// Run one harness command. Returns its exit code and its stdout.
+    async fn run_raw(
+        &self,
+        sub: &[&str],
+        input: Option<Vec<u8>>,
+    ) -> Result<(Option<i32>, Vec<u8>), Failure> {
         let mut cmd = Command::new(&self.python);
         cmd.arg("-I")
             .arg(&self.script)
@@ -177,10 +184,18 @@ impl HarnessChannel {
             .await
             .map_err(|_| Failure::Timeout)?
             .map_err(|_| Failure::Failed)?;
-        if !out.status.success() || out.stdout.len() > 4096 {
+        if out.stdout.len() > 4096 {
             return Err(Failure::Failed);
         }
-        Ok(out.stdout)
+        Ok((out.status.code(), out.stdout))
+    }
+
+    /// Run one harness command that must exit 0.
+    async fn run(&self, sub: &[&str], input: Option<Vec<u8>>) -> Result<Vec<u8>, Failure> {
+        match self.run_raw(sub, input).await? {
+            (Some(0), out) => Ok(out),
+            _ => Err(Failure::Failed),
+        }
     }
 
     fn matches(r: &Reply, bot: &str, request: &str, name: &str) -> bool {
@@ -189,15 +204,28 @@ impl HarnessChannel {
 
     /// The receipt of the guest for this request, if it holds one.
     pub async fn receipt(&self, bot: &str, request: &str, name: &str) -> Result<bool, Failure> {
-        let out = self
-            .run(
+        let (code, out) = self
+            .run_raw(
                 &["secret-receipt", "--bot", bot, "--request-id", request],
                 None,
             )
             .await?;
+        // `secretchan.py` prints this exact line and exits 1 when the guest holds no receipt, or
+        // when the value behind it changed. Nothing else counts as absence: a bot, request or
+        // path error, a transport error and any other text stay failures.
+        if code != Some(0) {
+            let absent = code == Some(1)
+                && serde_json::from_slice::<serde_json::Value>(&out)
+                    .is_ok_and(|v| v == json!({"ok": false, "error": "not_delivered"}));
+            return if absent {
+                Ok(false)
+            } else {
+                Err(Failure::Failed)
+            };
+        }
         let r: Reply = serde_json::from_slice(&out).map_err(|_| Failure::Failed)?;
         if !r.ok {
-            return Ok(false);
+            return Err(Failure::Failed);
         }
         Self::matches(&r, bot, request, name)
             .then_some(true)
@@ -249,7 +277,13 @@ pub async fn ensure_delivered(
         .await
         .map_err(|_| Failure::Failed)?;
     match known {
-        Some(n) if n == name => return Ok(()),
+        // The host receipt alone is not proof. The guest value may have changed since.
+        Some(n) if n == name => {
+            return match channel.receipt(bot, request, &name).await? {
+                true => Ok(()),
+                false => Err(Failure::NotDelivered),
+            };
+        }
         Some(_) => return Err(Failure::Mismatch),
         None => {}
     }
@@ -424,5 +458,143 @@ mod tests {
                     .is_err()
             );
         }
+    }
+
+    /// A stand-in for `vmproto.py` that replays what the real CLI prints and returns. Each
+    /// subcommand reads `<dir>/<sub>.out` and `<dir>/<sub>.code`, and leaves `<dir>/<sub>.called`.
+    fn fake_channel(replies: &[(&str, i32, &str)]) -> (HarnessChannel, std::path::PathBuf) {
+        let dir = crate::testutil::temp_dir();
+        let script = dir.join("fake.py");
+        std::fs::write(
+            &script,
+            "import sys, pathlib\n\
+             a = sys.argv[1:]\n\
+             d = pathlib.Path(a[a.index('--dir') + 1])\n\
+             sub = a[a.index('--fixture-port') + 2]\n\
+             sys.stdin.read()\n\
+             (d / (sub + '.called')).write_text('1')\n\
+             sys.stdout.write((d / (sub + '.out')).read_text())\n\
+             sys.exit(int((d / (sub + '.code')).read_text()))\n",
+        )
+        .unwrap();
+        for (sub, code, out) in replies {
+            std::fs::write(dir.join(format!("{sub}.out")), out).unwrap();
+            std::fs::write(dir.join(format!("{sub}.code")), code.to_string()).unwrap();
+        }
+        let toml = format!(
+            "{}\n[vm]\nversion = 1\nbot_id = \"b\"\nruntime_dir = {:?}\nharness = {:?}\n",
+            include_str!("../../deck.example.toml"),
+            dir,
+            script
+        );
+        let config = crate::config::Config::parse(&toml).unwrap();
+        (HarnessChannel::new(config.vm.as_ref().unwrap()), dir)
+    }
+
+    const ABSENT: &str = "{\"ok\": false, \"error\": \"not_delivered\"}\n";
+
+    fn present(label: &str) -> String {
+        json!({"ok": true, "bot_id": "b", "request_id": "r1", "label": label}).to_string()
+    }
+
+    #[tokio::test]
+    async fn the_real_cli_absence_reads_as_absent_and_other_failures_stay_failures() {
+        // The real `secret-receipt` prints this JSON line and exits 1 when it holds no receipt.
+        let (c, _) = fake_channel(&[("secret-receipt", 1, ABSENT)]);
+        assert_eq!(c.receipt("b", "r1", "N").await, Ok(false));
+        for (code, out) in [
+            (1, "{\"ok\": false, \"error\": \"bot_mismatch\"}"),
+            (1, "{\"ok\": false, \"error\": \"request_mismatch\"}"),
+            (1, "{\"ok\": false, \"error\": \"unsafe_path\"}"),
+            (1, "{\"ok\": false, \"error\": \"transport_error\"}"),
+            (1, "{\"ok\": false}"),
+            (1, "{\"ok\": false, \"error\": \"not_delivered\", \"x\": 1}"),
+            (1, "not json"),
+            (1, ""),
+            (2, ABSENT),
+            // Absence needs the failing exit status of the real command.
+            (0, ABSENT),
+            (0, "{\"ok\": false}"),
+        ] {
+            let (c, _) = fake_channel(&[("secret-receipt", code, out)]);
+            assert_eq!(
+                c.receipt("b", "r1", "N").await,
+                Err(Failure::Failed),
+                "{code} {out}"
+            );
+        }
+        let (c, _) = fake_channel(&[("secret-receipt", 0, &present("N"))]);
+        assert_eq!(c.receipt("b", "r1", "N").await, Ok(true));
+        assert_eq!(c.receipt("b", "r1", "OTHER").await, Err(Failure::Mismatch));
+    }
+
+    #[tokio::test]
+    async fn a_first_delivery_works_with_the_real_cli_exit_codes() {
+        let store = Store::open_memory().unwrap();
+        let (c, dir) = fake_channel(&[
+            ("secret-receipt", 1, ABSENT),
+            ("deliver-secret", 0, &present("N")),
+        ]);
+        let v: Secret = serde_json::from_str("\"sentinel-value\"").unwrap();
+        ensure_delivered(&store, &c, "b", "r1", "N", None, &v)
+            .await
+            .unwrap();
+        assert!(dir.join("deliver-secret.called").exists());
+        assert_eq!(store.secret_receipt("b", "r1").await.unwrap().unwrap(), "N");
+        assert!(store.privacy_gate_open("b").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_failed_guest_delivery_records_nothing() {
+        let store = Store::open_memory().unwrap();
+        let (c, _) = fake_channel(&[
+            ("secret-receipt", 1, ABSENT),
+            (
+                "deliver-secret",
+                1,
+                "{\"ok\": false, \"error\": \"not_delivered\"}",
+            ),
+        ]);
+        let v: Secret = serde_json::from_str("\"sentinel-value\"").unwrap();
+        assert!(
+            ensure_delivered(&store, &c, "b", "r1", "N", None, &v)
+                .await
+                .is_err()
+        );
+        assert!(store.secret_receipt("b", "r1").await.unwrap().is_none());
+        assert!(!store.privacy_gate_open("b").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_host_receipt_is_checked_against_the_guest_before_it_counts() {
+        let store = Store::open_memory().unwrap();
+        store
+            .record_secret("b", "r1", "N", "N", None)
+            .await
+            .unwrap();
+        let v: Secret = serde_json::from_str("\"sentinel-value\"").unwrap();
+        // The guest value was overwritten or removed: the receipt no longer verifies.
+        let (c, dir) = fake_channel(&[
+            ("secret-receipt", 1, ABSENT),
+            ("deliver-secret", 0, &present("N")),
+        ]);
+        let r = ensure_delivered(&store, &c, "b", "r1", "N", None, &v).await;
+        assert!(r.is_err(), "a stale host receipt must not count");
+        assert!(!dir.join("deliver-secret.called").exists());
+        // A repeat of a delivery that the guest still holds succeeds without a second delivery.
+        let (c, dir) = fake_channel(&[
+            ("secret-receipt", 0, &present("N")),
+            ("deliver-secret", 1, ABSENT),
+        ]);
+        ensure_delivered(&store, &c, "b", "r1", "N", None, &v)
+            .await
+            .unwrap();
+        assert!(!dir.join("deliver-secret.called").exists());
+        // A receipt for another name stays a mismatch.
+        let (c, _) = fake_channel(&[("secret-receipt", 0, &present("N"))]);
+        assert_eq!(
+            ensure_delivered(&store, &c, "b", "r1", "OTHER", None, &v).await,
+            Err(Failure::Mismatch)
+        );
     }
 }

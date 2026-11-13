@@ -168,12 +168,18 @@ impl Bot {
         let (w, m) = ev.as_ref().map_or((2000, 10_000), |e| {
             (e.batch_window_ms, e.batch_max_delay_ms)
         });
+        let screen = Screen::new(cap, Duration::from_millis(v.screen_interval_ms), awake_rx);
+        // Every route that shows the screen passes this gate. A read error counts as open.
+        let (gate_store, gate_bot) = (store.clone(), v.bot_id.clone());
+        screen.set_privacy_gate(Arc::new(move || {
+            gate_store.privacy_gate_open_sync(&gate_bot)
+        }));
         Ok(Arc::new(Self {
             id: v.bot_id.clone(),
             chat_id: flags.chat_id,
             idle: Duration::from_secs(v.idle_secs),
             events_cfg: ev,
-            screen: Screen::new(cap, Duration::from_millis(v.screen_interval_ms), awake_rx),
+            screen,
             store,
             agent,
             vm,
@@ -1816,6 +1822,32 @@ mod tests {
         assert!(!t.bot.screen.view().worker);
         drop(rx);
         let _ = Path::new("");
+    }
+
+    #[tokio::test]
+    async fn a_new_bot_gates_its_screen_with_the_store_before_any_viewer() {
+        let t = setup(vec![], 5000, false).await;
+        t.g.store
+            .record_secret("main", "r1", "L", "DECK_X", None)
+            .await
+            .unwrap();
+        let cap = Arc::new(Cap(AtomicU64::new(0)));
+        let bot = Bot::new(
+            &t.config,
+            t.g.store.clone(),
+            t.agent.clone(),
+            t.g.vm.clone(),
+            t.g.hub.clone(),
+            cap.clone(),
+        )
+        .await
+        .unwrap();
+        bot.set_comp(Comp::Awake);
+        let _rx = bot.screen.watch();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(cap.0.load(Relaxed), 0, "captured while the gate is open");
+        t.g.store.close_privacy_gate("main").await.unwrap();
+        until("a capture", || async { cap.0.load(Relaxed) > 0 }).await;
     }
 
     async fn http(
