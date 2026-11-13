@@ -4,7 +4,7 @@
 
 ## Status
 
-M1 and the three-stage one-bot desktop prototype are complete. Performance work follows. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
+M1 and the three-stage one-bot desktop prototype are merged. The measured save optimization and benchmark reports are in PR #23, pending merge. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 
@@ -34,6 +34,7 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 
 | File | Contents |
 | --- | --- |
+| [docs/progress.md](docs/progress.md) | Current status, verification and historical checkpoints |
 | [docs/vision.md](docs/vision.md) | Goal, user, scope and quality bar |
 | [docs/architecture.md](docs/architecture.md) | Parts of the system and how they talk |
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |
@@ -42,4 +43,8 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 | [docs/inspiration.md](docs/inspiration.md) | What we take from other open-source agents |
 | [docs/bare-gaps.md](docs/bare-gaps.md) | What `bare-mcp` must add for `deck` |
 | [docs/stage3-results.md](docs/stage3-results.md) | The lean bot on its own computer: gates, measures and gaps |
+| [docs/optimization-plan.md](docs/optimization-plan.md) | Experiment order, current status and remaining work |
+| [docs/migration-bandwidth-results.md](docs/migration-bandwidth-results.md) | Controlled save-rate comparison and integrated validation |
+| [docs/memory-benchmark-results.md](docs/memory-benchmark-results.md) | Memory growth, incomplete repetitions and retained failures |
+| [docs/idle-benchmark-results.md](docs/idle-benchmark-results.md) | Connected idle observations and attribution limits |
 | [docs/open-questions.md](docs/open-questions.md) | Design questions and their answers |

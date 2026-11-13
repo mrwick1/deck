@@ -2,6 +2,26 @@
 
 Update this file when a stage or verification step ends.
 
+## Current status: 2026-11-13
+
+Stages 1–3 are merged in PR #22. PR #23 contains the measurement harnesses, evidence fixes and one-bot save optimization. It is open and is not deployed. CI passed on implementation head `081ddeb`; later documentation edits need their own CI result.
+
+| Work | Current result | Evidence |
+| --- | --- | --- |
+| One-bot desktop/runtime | Merged; synthetic task, control, queue and sleep/wake scope verified | [Stage 3](stage3-results.md) |
+| Lifecycle baseline | Three accepted release runs; overlapping diagnostic excluded | [Baseline](single-bot-benchmark.md) |
+| Saved-state cost | Fifteen cycles across three fresh boots passed | [Cycle report](cycle-benchmark-results.md) |
+| Memory growth | Two full 30-minute boots passed recovery; third stopped on CPU pressure. Planned repetition incomplete; no host plateau established | [Memory report](memory-benchmark-results.md) |
+| Connected idle attribution | Three boots and six valid windows; no causal tuning candidate established | [Idle report](idle-benchmark-results.md) |
+| Save cap | Twelve controlled cycles passed; corrected integrated smoke verified the 512 MiB/s CLI/server path | [Migration report](migration-bandwidth-results.md) |
+| Local verification | 197 Python tests pass; sampler-race suite passed six repeat runs; direct VM suite runs all 35 tests | [Migration validation](migration-bandwidth-results.md) |
+
+The save result is a warm-cache, one-bot improvement. Concurrent saves, slow storage, disk-cold restore and peak CPU remain untested. No user service was restarted. The next integration step is PR #23 merge. Deferred product work includes spending accounting, real account/event sources, protected credential prompts, memory integration and conversational bot creation. Fresh provisioning and real halfway-save failure remain unverified.
+
+## Historical checkpoints
+
+The sections below preserve what was known at each step. Their earlier next actions and test counts are historical. Use the current status above for the latest state.
+
 ## One-bot runtime: 2026-11-12
 
 Stages 1–3 are complete for one configured bot with synthetic tasks. PR #22 merged the code and evidence. The merged revision is `1085df9`. No deployment is required for local use.
@@ -16,7 +36,7 @@ CI exposed a pause race during task selection. Dispatch now rechecks holds when 
 
 The parent checked the UI in bare. The strict real-VM run used the real server and a scripted model. It completed browser, shell and file work, saved the idle computer and restored it for the next task. Deterministic tests cover stop, steer, holds and uncertain outcomes.
 
-### Current resource baseline
+### Initial Stage 3 resource sample
 
 These are single-run observations, not capacity estimates or before/after performance claims. CPU is a percentage of one core. The server memory is shared Deck overhead.
 
@@ -28,11 +48,11 @@ These are single-run observations, not capacity estimates or before/after perfor
 
 No model calls or captures occurred in the idle and saved windows. Capture stopped after the viewer disconnected. A restored task completed in about 3 seconds. The workload was small and synthetic.
 
-### In progress: benchmark one integrated bot
+### Initial release benchmark checkpoint
 
 A release-binary lifecycle series completed four runs. Three form the baseline; one overlapped local tests and remains diagnostic evidence. Each round used a new private overlay. Timestamped API traces, one-second process counters and scenario results stay outside Git. See [the benchmark report](single-bot-benchmark.md). All lifecycle checks passed. No performance change or speedup is claimed. Sustained active-load tests remain pending.
 
-### Next: optimize one integrated bot
+### Initial optimization work list
 
 1. Measure one owned workload at a time. Keep working, awake-idle and saved results separate.
 2. Profile residual guest CPU while awake and idle. Identify the process and timer before changing the desktop.

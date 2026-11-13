@@ -1,6 +1,8 @@
 # VM optimization implementation plan
 
-Date: 2026-11-12.
+Date: 2026-11-12. Status reconciled: 2026-11-13.
+
+Current status: lifecycle integration is merged. Saved-state and idle measurement passes are verified; memory repetition remains incomplete. D53 selects the measured one-bot save cap on PR #23, pending merge. Detailed current status is in [progress.md](progress.md). Earlier work lists below preserve the experiment sequence.
 
 The owner approved these five optimization areas. Implement them in dependency order. Measure each change against the verified Stage 1 baseline. Do not claim a gain from a unit test alone.
 
@@ -109,7 +111,7 @@ Automatic spending accounting, real accounts and event sources, memory integrati
 
 The owner approved this pass after Stage 3. Update [progress.md](progress.md) with each measured result. Use the strict Stage 3 resource windows as an initial observation, not proof of a speedup.
 
-Profile residual awake-idle guest CPU first. Then inspect active command polling, artifact transfer, viewer capture cost and the web bundle. Change one cause at a time. Record the baseline revision, workload, run count, variation and correctness checks. Keep saved-state codecs unchanged until measurements justify a default change.
+The initial work list prioritized idle guest CPU. The reviewed order below supersedes that sequence. Inspect active command overhead, artifact transfer, viewer capture cost and the web bundle only when evidence justifies the work. Change one cause at a time. Record the baseline revision, workload, run count, variation and correctness checks. Keep saved-state codecs unchanged until measurements justify a default change.
 
 This pass optimizes one useful bot before concurrent load tests. It does not replace future work on task ownership and resource control across machines.
 

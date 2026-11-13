@@ -1,5 +1,7 @@
 # Vision
 
+This file describes the intended product. It is not a shipped-feature list. See [progress.md](progress.md) for current implementation and verification.
+
 ## Goal
 
 `deck` is a personal AI agent that feels as smooth as a hosted agent product such as Grok Bot. It is self-hosted, and its owner controls the model, the data and the code. The owner runs several independent bots. Each bot owns a persistent desktop computer (D23).
@@ -18,7 +20,7 @@ One owner. Later, maybe a few trusted people. `deck` is not a multi-tenant servi
 
 ## What `deck` does
 
-- It answers fast. A plain reply starts in about 1 second.
+- It answers fast. The target is a plain reply starting in about 1 second; this is not a measured service guarantee.
 - It knows its own tools. It never says "I cannot" for a tool that it has.
 - It works in the `bare` browser. It reads pages as text first and uses screenshots only when it must.
 - It sends results into the chat: text, files and screenshots. A screenshot that the user asks for always reaches the chat.
@@ -44,4 +46,4 @@ One owner. Later, maybe a few trusted people. `deck` is not a multi-tenant servi
 - Native phone apps. The web app must work well on a phone.
 - Phone push notifications in the first implementation. Notifications stay inside Deck for now (D32).
 
-A full desktop per bot is in scope (D23). The display path is not chosen. See [architecture.md](architecture.md).
+A full desktop per bot is in scope (D23). The one-bot prototype uses QMP desktop captures. Other display transports and takeover remain deferred. See [architecture.md](architecture.md).

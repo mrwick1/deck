@@ -15,22 +15,26 @@ The first ten questions were answered on 2026-11-11. The answers are in [decisio
 | First milestone | D16 (M1 in parallel with the bare gaps) | M1 is done (see the README). |
 | License | D17 (MIT or Apache 2.0) | Holds. |
 
+## Current implementation checkpoint
+
+Updated 2026-11-13. Stages 1–3 are merged. The optional one-bot path implements the executor protocol, durable command records, host epochs, cancellation acknowledgement, queue/steer/stop, generic event intake, idle save/wake and subscribed desktop capture. PR #23 adds measurements and the D53 save cap and is pending merge. Keep these implemented choices separate from the remaining product choices below.
+
 ## Open choices
 
 These choices remain open. Each one is inside an approved decision. None reopens a decision.
 
 ### Guest control
 
-- **Executor protocol and transport:** message format, connection authentication and reconnect handling (D37, Stage 2 plan).
+- **Executor transport hardening:** the versioned protocol, private transport, identity checks, host epochs and reconnect handling exist. Identity provisioning and other host placements remain open (D37).
 - **Guest network access:** which networks the VM can reach, and the rules for them (review item 6).
 - **Shell policy inside the VM:** the sandbox rules for shell commands (D24).
 
 ### VM backend and display
 
-- **VM backend:** QEMU/KVM is the first candidate. Select the backend after measurement. Compare libvirt only if lifecycle problems justify it (D37, review recommendations).
+- **VM backend expansion:** QEMU/KVM is used by the one-bot implementation. Other backends remain deferred; compare them only for a concrete lifecycle or host requirement (D37).
 - **VM host:** where the VM backend runs. D8 does not cover it (D37).
-- **Display path:** how bare's output reaches the desktop view, and which display protocol the view uses. Do not add Xvfb or VNC without a policy decision (D23, D38, review item 4).
-- **Display subscriptions:** when the screen view closes, how it appears on a phone, and when captures start and stop (D38, optimization carryover).
+- **Display expansion:** the prototype uses QMP desktop frames and separate bare page captures. Future takeover and alternate transports remain open; the bare-only policy still applies (D23, D38).
+- **Display polish:** demand subscriptions and disconnect cleanup exist. Phone behavior, accessibility and future takeover need broader validation (D38).
 
 ### Credentials and sign-in
 
@@ -43,13 +47,13 @@ These choices remain open. Each one is inside an approved decision. None reopens
 
 - **Queue defaults:** the default message priority, the priority controls and task dependencies (D31).
 - **Interruption:** how a running task yields to a higher-priority message, if it does (D31).
-- **Stop and steer:** stop acknowledgements, steering delivery points and the exact activity and message controls (D39).
+- **Stop and steer refinement:** acknowledgements, uncertainty handling, model-boundary steering and queue controls exist. Broader service and UI validation remains (D39).
 
 ### Recovery
 
 - **Retry limits:** the number of retries for each safe action (D34).
 - **Outcome evidence:** what evidence resolves an uncertain external action (D34).
-- **Action record format:** the fields of an action record and its outcome (D34, review item 3).
+- **Action evidence policy:** command journal fields and outcomes exist. Service-specific evidence and automatic investigation remain open (D34).
 
 ### Budgets and resources
 
@@ -75,11 +79,12 @@ These choices remain open. Each one is inside an approved decision. None reopens
 
 ## Carryover work
 
-These items are not open questions. Each stays unchecked until its real caller exists. See the carryover checklist in `optimization-plan.md` on the implementation branch.
+These implemented lifecycle items have real callers: automatic idle sleep, generic event batching and wake coalescing, live-view subscriptions and unchanged-frame suppression. See [optimization-plan.md](optimization-plan.md) for limits.
 
-- Automatic idle sleep.
-- Event batching and wake coalescing.
-- Live-view capture subscriptions.
-- Unchanged-frame suppression in Deck.
-- The saved-state codec default. It stays `none` until a controlled measurement justifies a change.
-- A controlled performance follow-up, with one owned workload at a time.
+Remaining work:
+
+- Memory: the third full repetition and a host-memory plateau are unproven.
+- Idle attribution: no causal timer/device setting was established.
+- Save cap: concurrent saves, slow storage, disk-cold behavior and peak CPU remain untested.
+- Codec: keep `none`; no default compression change is selected.
+- Broader product validation: fresh provisioning, failure halfway through a real save, protected credentials, real service events and automatic spending accounting.
