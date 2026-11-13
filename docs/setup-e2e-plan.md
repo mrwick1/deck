@@ -205,3 +205,7 @@ This closes core API/guest synthetic acceptance. It does not close bare renderin
 The owner asked to continue after the published checkpoint. Three isolated tasks started from `7c2be62`. The saved-state task owns the only live VM in this wave. It must prove a saved-state restart, restore and a second task with preserved guest state and one effect. The combined UI/VM task prepares a test controller and runs no VM or browser yet. The capture task tests privacy during in-flight frames and fixes only confirmed races.
 
 File ownership is separate. The first task owns its lifecycle harness. The second owns new UI controller files only. The third owns capture-related Rust code and tests. All must provide regression evidence, exact boundaries and cleanup. After integration, the parent will start the combined UI and real-VM run serially. No merge, deployment, real account or paid model is authorized. The previous accepted evidence remains valid for its stated head.
+
+### Combined UI controller integrated
+
+The controller and its 41 unit tests are integrated. The parent reproduced all tests. No live UI/VM run has occurred. The controller owns the test stack and cleanup. The browser owns all approval, protected-input and challenge form actions. The capture-privacy review must settle before the combined run starts.

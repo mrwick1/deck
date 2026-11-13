@@ -197,3 +197,9 @@ The owner asked to continue. Three prepared worktrees start from `7c2be62`: save
 The real-VM saved-state run passed 32 required gates. It recorded 33 passes and one optional raster check as not tested. The second task stayed queued across a paused restart. Release restored the same boot and memory marker. Each task produced one effect. The ceiling and allowance stayed unchanged.
 
 The parent integrated the harness and reproduced its 29 unit tests. The parent checked the live manifest, its empty survivor list, the free VM lock and removal of the overlay and memory-state file. This flow uses a scripted model and the HTTP API. It does not validate the combined owner UI and VM flow. The UI-controller and capture-privacy tasks remain active. See `setup-saved-wake-results.md`.
+
+## Combined UI controller checkpoint
+
+The parent integrated the combined UI/VM controller and reproduced its 41 unit tests. These tests start no VM. The controller streams the real Deck UI through a local proxy. It cannot approve setup, deliver a value or answer a Deck wait. The browser must perform those actions through the production forms. A generated value reaches the protected form through a request-bound, one-use local fixture response.
+
+Live acceptance remains pending. The capture-privacy review remains active. The next live run must use one VM and bare only. It must report owner answers separately from service verification. See `setup-ui-vm-plan.md`.
