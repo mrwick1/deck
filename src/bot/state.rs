@@ -238,7 +238,77 @@ fn record_change(
     Ok(())
 }
 
+fn ceiling_row(
+    c: &Connection,
+    bot: &str,
+) -> rusqlite::Result<Option<crate::bot::authority::PendingCeilingRequest>> {
+    c.query_row("SELECT request_id, version, currency, exponent, ceiling, reason FROM ceiling_requests WHERE bot_id = ?1 AND state = 'pending'", [bot], |r| {
+        Ok(crate::bot::authority::PendingCeilingRequest { id: r.get(0)?, version: r.get(1)?, currency: r.get(2)?, precision: r.get(3)?, current_ceiling_minor: r.get(4)?, reason: r.get(5)? })
+    }).optional()
+}
+
 impl Store {
+    /// Report an actual charge overrun without leaving the hold disconnected from owner control.
+    pub async fn require_ceiling_review(&self, bot: &str, reason: &str) -> anyhow::Result<()> {
+        let (bot, reason) = (bot.to_owned(), reason.to_owned());
+        self.run(move |c| {
+            let t = immediate(c)?;
+            let a = accounting_row(&t, &bot)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            t.execute("INSERT INTO bot_holds(bot_id, kind, reason, created_at) VALUES (?1,'ceiling',?2,?3) ON CONFLICT(bot_id,kind) DO UPDATE SET reason=excluded.reason", params![bot, reason, now()])?;
+            t.execute("INSERT INTO ceiling_requests(request_id, bot_id, version, currency, exponent, ceiling, reason, state, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,'pending',?8) ON CONFLICT DO NOTHING", params![uuid::Uuid::new_v4().to_string(), bot, a.version, a.currency, a.exponent, a.ceiling, reason, now()])?;
+            t.commit()?;
+            Ok(())
+        }).await
+    }
+
+    pub async fn pending_ceiling(
+        &self,
+        bot: &str,
+    ) -> anyhow::Result<Option<crate::bot::authority::PendingCeilingRequest>> {
+        let bot = bot.to_owned();
+        self.run(move |c| ceiling_row(c, &bot)).await
+    }
+
+    /// Apply an authenticated owner response in the same transaction as its receipt.
+    pub async fn answer_ceiling(
+        &self,
+        bot: &str,
+        actor: &str,
+        reply: &crate::bot::authority::CeilingResponse,
+    ) -> anyhow::Result<Outcome> {
+        let (bot, actor, reply) = (bot.to_owned(), actor.to_owned(), reply.clone());
+        let payload = serde_json::to_string(&reply)?;
+        self.run(move |c| {
+            let t = immediate(c)?;
+            let prior: Option<(String, String, String, i64)> = t.query_row(
+                "SELECT bot_id, actor, payload, version FROM ceiling_responses WHERE response_id = ?1", [&reply.idempotency_key],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            ).optional()?;
+            if let Some((b, by, body, version)) = prior {
+                return Ok(if b == bot && by == actor && body == payload { Outcome::Duplicate(version) }
+                    else { conflict("response identity reused with different content") });
+            }
+            let Some(pending) = ceiling_row(&t, &bot)? else { return Ok(conflict("no pending ceiling request")) };
+            if crate::bot::authority::check(&reply, &pending).is_err() { return Ok(conflict("ceiling request changed or response is invalid")); }
+            let Some(a) = accounting_row(&t, &bot)? else { return Ok(Outcome::Unconfigured) };
+            if u64::try_from(a.version).ok() != Some(pending.version) { return Ok(Outcome::Stale(a.version)); }
+            let mut version = a.version;
+            if reply.decision == crate::bot::authority::Decision::Approve {
+                let Some(ceiling) = reply.amount_minor.and_then(|n| i64::try_from(n).ok()) else { return Ok(conflict("ceiling amount is out of range")) };
+                version = version.checked_add(1).ok_or_else(overflow)?;
+                t.execute("UPDATE bot_accounting SET ceiling = ?2, version = ?3 WHERE bot_id = ?1", params![bot, ceiling, version])?;
+                record_change(&t, &bot, &format!("ceiling-response:{}", reply.idempotency_key), "ceiling", a.ceiling, ceiling, "owner approved ceiling increase", &actor, version)?;
+                t.execute("UPDATE ceiling_requests SET state = 'approved' WHERE request_id = ?1", [&reply.request_id])?;
+                t.execute("DELETE FROM bot_holds WHERE bot_id = ?1 AND kind = 'ceiling'", [&bot])?;
+                // Only tasks held by model accounting become eligible again. Other gates remain independent.
+                t.execute("UPDATE tasks SET state = 'queued', detail = NULL WHERE bot_id = ?1 AND state = 'held' AND detail = 'budget hold'", [&bot])?;
+            }
+            t.execute("INSERT INTO ceiling_responses(response_id, request_id, bot_id, actor, payload, version, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)", params![reply.idempotency_key, reply.request_id, bot, actor, payload, version, now()])?;
+            t.commit()?;
+            Ok(Outcome::Applied(version))
+        }).await
+    }
+
     // ---- typed holds ----
 
     /// Every active hold. Pause and budget read the legacy `bot_state` flags, so old holds stay held.
@@ -712,6 +782,7 @@ impl Store {
                 Admission::CeilingHold { needed, .. } => {
                     let reason = format!("absolute spending ceiling reached; requested exposure {}", needed.units());
                     t.execute("INSERT INTO bot_holds(bot_id, kind, reason, created_at) VALUES (?1,'ceiling',?2,?3) ON CONFLICT(bot_id, kind) DO UPDATE SET reason = excluded.reason", params![bot, reason, now()])?;
+                    t.execute("INSERT INTO ceiling_requests(request_id, bot_id, version, currency, exponent, ceiling, reason, state, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,'pending',?8) ON CONFLICT DO NOTHING", params![uuid::Uuid::new_v4().to_string(), bot, a.version, a.currency, a.exponent, a.ceiling, reason, now()])?;
                     t.commit()?;
                     Ok(Outcome::Insufficient(a.ceiling - (a.allowance - e.remaining)))
                 }
@@ -898,6 +969,52 @@ mod tests {
             .unwrap();
         assert_eq!(w, Outcome::Applied(1));
         s
+    }
+
+    #[tokio::test]
+    async fn ceiling_response_is_durable_idempotent_and_preserves_other_holds() {
+        use crate::bot::authority::{CeilingResponse, Decision};
+        let s = configured().await;
+        assert!(matches!(
+            s.admit_charge("b", "big", 11000, 100, "price")
+                .await
+                .unwrap(),
+            Outcome::Insufficient(_)
+        ));
+        let request = s.pending_ceiling("b").await.unwrap().unwrap();
+        s.set_hold("b", HoldKind::Investigation, "check")
+            .await
+            .unwrap();
+        s.set_paused("b", true).await.unwrap();
+        let reply = CeilingResponse {
+            request_id: request.id,
+            version: request.version,
+            decision: Decision::Approve,
+            amount_minor: Some(20000),
+            currency: Some("USD".into()),
+            precision: Some(2),
+            idempotency_key: "owner-reply".into(),
+        };
+        assert!(matches!(
+            s.answer_ceiling("b", "owner", &reply).await.unwrap(),
+            Outcome::Applied(_)
+        ));
+        assert!(matches!(
+            s.answer_ceiling("b", "owner", &reply).await.unwrap(),
+            Outcome::Duplicate(_)
+        ));
+        assert!(s.pending_ceiling("b").await.unwrap().is_none());
+        let holds = s.holds("b").await.unwrap();
+        assert!(holds.iter().any(|h| h.kind == HoldKind::AutomationPause));
+        assert!(holds.iter().any(|h| h.kind == HoldKind::Investigation));
+        assert!(!holds.iter().any(|h| h.kind == HoldKind::Ceiling));
+        let mut changed = reply;
+        changed.amount_minor = Some(30000);
+        assert!(matches!(
+            s.answer_ceiling("b", "owner", &changed).await.unwrap(),
+            Outcome::Conflict(_)
+        ));
+        assert_eq!(s.accounting("b").await.unwrap().unwrap().ceiling, 20000);
     }
 
     #[tokio::test]

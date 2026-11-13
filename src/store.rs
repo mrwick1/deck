@@ -212,6 +212,30 @@ CREATE TABLE accounting_reservations(
 );
 ";
 
+const SCHEMA_V6: &str = "
+CREATE TABLE ceiling_requests(
+    request_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_accounting(bot_id),
+    version INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    exponent INTEGER NOT NULL,
+    ceiling INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','approved','superseded')),
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX one_pending_ceiling ON ceiling_requests(bot_id) WHERE state = 'pending';
+CREATE TABLE ceiling_responses(
+    response_id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL REFERENCES ceiling_requests(request_id),
+    bot_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -288,7 +312,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 /// Apply each schema step above the stored version, up to `max`. Tests use `max` to build old databases.
 pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    let steps = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
+    let steps = [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+    ];
     for (i, sql) in steps.iter().enumerate() {
         let v = i as i64 + 1;
         if version < v && v <= max {
@@ -556,7 +582,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
     }
 
     #[test]

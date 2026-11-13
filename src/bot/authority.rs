@@ -2,13 +2,13 @@
 //!
 //! Only the authenticated owner routes may build a `CeilingResponse`. The bot tools and the
 //! machine event intake never reach this module. The pending request and the ceiling live in the
-//! ledger (stage 1), which does not exist yet: `check` takes the pending request as an argument.
+//! durable host ledger. `check` compares an answer with its pending request.
 
 #![allow(dead_code)] // `check` and `PendingCeilingRequest` wait for the ledger (stage 1).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Decision {
     Approve,
@@ -16,7 +16,7 @@ pub enum Decision {
 }
 
 /// The body of `POST /api/bot/ceiling-requests/respond`.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CeilingResponse {
     pub request_id: String,
@@ -32,13 +32,14 @@ pub struct CeilingResponse {
 }
 
 /// The ledger's view of the open request.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PendingCeilingRequest {
     pub id: String,
     pub version: u64,
     pub currency: String,
     pub precision: u8,
     pub current_ceiling_minor: u64,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,7 +49,7 @@ pub enum Rejection {
     Stale,
 }
 
-const MAX_PRECISION: u8 = 6;
+const MAX_PRECISION: u8 = 9;
 
 fn token_ok(s: &str) -> bool {
     !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_graphic())
@@ -129,6 +130,7 @@ mod tests {
             currency: "USD".into(),
             precision: 2,
             current_ceiling_minor: 2_000,
+            reason: "fixture".into(),
         }
     }
 
@@ -182,7 +184,7 @@ mod tests {
                 ..approve()
             },
             CeilingResponse {
-                precision: Some(7),
+                precision: Some(10),
                 ..approve()
             },
             CeilingResponse {

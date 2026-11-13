@@ -11,7 +11,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use futures_util::Stream;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -148,14 +148,26 @@ async fn budget_approve(State(b): B) -> R<StatusCode> {
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The owner answers a request to raise the spending ceiling. This route is owner-only: it sits
-/// behind the user session and never on `event_routes`.
-///
-/// The ledger that holds the ceiling and the pending request does not exist yet. The route checks
-/// the answer and then says plainly that it cannot apply it. It changes no state and clears no
-/// hold. Wiring: load the pending request, run `authority::check`, apply once by
-/// `idempotency_key`, then re-evaluate every hold.
-async fn ceiling_respond(body: Bytes) -> Response {
+/// Only authenticated owner routes reach this handler. Event intake cannot answer it.
+async fn ceiling_respond(
+    State(b): B,
+    Extension(crate::auth::User(actor)): Extension<crate::auth::User>,
+    body: Bytes,
+) -> Response {
+    let response = apply_ceiling_answer(&b.store, &b.id, &actor, body).await;
+    if response.status().is_success() {
+        b.touch();
+        b.kick();
+    }
+    response
+}
+
+async fn apply_ceiling_answer(
+    store: &crate::store::Store,
+    bot: &str,
+    actor: &str,
+    body: Bytes,
+) -> Response {
     let r: CeilingResponse = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(_) => return reject(Rejection::Invalid("the body is not a ceiling answer")),
@@ -163,14 +175,15 @@ async fn ceiling_respond(body: Bytes) -> Response {
     if let Err(e) = validate(&r) {
         return reject(e);
     }
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({
-            "error": "The spending ceiling cannot change yet: the ledger is not available. Nothing changed and no hold was cleared.",
-            "unavailable": "ceiling_ledger",
-        })),
-    )
-        .into_response()
+    use super::state::Outcome;
+    match store.answer_ceiling(bot, actor, &r).await {
+        Ok(Outcome::Applied(_) | Outcome::Duplicate(_)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => reject(Rejection::Stale),
+        Err(e) => {
+            tracing::error!("ceiling response failed: {e:#}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 fn reject(e: Rejection) -> Response {
@@ -307,10 +320,14 @@ mod tests {
     use super::*;
 
     async fn answer(body: &str) -> (StatusCode, Value) {
-        let res = ceiling_respond(Bytes::from(body.to_string())).await;
+        let store = crate::store::Store::open_memory().unwrap();
+        let res = apply_ceiling_answer(&store, "b", "owner", Bytes::from(body.to_string())).await;
         let status = res.status();
         let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap())
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     const GOOD: &str = r#"{"request_id":"r1","version":1,"decision":"approve","amount_minor":5000,"currency":"USD","precision":2,"idempotency_key":"k"}"#;
@@ -328,10 +345,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_valid_ceiling_answer_is_unavailable_not_applied() {
+    async fn a_valid_ceiling_answer_with_no_pending_request_is_stale() {
         let (s, v) = answer(GOOD).await;
-        assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(v["unavailable"], "ceiling_ledger");
+        assert_eq!(s, StatusCode::CONFLICT);
+        assert!(v["error"].as_str().unwrap().contains("request changed"));
     }
 
     #[test]

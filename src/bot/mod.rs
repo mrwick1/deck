@@ -11,8 +11,8 @@ pub mod db;
 pub mod events;
 pub mod hub;
 pub mod screen;
-pub mod state;
 pub mod setup;
+pub mod state;
 pub mod vm;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
@@ -92,6 +92,8 @@ pub struct InboxItem {
     pub title: String,
     pub detail: String,
     pub task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ceiling: Option<authority::PendingCeilingRequest>,
 }
 
 #[derive(Default)]
@@ -942,6 +944,17 @@ impl Bot {
                 title: "Budget hold".into(),
                 detail: flags.budget_reason.unwrap_or_default(),
                 task_id: None,
+                ceiling: None,
+            });
+        }
+        if let Some(request) = internal(self.store.pending_ceiling(&self.id).await)? {
+            out.push(InboxItem {
+                kind: "ceiling_request",
+                id: request.id.clone(),
+                title: "Spending ceiling reached".into(),
+                detail: request.reason.clone(),
+                task_id: None,
+                ceiling: Some(request),
             });
         }
         for c in self.decision_commands().await? {
@@ -965,6 +978,7 @@ impl Bot {
                     c.detail.map(|d| format!(" ({d})")).unwrap_or_default()
                 ),
                 task_id: Some(c.task_id),
+                ceiling: None,
             });
         }
         for t in internal(self.store.tasks(&self.id, 0).await)? {
@@ -979,6 +993,7 @@ impl Bot {
                 title: t.title,
                 detail: t.detail.unwrap_or_default(),
                 task_id: Some(t.id),
+                ceiling: None,
             });
         }
         Ok(out)
@@ -1035,6 +1050,7 @@ impl Bot {
             "automation_paused": flags.automation_paused,
             "budget_hold": flags.budget_hold,
             "budget_reason": flags.budget_reason,
+            "ceiling_request": internal(self.store.pending_ceiling(&self.id).await)?,
             "accounting": internal(self.store.accounting(&self.id).await)?,
             "exposure": internal(self.store.exposure(&self.id).await)?,
             "holds": internal(self.store.holds(&self.id).await)?,

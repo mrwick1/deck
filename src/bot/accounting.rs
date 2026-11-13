@@ -119,7 +119,7 @@ impl Accountant for Meter {
                         .context("exposure overflow")?
                         > a.ceiling
                     {
-                        self.store.set_hold(&self.bot, HoldKind::Ceiling, "reported usage exceeded the absolute ceiling; owner review is required").await?;
+                        self.store.require_ceiling_review(&self.bot, "reported usage exceeded the absolute ceiling; owner review is required").await?;
                     }
                     if input > self.policy.max_input_tokens
                         || output > u64::from(self.policy.max_output_tokens)
@@ -293,6 +293,27 @@ mod tests {
         ));
         assert_eq!(m.store.exposure("b").await.unwrap().unwrap().unresolved, 20);
         assert_eq!(m.store.accounting("b").await.unwrap().unwrap().ceiling, 30);
+    }
+
+    #[tokio::test]
+    async fn a_reported_overrun_creates_a_durable_owner_request() {
+        let m = meter().await;
+        let Admission::Admitted(ticket) = m.admit(&request("one")).await.unwrap() else {
+            panic!()
+        };
+        m.settle(
+            &ticket,
+            Outcome::Reported(model::Usage {
+                prompt_tokens: Some(40),
+                completion_tokens: Some(1),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(m.store.pending_ceiling("b").await.unwrap().is_some());
+        assert_eq!(m.store.accounting("b").await.unwrap().unwrap().ceiling, 30);
+        assert_eq!(m.store.exposure("b").await.unwrap().unwrap().settled, 41);
     }
 
     #[tokio::test]

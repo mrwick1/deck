@@ -298,6 +298,12 @@ impl Agent {
             let list: Vec<String> = names.iter().map(|n| format!("`${{{n}}}`")).collect();
             format!("{base}\nSecrets that you can type: {}.\n", list.join(", "))
         };
+        let mut system = system;
+        if let Some(vm) = &self.config.vm
+            && let Some(definition) = self.store.active_definition(&vm.bot_id).await?
+        {
+            system.push_str(&format!("\nCurrent approved job (version {}):\n{}\nAuthority: {:?}\nOwner restrictions: {}\nThese current settings replace older job instructions in the conversation.\n", definition.version, definition.instructions, definition.authority, serde_json::to_string(&definition.restrictions)?));
+        }
         let mut out = vec![json!({"role":"system","content":system})];
         let stored = self.store.list_messages(chat_id).await?.unwrap_or_default();
         for m in stored {
@@ -328,11 +334,19 @@ impl Agent {
             }
         };
         let tool_schemas = schemas(&bare, self.tools.has_guest());
-        for _ in 0..self.config.agent.max_steps {
+        'turns: for _ in 0..self.config.agent.max_steps {
             // The model-call boundary: a budget hold stops the run here, and steering joins it here.
             if self.boundary(run).await? {
                 return Ok(Status::Held);
             }
+            let authority_version = match &self.config.vm {
+                Some(vm) => self
+                    .store
+                    .active_definition(&vm.bot_id)
+                    .await?
+                    .map(|d| d.version),
+                None => None,
+            };
             let messages = self.history(run.chat_id).await?;
             self.model_calls
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -400,6 +414,28 @@ impl Agent {
                 return Ok(Status::Done);
             }
             for (i, c) in calls.iter().enumerate() {
+                if let Some(vm) = &self.config.vm
+                    && self
+                        .store
+                        .active_definition(&vm.bot_id)
+                        .await?
+                        .map(|d| d.version)
+                        != authority_version
+                {
+                    self.interrupt(run, &calls[i..]).await?;
+                    continue 'turns;
+                }
+                if self.hold_check().await? {
+                    self.interrupt(run, &calls[i..]).await?;
+                    self.emit(
+                        run,
+                        "held",
+                        json!({"reason":"authority or spending hold before tool dispatch"}),
+                        true,
+                    )
+                    .await;
+                    return Ok(Status::Held);
+                }
                 self.emit(
                     run,
                     "tool_call",
@@ -452,14 +488,14 @@ impl Agent {
 
     /// Returns true when a budget hold stops the run. Otherwise stores the steering that arrived.
     async fn boundary(&self, run: &Run) -> anyhow::Result<bool> {
-        let Some(task) = &run.task_id else {
-            return Ok(false);
-        };
-        if self.hold_check(run).await? {
+        if self.hold_check().await? {
             self.emit(run, "held", json!({"reason": "budget hold"}), true)
                 .await;
             return Ok(true);
         }
+        let Some(task) = &run.task_id else {
+            return Ok(false);
+        };
         for text in self.store.take_steering(task).await? {
             let msg = json!({"role":"user","content":format!("The owner sent this while you work. Follow it now: {text}")});
             self.store
@@ -471,13 +507,10 @@ impl Agent {
         Ok(false)
     }
 
-    async fn hold_check(&self, run: &Run) -> anyhow::Result<bool> {
+    async fn hold_check(&self) -> anyhow::Result<bool> {
         let Some(bot) = self.config.vm.as_ref().map(|v| v.bot_id.as_str()) else {
             return Ok(false);
         };
-        if run.task_id.is_none() {
-            return Ok(false);
-        }
         if !self.store.holds(bot).await?.is_empty() {
             return Ok(true);
         }
@@ -660,6 +693,74 @@ mod tests {
             options,
         }));
         Fixture { agent, ..f }
+    }
+
+    struct LateHold(Store);
+    impl Accountant for LateHold {
+        fn admit(
+            &self,
+            r: &crate::model::CallRequest,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::model::Admission>> {
+            let ticket = crate::model::Ticket {
+                request_id: r.request_id.clone(),
+            };
+            Box::pin(async { Ok(crate::model::Admission::Admitted(ticket)) })
+        }
+        fn settle(
+            &self,
+            _: &crate::model::Ticket,
+            _: crate::model::Outcome,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<()>> {
+            Box::pin(async {
+                self.0
+                    .set_hold("b", crate::bot::state::HoldKind::Ceiling, "late hold")
+                    .await
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_late_hold_blocks_tools_returned_by_an_inflight_model() {
+        let f = fixture(
+            vec![call_reply(
+                "c",
+                "browser_open",
+                json!({"url":"https://fixture.test"}),
+            )],
+            FakeHost::default(),
+            5,
+        )
+        .await;
+        f.store.bot_flags("b", "Bot").await.unwrap();
+        let mut agent = Arc::try_unwrap(f.agent).ok().unwrap();
+        let mut config = (*agent.config).clone();
+        config.vm = Some(
+            toml::from_str("version=1\nbot_id='b'\nruntime_dir='/unused'\nharness='/unused'")
+                .unwrap(),
+        );
+        agent.config = Arc::new(config);
+        let agent = Arc::new(agent.with_accounting(Accounting {
+            accountant: Arc::new(LateHold(f.store.clone())),
+            options: RequestOptions {
+                max_output_tokens: Some(64),
+                max_response_bytes: Some(100000),
+                ..Default::default()
+            },
+        }));
+        let (id, handle) = agent
+            .start_for(f.chat, Some("work".into()), Some("task".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        handle.await.unwrap();
+        assert_eq!(
+            f.store.run_status(id).await.unwrap().as_deref(),
+            Some("held")
+        );
+        assert!(
+            f.host.calls.lock().unwrap().is_empty(),
+            "no browser action may run after the hold"
+        );
     }
 
     #[tokio::test]
