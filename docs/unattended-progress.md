@@ -203,3 +203,7 @@ The parent integrated the harness and reproduced its 29 unit tests. The parent c
 The parent integrated the combined UI/VM controller and reproduced its 41 unit tests. These tests start no VM. The controller streams the real Deck UI through a local proxy. It cannot approve setup, deliver a value or answer a Deck wait. The browser must perform those actions through the production forms. A generated value reaches the protected form through a request-bound, one-use local fixture response.
 
 Live acceptance remains pending. The capture-privacy review remains active. The next live run must use one VM and bare only. It must report owner answers separately from service verification. See `setup-ui-vm-plan.md`.
+
+## Capture review checkpoint
+
+The capture review fixed publication after an open gate and stale-cache reuse after an observed gate transition. One gap remains: a gate can open and close during a capture. A follow-up implementation must preserve a transition generation and discard that capture. The combined live UI/VM run remains pending this fix. This review does not prove raster secrecy.
