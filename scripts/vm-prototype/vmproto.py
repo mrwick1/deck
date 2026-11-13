@@ -24,7 +24,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-import secretchan
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script directory
+import secretchan  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 IMAGE_URL = "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
