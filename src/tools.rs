@@ -336,9 +336,13 @@ impl Tools {
             a.insert("secrets_file".into(), json!(f));
         }
         // A session file lives in the state folder. The model names the session, never the path.
-        if let (Some(dir), "save_state" | "ensure_session") = (&self.state_dir, bare_name) {
+        // `open` names a saved session with `state`; the other two with `name`.
+        let key = if bare_name == "open" { "state" } else { "name" };
+        if let (Some(dir), "save_state" | "ensure_session" | "open") = (&self.state_dir, bare_name)
+            && (bare_name != "open" || a.contains_key("state"))
+        {
             let name = a
-                .get("name")
+                .get(key)
                 .and_then(Value::as_str)
                 .filter(|n| {
                     (1..=64).contains(&n.len())
@@ -354,7 +358,7 @@ impl Tools {
             b.create(dir)?;
             a.insert("file".into(), json!(file));
         }
-        if bare_name == "open" {
+        if let "open" | "ensure_session" = bare_name {
             let dir = self.workspace.join("downloads");
             tokio::fs::create_dir_all(&dir).await?;
             a.insert("downloads_dir".into(), json!(dir));
@@ -702,10 +706,22 @@ mod tests {
                 .await;
             assert!(out.ok, "{}", out.content);
         }
+        // `open` names the session with `state`. It gets the same file, so a new bare-mcp can read it.
+        let out = tools
+            .execute(
+                chat,
+                "browser_open",
+                &json!({"url": "https://x.test", "state": "google"}),
+            )
+            .await;
+        assert!(out.ok, "{}", out.content);
         assert!(state.is_dir());
         let calls = host.calls.lock().unwrap();
         assert_eq!(calls[0].1["file"], json!(state.join("google.state")));
         assert_eq!(calls[1].1["file"], json!(state.join("google.state")));
+        assert_eq!(calls[2].1["file"], json!(state.join("google.state")));
+        // A session that ensure_session opens downloads into the workspace too.
+        assert_eq!(calls[1].1["downloads_dir"], json!(ws.join("downloads")));
     }
 
     #[tokio::test]
