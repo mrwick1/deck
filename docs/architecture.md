@@ -23,6 +23,7 @@ user (web app) ──HTTPS + SSE──> deck service (Rust, one process)
 - The agent gets each `bare-mcp` tool as `browser_<name>`, except `run_steps`. It hides the arguments `window`, `secrets_file`, `file`, `path`, `downloads_dir` and `inline`. This follows D18. Source: `src/tools.rs`.
 - Screenshots go to `shots/`. Downloads go to `downloads/`. Both folders are in the workspace. Uploads accept workspace-relative paths only. `browser_step` refuses `upload` lines. This follows D19.
 - `[bare] secrets_file` names a file of `NAME=value` lines. deck passes it to `bare-mcp`. The model never sets it. The prompt lists secret names, never values. See the secrets entry in [decisions.md](decisions.md).
+- `[bare] state_dir` names a folder. deck gives each `save_state` and `ensure_session` call a file `<name>.state` in it. The model never sets the path. The files hold live logins, so the folder is mode 0700 and must stay outside the repository. See D52 in [decisions.md](decisions.md).
 - The agent loop builds the prompt, calls the model, runs tool calls and streams each step. It repeats until the model gives a final answer or reaches `max_steps`.
 - The system instructions name each tool and when to use it. Rakazo lacked this line. See [rakazo-lessons.md](rakazo-lessons.md).
 - Model access uses an OpenAI-compatible endpoint only. The endpoint, model names and key are configuration. The key comes from the environment, never from a file.
@@ -68,7 +69,7 @@ The integrated path has a persistent task queue, steering, stop, pause and budge
 
 The host executor journal and task state live outside the VM. Commands use bot/task/command identity, host epochs, deadlines, cancellation acknowledgement and artifact integrity checks. The server holds a persistent guest connection. The guest executes as the desktop user; cgroup containment is used when delegation is available.
 
-The viewer uses QMP desktop captures with demand-driven subscriptions and unchanged-frame delivery suppression. Bare has its own page captures; these differ from the full desktop view. The CLI/server save path on this branch sets and verifies the D53 cap of 512 MiB/s; `stop --bandwidth-mib 128` selects the original CLI cap. This optimization is in PR #23, pending merge. The codec remains unchanged.
+The viewer uses QMP desktop captures with demand-driven subscriptions and unchanged-frame delivery suppression. Bare has its own page captures; these differ from the full desktop view. The CLI/server save path on this branch sets and verifies the D55 cap of 512 MiB/s; `stop --bandwidth-mib 128` selects the original CLI cap. This optimization is in PR #23, pending merge. The codec remains unchanged.
 
 Automatic spending accounting, real account integrations, conversational provisioning and memory retrieval are not implemented. Fresh provisioning and real halfway-save failure remain untested. See [Stage 3 results](stage3-results.md) for the parent verification and limits.
 

@@ -137,6 +137,9 @@ pub struct Bare {
     /// A file of `NAME=value` lines. The model types `${NAME}`; bare fills in the value and hides it in every reply.
     #[serde(default)]
     pub secrets_file: Option<PathBuf>,
+    /// A folder with one `<name>.state` file per browser session, so a login survives restarts. Holds live credentials: keep it outside the repository.
+    #[serde(default)]
+    pub state_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -206,6 +209,15 @@ mod tests {
         assert!(c.allowed_users.is_empty());
         assert_eq!(c.agent.max_steps, 30);
         assert_eq!(c.workspace(), PathBuf::from("./data/workspace"));
+    }
+
+    #[test]
+    fn bare_state_dir_is_accepted() {
+        let c = Config::parse(EXAMPLE).unwrap();
+        assert!(c.bare.state_dir.is_none());
+        let text = EXAMPLE.replace("[bare]\n", "[bare]\nstate_dir = \"/var/lib/deck/state\"\n");
+        let c = Config::parse(&text).unwrap();
+        assert_eq!(c.bare.state_dir, Some(PathBuf::from("/var/lib/deck/state")));
     }
 
     #[test]

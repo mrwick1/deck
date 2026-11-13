@@ -313,13 +313,13 @@ Run history addition: **Run 2** stopped at 497.6 s of boot 1 on `swap_out`. No r
 
 The parent verified that the second full attempt remains failed in its raw summary, with one partial boot, no sampler/retention error and no remaining QEMU process. Neither failed attempt is relabelled.
 
-Method `memory-v2-host-paging-context` changes only future memory experiments. A host-wide swap-out threshold crossing is retained in a `host_context` trace record, summary and evidence status. The summary marks such runs as host-paging-contended. The workload can continue unless another guard fires. VM/guest swap, OOM and cgroup limits, host CPU/memory pressure and low available memory still stop the run. The cycle benchmark policy is unchanged. See D52.
+Method `memory-v2-host-paging-context` changes only future memory experiments. A host-wide swap-out threshold crossing is retained in a `host_context` trace record, summary and evidence status. The summary marks such runs as host-paging-contended. The workload can continue unless another guard fires. VM/guest swap, OOM and cgroup limits, host CPU/memory pressure and low available memory still stop the run. The cycle benchmark policy is unchanged. See D54.
 
 Two regressions failed before this revision and pass after it. One verifies that host paging alone does not stop the run while actual VM swap, pressure and low memory do. The other verifies that the paging window remains recorded. All 132 Python tests pass. This policy change is not a clean-performance claim. A new attempt must use a fresh output directory and retain all contention windows.
 
 ## Full run 3 under method `memory-v2-host-paging-context` (stopped by CPU pressure in boot 3)
 
-Run 3 used revision `c848a57`, method version `memory-v2-host-paging-context` (D52) and no code change. It ran `--boots 3 --workload-s 1800 --max-wall-s 7200` with the default pace (6 s) and sample cadence (10 s). Guest: 2 vCPUs, 2 GiB, codec `none`, base `a90de2e085a7ad52`. Each boot is a fresh overlay and a cold boot. One VM ran at a time. No retry followed.
+Run 3 used revision `c848a57`, method version `memory-v2-host-paging-context` (D54) and no code change. It ran `--boots 3 --workload-s 1800 --max-wall-s 7200` with the default pace (6 s) and sample cadence (10 s). Guest: 2 vCPUs, 2 GiB, codec `none`, base `a90de2e085a7ad52`. Each boot is a fresh overlay and a cold boot. One VM ran at a time. No retry followed.
 
 **The run is incomplete.** Boots 1 and 2 completed the full 1,800 s workload and all gates. Boot 3 stopped after 1,057.8 s of its workload on the `cpu_pressure` guard. Boot 3 ran no save, restore, first bare action or post-restore markers. This is not a completion claim for the 3-boot design. The earlier failed runs (1,551 s and 497.6 s) stay failed.
 
@@ -418,4 +418,4 @@ Range of the paging windows: 17,741 to 29,191 pages (69 to 114 MiB). VM swap was
 - Old tiled layout curves. They stay separate from the pinned layout curves.
 - Bounded workload completion is not an optimization gain.
 
-Run history addition: **Run 3** completed boots 1 and 2 under the D52 method. Boot 3 stopped at 1,057.8 s on `cpu_pressure`. No retry followed.
+Run history addition: **Run 3** completed boots 1 and 2 under the D54 method. Boot 3 stopped at 1,057.8 s on `cpu_pressure`. No retry followed.

@@ -14,7 +14,7 @@ Test one hypothesis. QEMU's default `max-bandwidth` of 128 MiB/s limits the save
 - Three fresh boots, four cycles each, on the frozen base with codec `none`. Boot order: ABBA, BAAB, ABBA. One VM at a time.
 - Before each save the harness queries the limit, sets it with `migrate-set-parameters` and reads it back. The read-back must equal the target. This runs outside the timed save call. Each restore starts a new QEMU process, so the limit is set again every cycle.
 - A set failure, a read-back mismatch or a mislabeled arm invalidates the attempt. The harness also validates the arm of every cycle against the schedule after the run.
-- A 60-second idle preflight ran first, with no QEMU. It used `cyclebench.contention`. The old host-swap guard stayed in force (D52 not applied).
+- A 60-second idle preflight ran first, with no QEMU. It used `cyclebench.contention`. The old host-swap guard stayed in force (D54 not applied).
 - Every cycle checked the desktop, browser, file and unsaved-buffer markers, terminal pixels, the download hash, helper absence and the first bare call after restore.
 
 ## Result
@@ -90,7 +90,7 @@ The first-after-boot sample is too small to separate from the outlier.
 - All 12 cycles passed every marker, pixel, process, login, download-hash and fixture gate.
 - Save helpers were gone after every save. The first bare eval returned the fixture account URL in every cycle.
 - VM swap was 0 KiB before save and after restore in every cycle. Host swap-out was 0 pages in every cycle window. The preflight window had 312 pages out and 115 in, below the 16,384-page limit. Minimum available memory in the samples was 11.5 GiB.
-- Host CPU pressure and memory pressure stayed below the gates. D52 paging context did not apply: no window crossed the threshold.
+- Host CPU pressure and memory pressure stayed below the gates. D54 paging context did not apply: no window crossed the threshold.
 - The state file was fully resident in the page cache after each save. These are warm-cache numbers. Disk-cold is not claimed.
 - Cgroup `io.stat` was unavailable. Only host IO pressure is recorded for write cost.
 
@@ -102,7 +102,7 @@ Restore latency did not change in a way the data can show. The first-shell range
 
 ## One-bot adoption and parent validation
 
-D53 selects 512 MiB/s for the configured one-bot CLI/server save path, with a CLI override of 128 MiB/s. Direct benchmark calls preserve their QEMU setting. Median cumulative VM CPU and median sampled peak RSS did not increase. Peak CPU and physical-device I/O were not measured. It shortens the time a bot holds its resources before the VM exits. It allows a higher migration-stream rate for a shorter interval. Cached stream throughput is not measured physical-disk throughput. This may matter when several bots save at once. Concurrent adoption remains deferred pending its own measurements.
+D55 selects 512 MiB/s for the configured one-bot CLI/server save path, with a CLI override of 128 MiB/s. Direct benchmark calls preserve their QEMU setting. Median cumulative VM CPU and median sampled peak RSS did not increase. Peak CPU and physical-device I/O were not measured. It shortens the time a bot holds its resources before the VM exits. It allows a higher migration-stream rate for a shorter interval. Cached stream throughput is not measured physical-disk throughput. This may matter when several bots save at once. Concurrent adoption remains deferred pending its own measurements.
 
 ## Not tested
 

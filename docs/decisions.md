@@ -540,7 +540,23 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 **Reason:** The integrated lifecycle gives performance work a useful workload. Lower single-bot overhead improves the basis for scaling. Distributed ownership and resource controls still need separate validation.
 
-## D52. Separate memory safety stops from host paging context (2026-11-12)
+## D52. Keep browser sessions in files under `state_dir` (2026-11-12)
+
+**Decision:** `[bare] state_dir` names a folder. deck gives each `save_state` and `ensure_session` call a file `<name>.state` in it. The session name must match `A-Za-z0-9_-`, 1 to 64 characters. The model never sets the path. The folder is created with mode 0700 on Unix.
+
+**Reason:** Without a file, a login lives only in one `bare-mcp` process. A new deck process or an eval run must log in again. Some logins need a phone approval each time.
+
+**Boundary:** The files hold live credentials. Keep the folder outside the repository. VM mode does not change: the guest sets its own paths, and the relay path is unchanged.
+
+## D53. Private eval runs make their own files and check downloads (2026-11-12)
+
+**Decision:** `evals/run.py` takes `--secrets-file` and `--state-dir`. A task with `make_files` gets a fresh `.txt`, `.pdf` and `.png` for the run in `workspace/`. A `downloaded` check passes when a file in `workspace/downloads/` has the SHA-256 of a made file. A secret line of the secrets file (a name with PASS, TOKEN, SECRET or KEY) fails the run when its value shows in the answer or a tool argument.
+
+**Reason:** A real mail task must attach files and prove that the same bytes came back. The files must be new for each run, so an old message cannot pass the check. Private tasks and logins stay outside the repository.
+
+**Boundary:** Other secret lines, such as an email address, are not leak-checked, because a correct answer can show them. Private task files live outside the repository.
+
+## D54. Separate memory safety stops from host paging context (2026-11-12)
 
 **Decision:** For future sustained memory experiments, record host-wide swap-out above the existing threshold as a contended window. Do not stop only for that signal. Keep VM swap, guest swap, OOM, cgroup limit, host CPU/memory pressure and low available-memory stops. Do not change the cycle benchmark policy.
 
@@ -548,7 +564,7 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 **Evidence rule:** Preserve both failed attempts under their original method. Version the revised method and retain paging windows in the trace, summary and status. A completed workload under paging is observational evidence, not proof of uncontended performance or a leak. No production setting changes.
 
-## D53. Bound the one-bot save stream at 512 MiB/s (2026-11-12)
+## D55. Bound the one-bot save stream at 512 MiB/s (2026-11-12)
 
 **Decision:** The `vmproto.py stop` command used by the configured one-bot server sets and verifies a 512 MiB/s migration cap before starting a save. An explicit `--bandwidth-mib 128` preserves the original CLI cap. Direct Python benchmark callers preserve the current QEMU limit unless they request one. The codec remains unchanged.
 

@@ -15,7 +15,7 @@ The run changed no production code, VM flag, device, RAM, codec or cache. The fu
 - Host counters per window: QEMU thread CPU, voluntary and nonvoluntary context switches (kept separate), QEMU helper CPU, `/proc/<pid>/io`, server CPU and the observer CPU. Threads are matched by TID, start time and name.
 - Guest counters per window (guest agent): `/proc/stat` total and per CPU, interrupts, softirqs, context switches, `/proc/interrupts` by name, `/sys/block/vda/stat`, clocksource, and per-process ticks and switches for bare, sway and the executor. The record keeps the role only, never a command line or environment.
 - A window is valid only if the computer was awake, no command or work was active, model calls and captures were 0, the viewer worker was off, the QEMU, guest boot, bare, sway and executor identities were the same at both edges, and both edges were complete. A reused PID or TID, or a counter that goes backwards, is rejected. It never becomes a negative delta. A counter that is missing is `null`, not zero.
-- Host guard (D52): a 10 s host sampler evaluated rolling 60 s windows with `memorybench.guardrails`. CPU pressure above 25%, memory pressure above 5%, available memory under 2 GiB, VM swap, cgroup OOM and cgroup limit stop the run. Host swap-out is context and flagged as contended. A 60 s preflight ran first. The run had one attempt and no retry.
+- Host guard (D54): a 10 s host sampler evaluated rolling 60 s windows with `memorybench.guardrails`. CPU pressure above 25%, memory pressure above 5%, available memory under 2 GiB, VM swap, cgroup OOM and cgroup limit stop the run. Host swap-out is context and flagged as contended. A 60 s preflight ran first. The run had one attempt and no retry.
 
 ## Result
 

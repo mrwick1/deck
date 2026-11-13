@@ -17,7 +17,7 @@ The first ten questions were answered on 2026-11-11. The answers are in [decisio
 
 ## Current implementation checkpoint
 
-Updated 2026-11-13. Stages 1–3 are merged. The optional one-bot path implements the executor protocol, durable command records, host epochs, cancellation acknowledgement, queue/steer/stop, generic event intake, idle save/wake and subscribed desktop capture. PR #23 adds measurements and the D53 save cap and is pending merge. Keep these implemented choices separate from the remaining product choices below.
+Updated 2026-11-13. Stages 1–3 are merged. The optional one-bot path implements the executor protocol, durable command records, host epochs, cancellation acknowledgement, queue/steer/stop, generic event intake, idle save/wake and subscribed desktop capture. PR #23 adds measurements and the D55 save cap and is pending merge. Keep these implemented choices separate from the remaining product choices below.
 
 ## Open choices
 

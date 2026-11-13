@@ -2,7 +2,7 @@
 
 Date: 2026-11-12. Status reconciled: 2026-11-13.
 
-Current status: lifecycle integration is merged. Saved-state and idle measurement passes are verified; memory repetition remains incomplete. D53 selects the measured one-bot save cap on PR #23, pending merge. Detailed current status is in [progress.md](progress.md). Earlier work lists below preserve the experiment sequence.
+Current status: lifecycle integration is merged. Saved-state and idle measurement passes are verified; memory repetition remains incomplete. D55 selects the measured one-bot save cap on PR #23, pending merge. Detailed current status is in [progress.md](progress.md). Earlier work lists below preserve the experiment sequence.
 
 The owner approved these five optimization areas. Implement them in dependency order. Measure each change against the verified Stage 1 baseline. Do not claim a gain from a unit test alone.
 
@@ -133,4 +133,4 @@ The versioned memory run produced two complete boots and one partial boot, then 
 
 ## Applied bounded save optimization
 
-D53 selects a 512 MiB/s cap for the one-bot server save command after a controlled 12-cycle comparison and a corrected integrated smoke. Direct benchmark calls preserve their current QEMU limit. The CLI can select 128 MiB/s. Faster saves release VM resources sooner; work is concentrated into a shorter burst. Keep peak CPU, physical disk behavior, concurrent saves and slow storage as explicit follow-ups. The codec remains `none`.
+D55 selects a 512 MiB/s cap for the one-bot server save command after a controlled 12-cycle comparison and a corrected integrated smoke. Direct benchmark calls preserve their current QEMU limit. The CLI can select 128 MiB/s. Faster saves release VM resources sooner; work is concentrated into a shorter burst. Keep peak CPU, physical disk behavior, concurrent saves and slow storage as explicit follow-ups. The codec remains `none`.

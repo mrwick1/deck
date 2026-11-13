@@ -18,6 +18,12 @@ Stages 1–3 are merged in PR #22. PR #23 contains the measurement harnesses, ev
 
 The save result is a warm-cache, one-bot improvement. Concurrent saves, slow storage, disk-cold restore and peak CPU remain untested. No user service was restarted. The next integration step is PR #23 merge. Deferred product work includes spending accounting, real account/event sources, protected credential prompts, memory integration and conversational bot creation. Fresh provisioning and real halfway-save failure remain unverified.
 
+## PR #23 integration check: 2026-11-13
+
+Merged the current main branch into the performance branch. Preserved published decisions D52 and D53. Renumbered the performance decisions to D54 and D55 and updated their references. The conflict affected documentation only.
+
+All 197 prototype Python tests, 28 eval tests and 22 web tests pass. All 135 Rust unit tests and three non-live integration tests pass. Rust formatting and clippy pass. Web type checking and the production build pass. The build retains its bundle-size warning. Live VM, browser and performance experiments were not repeated for this documentation conflict resolution.
+
 ## Historical checkpoints
 
 The sections below preserve what was known at each step. Their earlier next actions and test counts are historical. Use the current status above for the latest state.
@@ -177,7 +183,7 @@ This closes the short smoke gap. It does not complete the three independent 30-m
 
 The second full attempt stopped in boot 1 after 497.6 seconds on host-wide paging. It remains incomplete; boots 2 and 3 did not run. The parent verified its failed summary and retained evidence.
 
-D52 versions future memory runs separately: host-wide paging is context, while VM, OOM, limit, pressure and low-memory guards remain safety stops. Paging windows are explicit and cannot support clean latency comparisons. All 132 Python tests pass. The next attempt uses this revised method, not a retroactive pass for earlier data.
+D54 versions future memory runs separately: host-wide paging is context, while VM, OOM, limit, pressure and low-memory guards remain safety stops. Paging windows are explicit and cannot support clean latency comparisons. All 132 Python tests pass. The next attempt uses this revised method, not a retroactive pass for earlier data.
 
 ## Memory v2 observation complete; planned repetition incomplete
 
@@ -193,7 +199,7 @@ The executor timeout is a small switch-rate source, not an explanation for most 
 
 ## First measured optimization applied: one-bot save rate
 
-The controlled migration comparison passed 12 cycles across three boots. Raising the cap from 128 to 512 MiB/s reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. The parent reproduced the raw medians. D53 applies the selected cap to the one-bot CLI/server save path with read-back verification and an original-cap CLI override.
+The controlled migration comparison passed 12 cycles across three boots. Raising the cap from 128 to 512 MiB/s reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. The parent reproduced the raw medians. D55 applies the selected cap to the one-bot CLI/server save path with read-back verification and an original-cap CLI override.
 
 An initial integration smoke caught a QMP argument-shape error. Its evidence is retained. After a strict regression and correction, a fresh integrated smoke passed save/restore and chat/file/browser gates and recorded the requested 512 MiB/s cap. All 197 Python tests pass; the previously flaky cycle suite passed six repeat runs. Parallel code and evidence reviews were incorporated. See [migration-bandwidth-results.md](migration-bandwidth-results.md).
 
