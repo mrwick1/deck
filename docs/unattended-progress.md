@@ -1,13 +1,13 @@
 # Unattended implementation handoff
 
 Updated: 2026-11-13.
-Status: core setup and local API/guest synthetic sign-in pass. Phone UI rendering remains blocked. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher branch. The local `THREAD.md` records its current review link and ownership.
+Status: core setup and local API/guest synthetic sign-in pass. Remaining validation continues in a new parallel wave. Phone UI rendering remains blocked. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher branch. The local `THREAD.md` records its current review link and ownership.
 
 ## Latest accepted evidence
 
 The [final live report](setup-synthetic-login-final.md) records exit 0. All 55 required API/guest gates pass. The manifest has 57 pass statuses, three optional checks unrun and zero failures. The service records one login, zero failed logins, one submit attempt and one success. Both owner rounds verify service evidence separately from owner answers. Restarts add no work. The cleanup registry has no survivors.
 
-The parent inspected that manifest, checked all registered PIDs are absent and verified the released VM lock. No VM disk or memory-state file remains. Metadata and earlier failed evidence remain private. All delegates are terminal.
+The parent inspected that manifest, checked all registered PIDs are absent and verified the released VM lock. No VM disk or memory-state file remains. Metadata and earlier failed evidence remain private. That accepted run is closed. The new continuation wave is documented below.
 
 Local checks: 303 Rust unit tests, four integration tests, 49 web tests, type checking, build, formatting and clippy pass. The Python suite passes 366 tests with one screenshot gate skipped. No whole-product, real-account, performance or single unmocked UI plus VM claim follows. Bare issues [464](https://github.com/mrwick1/bare/issues/464) and [467](https://github.com/mrwick1/bare/issues/467) retain the phone rendering limits. Raster secrecy and saved-state second-task checks remain unrun.
 
@@ -106,7 +106,7 @@ The host lifecycle returned a partial slice, integrated as `67b0d14`. The failur
 
 ## Current work and remaining validation
 
-Core setup and API/guest synthetic acceptance pass. All assigned implementation and acceptance workers have returned. Keep the draft review open with its explicit limits. Do not rerun the old implementation steps in the historical checkpoints below.
+Core setup and API/guest synthetic acceptance pass. The previous implementation and acceptance workers have returned. New continuation tasks now own the remaining checks. Keep the draft review open with its explicit limits. Do not rerun the old implementation steps in the historical checkpoints below.
 
 1. Resolve bare rendering issues 464 and 467 in bare. Deck adds no fallback.
 2. Validate raster secrecy, saved-state wake with a second task and a single unmocked owner UI plus VM journey separately.
@@ -187,3 +187,7 @@ All 366 deterministic prototype tests pass; one screenshot gate remains skipped.
 Report `2d3a463` records a live run with all behavior gates passed. Service counters are one login, zero failed logins, one submit attempt and one success. All 19 tool calls ran once. Owner answers remained pending until service evidence was refreshed and verified. Restart added no work. Host and argv scans found no value. The aggregate gate remains failed because cleanup reported one unidentified path match.
 
 The parent now tracks owned process identities and descendants with birth-time checks and auditable survivors. Its regression passes. The complete Python suite passes 366 tests with one screenshot gate skipped. A fresh serial run is required for the repaired aggregate audit. No other worker or VM remains active. No merge or deployment ran.
+
+## Continued acceptance wave
+
+The owner asked to continue. Three prepared worktrees start from `7c2be62`: saved-state wake and a second task; a combined owner-UI/VM controller; and capture privacy during in-flight frames. The saved-state worker is the sole live VM owner. The other two tasks may not launch a VM. Exact identities and links are in the local handoff. The parent will integrate and verify each result, then run the combined UI journey serially. PR #29 remains draft. No merge or deployment is authorized.

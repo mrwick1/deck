@@ -199,3 +199,9 @@ Report `86d3cdf` is integrated as `5c7df33`. The fresh real-VM run exits 0. It r
 The parent inspected the raw manifest, verified every registered PID is absent and acquired the released VM lock. No guest disk or saved-memory file remains. Runtime metadata is retained; the parent does not claim that the metadata directory is empty. Failed earlier manifests remain unchanged.
 
 This closes core API/guest synthetic acceptance. It does not close bare rendering issues 464/467, raster secrecy, saved-state second-task checks or a single unmocked UI plus VM journey. All delegates are terminal. No live process, merge or deployment is owned by this workstream. The draft PR retains these limits.
+
+## Continued remaining acceptance
+
+The owner asked to continue after the published checkpoint. Three isolated tasks started from `7c2be62`. The saved-state task owns the only live VM in this wave. It must prove a saved-state restart, restore and a second task with preserved guest state and one effect. The combined UI/VM task prepares a test controller and runs no VM or browser yet. The capture task tests privacy during in-flight frames and fixes only confirmed races.
+
+File ownership is separate. The first task owns its lifecycle harness. The second owns new UI controller files only. The third owns capture-related Rust code and tests. All must provide regression evidence, exact boundaries and cleanup. After integration, the parent will start the combined UI and real-VM run serially. No merge, deployment, real account or paid model is authorized. The previous accepted evidence remains valid for its stated head.
