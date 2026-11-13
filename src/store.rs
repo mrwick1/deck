@@ -147,6 +147,71 @@ CREATE TABLE inbox_decisions(
 );
 ";
 
+/// Versioned bot definitions, setup drafts, typed holds and the accounting ledger.
+/// Existing bots get no row in any of these tables: no authority and no ceiling are invented.
+/// Amounts are integer minor units of the stated currency and exponent.
+const SCHEMA_V5: &str = "
+CREATE TABLE bot_setup_drafts(
+    draft_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_state(bot_id),
+    revision INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE bot_definitions(
+    bot_id TEXT NOT NULL REFERENCES bot_state(bot_id),
+    version INTEGER NOT NULL,
+    instructions TEXT NOT NULL,
+    authority TEXT NOT NULL CHECK(authority IN ('full','restricted','revoked')),
+    restrictions TEXT NOT NULL DEFAULT '[]',
+    actor TEXT NOT NULL,
+    draft_id TEXT,
+    draft_revision INTEGER,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(bot_id, version),
+    UNIQUE(draft_id, draft_revision)
+);
+CREATE TABLE bot_holds(
+    bot_id TEXT NOT NULL REFERENCES bot_state(bot_id),
+    kind TEXT NOT NULL CHECK(kind IN ('ceiling','investigation','unknown_outcome')),
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(bot_id, kind)
+);
+CREATE TABLE bot_accounting(
+    bot_id TEXT PRIMARY KEY REFERENCES bot_state(bot_id),
+    currency TEXT NOT NULL,
+    exponent INTEGER NOT NULL CHECK(exponent BETWEEN 0 AND 9),
+    period TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    ceiling INTEGER NOT NULL CHECK(ceiling >= 0),
+    allowance INTEGER NOT NULL CHECK(allowance >= 0 AND allowance <= ceiling),
+    version INTEGER NOT NULL
+);
+CREATE TABLE accounting_changes(
+    change_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_accounting(bot_id),
+    kind TEXT NOT NULL CHECK(kind IN ('configure','ceiling','allowance','period')),
+    old_value INTEGER NOT NULL,
+    new_value INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE accounting_reservations(
+    reservation_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_accounting(bot_id),
+    period TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK(amount >= 0),
+    state TEXT NOT NULL CHECK(state IN ('reserved','unresolved','settled')),
+    settlement_id TEXT UNIQUE,
+    settled_amount INTEGER CHECK(settled_amount >= 0),
+    created_at TEXT NOT NULL,
+    settled_at TEXT
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -217,26 +282,18 @@ fn rfc3339(secs: i64) -> String {
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    migrate_to(conn, i64::MAX)
+}
+
+/// Apply each schema step above the stored version, up to `max`. Tests use `max` to build old databases.
+pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version < 1 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;"
-        ))?;
-    }
-    if version < 2 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"
-        ))?;
-    }
-    if version < 3 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"
-        ))?;
-    }
-    if version < 4 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"
-        ))?;
+    let steps = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
+    for (i, sql) in steps.iter().enumerate() {
+        let v = i as i64 + 1;
+        if version < v && v <= max {
+            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {v}; COMMIT;"))?;
+        }
     }
     Ok(())
 }
@@ -499,7 +556,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
     }
 
     #[test]

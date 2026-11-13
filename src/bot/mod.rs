@@ -9,6 +9,7 @@ pub mod db;
 pub mod events;
 pub mod hub;
 pub mod screen;
+pub mod state;
 pub mod vm;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
