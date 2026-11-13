@@ -55,3 +55,11 @@ The guest channel returned first. Commits `7a8398b` and `8446c65` were integrate
 All three parent regressions failed before the fixes. The secret suite now has 31 passing tests. The complete prototype Python suite has 228 passing tests. Fake QGA tests run the real guest script in a temporary home. They do not prove real QGA, `runuser`, bare parsing or redaction.
 
 The host integration must validate receipt bot, request and canonical label. The API must keep a wait pending after any failed delivery. T3 reference inspection, host delivery, challenge flow, UI and live acceptance remain outstanding. No protected-input or end-to-end completion claim follows from this checkpoint.
+
+## Reference and UI checkpoint: 2026-11-13
+
+The protected-input reference report is integrated as `34bc352`. It distinguishes inspected T3 behavior from proposed Deck behavior. The frontend slice is integrated as `5995b3b`. It submits protected values directly to the dedicated endpoint and shows challenge verification as pending. No browser acceptance has run on this integrated UI.
+
+Parent review added regressions for value-bearing exception messages and the guest UTF-8 size limit. Both tests failed before the fixes. All 43 web tests now pass. Type checking and the production build also pass. The existing bundle-size warning remains.
+
+The failure-test worker returned commit `a262434`. Its baseline has four passing tests, one skipped capture gate and eighteen failing endpoint checks. Integration waits for the host and challenge implementations. This is dependency evidence, not an end-to-end pass. The host lifecycle, login challenges, real VM and bare UI workers have not yet reported completion.

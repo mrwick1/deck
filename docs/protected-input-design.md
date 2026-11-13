@@ -1,7 +1,7 @@
 # Protected input design
 
 Date: 2026-11-13.
-Status: design. No protected input code exists. Setup still advertises `protected_input: false`.
+Status: design reference inspected at base `6d5ca42`. That base advertises `protected_input: false`. Guest delivery and frontend slices are now integrated. Host delivery and combined acceptance remain pending. See [the integration plan](setup-e2e-plan.md).
 Scope: D29, D30, D57, D60 and D62. This document fixes no monetary default and claims no universal financial boundary.
 
 Every statement carries one label.

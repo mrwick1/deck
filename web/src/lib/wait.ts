@@ -1,13 +1,13 @@
-import type { SetupRecord, SetupWait } from "./api";
+import { ApiError, secretFailure, type SetupRecord, type SetupWait } from "./api";
 
 /** NUL, CR and LF cannot go in the guest's NAME=value store. An empty value is no value. Spaces stay. */
-export const validSecret = (v: string) => v.length > 0 && !/[\0\r\n]/.test(v);
+export const validSecret = (v: string) => v.length > 0 && v.length <= 4096 && !/[\0\r\n]/.test(v) && new TextEncoder().encode(v).length <= 4096;
 
 export type DeliverResult = { ok: true } | { ok: false; message: string };
 
 /**
  * Read the value once, clear its field before the request, clear it again after any outcome.
- * The failure message comes from the caller's error, which never carries the value.
+ * Only fixed status messages reach the UI. Caller errors are never displayed.
  */
 export async function deliverSecret(o: {
   read: () => string;
@@ -18,14 +18,14 @@ export async function deliverSecret(o: {
   if (o.guard?.busy) return { ok: false, message: "Delivery is already in progress." };
   const value = o.read();
   o.clear();
-  if (!validSecret(value)) return { ok: false, message: "Enter a value without line breaks." };
+  if (!validSecret(value)) return { ok: false, message: "The value is empty, contains a line break, or exceeds the supported size." };
   if (o.guard) o.guard.busy = true;
   try {
     await o.send(value);
     return { ok: true };
   } catch (e) {
     o.clear();
-    return { ok: false, message: e instanceof Error ? e.message : "Delivery was not confirmed. Enter the value again." };
+    return { ok: false, message: secretFailure(e instanceof ApiError ? e.status : 0) };
   } finally {
     if (o.guard) o.guard.busy = false;
   }

@@ -1,9 +1,10 @@
+import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, respondChallenge, sendMessage, submitSecret, type SetupRecord, type SetupWait } from "./api";
 import { deliverSecret, describeWait, validSecret, waitFor } from "./wait";
 
 afterEach(() => vi.unstubAllGlobals());
-const SECRET = "synthetic-Pa55é word";
+const SECRET = randomBytes(18).toString("base64url") + "é word";
 const cred = (over: Partial<SetupWait> = {}): SetupWait => ({ request_id: "r1", kind: { Credential: { label: "Fixture login" } }, ...over });
 const row = (id: string, wait: SetupWait | null): SetupRecord => ({
   version: 4, chat_id: 1, phase: "Waiting", runtime_ready: false, error: null, checklist: [],
@@ -17,8 +18,10 @@ describe("protected endpoint", () => {
     await submitSecret("bot a/b", 4, "r1", SECRET);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("/api/setups/bot%20a%2Fb/secret");
-    expect(String(url)).not.toContain(SECRET);
-    expect(JSON.parse(init.body)).toEqual({ version: 4, request_id: "r1", value: SECRET });
+    expect(!String(url).includes(SECRET), "protected value escaped in URL").toBe(true);
+    const { value, ...metadata } = JSON.parse(init.body);
+    expect(metadata).toEqual({ version: 4, request_id: "r1" });
+    expect(value === SECRET, "protected body value differs").toBe(true);
     expect(init.method).toBe("POST");
   });
   it("never uses the ordinary message API", async () => {
@@ -33,7 +36,7 @@ describe("protected endpoint", () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: `bad ${SECRET}` }), { status })));
       const e = await submitSecret("s", 1, "r", SECRET).catch(x => x as ApiError);
       expect(e, String(status)).toBeInstanceOf(ApiError);
-      expect((e as ApiError).message).not.toContain(SECRET);
+      expect(!(e as ApiError).message.includes(SECRET), "protected value escaped in response").toBe(true);
       expect((e as ApiError).message).not.toContain("bad");
     }
   });
@@ -41,7 +44,7 @@ describe("protected endpoint", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error(`boom ${SECRET}`)));
     const e = (await submitSecret("s", 1, "r", SECRET).catch(x => x)) as ApiError;
     expect(e.status).toBe(0);
-    expect(e.message).not.toContain(SECRET);
+    expect(!e.message.includes(SECRET), "protected value escaped in response").toBe(true);
   });
   it("answers a challenge with metadata only", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
@@ -56,18 +59,31 @@ describe("deliverSecret", () => {
   it("clears the transient value before the request finishes", async () => {
     const order: string[] = [];
     let release!: () => void;
-    const send = vi.fn(() => new Promise<void>(r => { release = r; order.push("send"); }));
+    const send = vi.fn((_value: string) => new Promise<void>(r => { release = r; order.push("send"); }));
     const p = deliverSecret({ read: () => SECRET, clear: () => order.push("clear"), send });
     expect(order).toEqual(["clear", "send"]);
     release();
     expect(await p).toEqual({ ok: true });
-    expect(send).toHaveBeenCalledWith(SECRET);
+    expect(send.mock.calls[0][0] === SECRET, "protected body value differs").toBe(true);
   });
   it("clears again and hides the value after a failure", async () => {
     const clear = vi.fn();
     const r = await deliverSecret({ read: () => SECRET, clear, send: async () => { throw new ApiError(409, "changed"); } });
     expect(clear).toHaveBeenCalledTimes(2);
-    expect(r).toEqual({ ok: false, message: "changed" });
+    expect(r).toEqual({ ok: false, message: "This request changed or expired. Review the current request and enter the value again." });
+  });
+  it("never displays an arbitrary delivery exception", async () => {
+    for (const failure of [new Error(`transport ${SECRET}`), new ApiError(500, `server ${SECRET}`)]) {
+      const r = await deliverSecret({ read: () => SECRET, clear: () => {}, send: async () => { throw failure; } });
+      expect(r.ok).toBe(false);
+      expect(!JSON.stringify(r).includes(SECRET), "protected value escaped through an error").toBe(true);
+    }
+  });
+  it("rejects values above the guest UTF-8 byte limit", async () => {
+    const send = vi.fn();
+    const r = await deliverSecret({ read: () => "é".repeat(2049), clear: () => {}, send });
+    expect(r.ok).toBe(false);
+    expect(send).not.toHaveBeenCalled();
   });
   it("refuses an empty or unsafe value without sending", async () => {
     for (const bad of ["", "a\nb", "a\rb", "a\0b"]) {

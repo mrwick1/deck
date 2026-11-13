@@ -25,7 +25,7 @@ function SecretForm({ row, label, onDone }: { row: api.SetupRecord; label: strin
   };
   return <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); if (!busy) submit(); }} onKeyDown={e => { if (e.key === "Escape") clear(); }}>
     <label className="text-sm">{label}
-      <input ref={input} className={field} type="password" name="deck-protected-value" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" disabled={busy} aria-invalid={error !== null} aria-describedby={`${wait.request_id}-note`} />
+      <input ref={input} className={field} type="password" maxLength={4096} name="deck-protected-value" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" disabled={busy} aria-invalid={error !== null} aria-describedby={`${wait.request_id}-note`} />
     </label>
     <p id={`${wait.request_id}-note`} className="text-muted-foreground text-xs">Sent only to the protected endpoint. Never put it in chat.</p>
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}

@@ -88,7 +88,9 @@ The owner authorized eight parallel tasks and selected a local synthetic login f
 
 The guest secret channel and its small parent review fixes are integrated at `1a1474c`. Its 31 focused tests and all 228 prototype Python tests pass. These use a fake QGA and a temporary guest home. Real guest delivery and bare redaction are not yet verified. See [the completion plan](setup-e2e-plan.md) for task scopes and evidence.
 
-The remaining delegates have not reported completion at this checkpoint. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
+The reference report and protected-input UI are integrated as `34bc352` and `5995b3b`. Parent UI review adds fixed error messages and the guest byte limit. All 43 web tests pass. Browser validation remains open. The failure-test harness returned `a262434`; it remains unintegrated until the missing endpoints land. Its baseline has four passes, one skipped capture gate and eighteen expected endpoint failures.
+
+Four delegates have not reported completion: host lifecycle, login challenges, real VM acceptance and bare UI acceptance. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
 
 ## Current work and next edits
 
