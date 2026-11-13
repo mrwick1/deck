@@ -141,3 +141,9 @@ Readiness commit `461fed6` is integrated as `aa06d84`. Private-folder commit `96
 The combined Rust run passes 303 unit tests and four integration tests. Formatting and clippy pass. The full Python run exposed one asynchronous test assumption: the response had completed before the driver opened the next credential wait. The corrected test waits for that durable transition. Its 32-test HTTP/fixture suite passes with one screenshot gate skipped. No live pass follows from these checks.
 
 A separate harness task now extends the local fixture into an actual synthetic sign-in with phone and CAPTCHA-style waits. It owns only the live acceptance script and fixture tests, and may not launch a VM. The current protected mode proves delivery but does not yet exercise that whole service flow. Fresh serial live checks and the sidebar/phone recheck remain required.
+
+## Post-blocker acceptance assignments
+
+Two checks started from `b48fcd9`. The browser check owns a fresh seeded, paused fixture stack and verifies sidebar bot routing, long request layout and review-toggle wording. It owns stack and screen cleanup. The live check is the sole VM owner. It runs baseline and protected delivery serially on fresh overlays, with the shared VM lock and normal host-pressure limits. It may not use diagnostic directory precreation.
+
+The synthetic-login harness implementation continues independently without a VM. These three tasks have separate file ownership. Their results must distinguish fixture checks, real guest delivery and whole-service sign-in. No merge or deployment is authorized.
