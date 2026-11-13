@@ -113,6 +113,9 @@ pub struct Vm {
     pub python: String,
     #[serde(default = "default_fixture_port")]
     pub fixture_port: u16,
+    /// Allow outbound guest networking. False keeps the fixture-only network.
+    #[serde(default)]
+    pub internet: bool,
     /// Seconds without work before the computer saves itself.
     #[serde(default = "default_idle")]
     pub idle_secs: u64,
@@ -344,6 +347,9 @@ harness = \"/h/vmproto.py\"
         assert!(Config::parse(EXAMPLE).unwrap().vm.is_none());
         let c = Config::parse(&format!("{EXAMPLE}{VM}")).unwrap();
         let vm = c.vm.unwrap();
+        assert!(!vm.internet);
+        let enabled = Config::parse(&format!("{EXAMPLE}{VM}internet = true\n")).unwrap();
+        assert!(enabled.vm.unwrap().internet);
         assert_eq!(
             (vm.idle_secs, vm.fixture_port, vm.state_codec.as_str()),
             (120, 18080, "none")

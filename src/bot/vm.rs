@@ -45,6 +45,7 @@ pub struct Harness {
     script: PathBuf,
     dir: PathBuf,
     fixture_port: u16,
+    internet: bool,
     codec: String,
     limit: Duration,
 }
@@ -56,6 +57,7 @@ impl Harness {
             script: c.harness.clone(),
             dir: c.runtime_dir.clone(),
             fixture_port: c.fixture_port,
+            internet: c.internet,
             codec: c.state_codec.clone(),
             limit: Duration::from_secs(c.lifecycle_secs),
         }
@@ -69,11 +71,14 @@ impl Harness {
             .arg(&self.dir)
             .arg("--fixture-port")
             .arg(self.fixture_port.to_string())
-            .args(sub)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if self.internet {
+            cmd.arg("--internet");
+        }
+        cmd.args(sub);
         let out = tokio::time::timeout(self.limit, cmd.output())
             .await
             .map_err(|_| anyhow::anyhow!("`{}` timed out after {:?}", sub[0], self.limit))?
@@ -246,7 +251,7 @@ mod tests {
 import sys, json, os, time
 here = os.path.dirname(os.path.abspath(__file__))
 open(os.path.join(here, "log"), "a").write(json.dumps(sys.argv[1:]) + "\n")
-sub = sys.argv[5]
+sub = sys.argv[6] if "--internet" in sys.argv else sys.argv[5]
 mode = open(os.path.join(here, "mode")).read().strip()
 if os.path.exists(os.path.join(here, "hang")):
     time.sleep(60)
@@ -266,6 +271,7 @@ elif sub == "restore" and os.path.exists(os.path.join(here, "failrestore")):
             script,
             dir: runtime.into(),
             fixture_port: 1234,
+            internet: false,
             codec: "zstd-3".into(),
             limit: Duration::from_secs(limit),
         }
@@ -304,6 +310,19 @@ elif sub == "restore" and os.path.exists(os.path.join(here, "failrestore")):
         assert_eq!(args[1], evil, "one argument, not interpreted");
         assert_eq!(args[4..], ["stop", "--codec", "zstd-3"]);
         assert!(!d.join("pwned").exists());
+    }
+
+    #[tokio::test]
+    async fn internet_option_precedes_the_lifecycle_subcommand() {
+        let d = temp_dir();
+        let mut h = harness(&d, "/rt", 20);
+        h.internet = true;
+        std::fs::write(d.join("mode"), "saved").unwrap();
+        assert_eq!(h.wake().await.unwrap(), Woke::Restored);
+        for args in log(&d) {
+            assert_eq!(args[4], "--internet");
+            assert!(["status", "restore"].contains(&args[5].as_str()));
+        }
     }
 
     #[tokio::test]
