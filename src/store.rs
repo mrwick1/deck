@@ -239,6 +239,32 @@ CREATE TABLE ceiling_responses(
 const SCHEMA_V7: &str =
     "ALTER TABLE bot_setup_drafts ADD COLUMN lifecycle INTEGER NOT NULL DEFAULT 0;";
 
+/// Metadata only. No column holds a protected value.
+const SCHEMA_V8: &str = "
+CREATE TABLE secret_receipts(
+    bot_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    name TEXT NOT NULL,
+    delivered_at TEXT NOT NULL,
+    PRIMARY KEY(bot_id, request_id)
+);
+CREATE TABLE secret_requests(
+    request_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','delivered','superseded')),
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE privacy_gates(
+    bot_id TEXT PRIMARY KEY,
+    opened_at TEXT NOT NULL
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -316,7 +342,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let steps = [
-        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
     ];
     for (i, sql) in steps.iter().enumerate() {
         let v = i as i64 + 1;
@@ -597,7 +623,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 7);
+        assert_eq!(v, 8);
     }
 
     #[test]

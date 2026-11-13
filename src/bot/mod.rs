@@ -14,6 +14,7 @@ pub mod events;
 pub mod hub;
 pub mod provisioning;
 pub mod screen;
+pub mod secrets;
 pub mod setup;
 pub mod setup_api;
 pub mod setup_store;

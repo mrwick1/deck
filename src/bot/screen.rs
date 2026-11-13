@@ -111,8 +111,12 @@ pub struct Screen {
     awake: watch::Receiver<bool>,
     tx: watch::Sender<Frame>,
     running: AtomicBool,
+    /// True while a protected value may show on the screen. Set once, when the bot is wired.
+    gate: std::sync::OnceLock<PrivacyGate>,
     pub stats: Stats,
 }
+
+pub type PrivacyGate = Arc<dyn Fn() -> bool + Send + Sync>;
 
 impl Screen {
     pub fn new(
@@ -126,8 +130,19 @@ impl Screen {
             awake,
             tx: watch::channel(Frame::default()).0,
             running: AtomicBool::new(false),
+            gate: std::sync::OnceLock::new(),
             stats: Stats::default(),
         })
+    }
+
+    /// While the gate answers true, nothing is captured and no frame is shown. The gate must
+    /// answer true when it cannot tell. Only the first call has effect.
+    pub fn set_privacy_gate(&self, gate: PrivacyGate) {
+        let _ = self.gate.set(gate);
+    }
+
+    fn private(&self) -> bool {
+        self.gate.get().is_some_and(|g| g())
     }
 
     /// Subscribe. The first viewer starts the worker, if the computer is awake.
@@ -164,6 +179,22 @@ impl Screen {
         let mut last = String::new();
         let mut seq = self.tx.borrow().seq;
         while self.tx.receiver_count() > 0 && *awake.borrow() {
+            if self.private() {
+                last.clear();
+                if !self.tx.borrow().png.is_empty() {
+                    seq += 1;
+                    self.tx.send_replace(Frame {
+                        seq,
+                        png: Arc::default(),
+                    });
+                }
+                tokio::select! {
+                    _ = self.tx.closed() => {}
+                    _ = awake.changed() => {}
+                    _ = tokio::time::sleep(self.interval) => {}
+                }
+                continue;
+            }
             let t = std::time::Instant::now();
             let r = self.cap.grab().await;
             self.stats
@@ -203,6 +234,9 @@ impl Screen {
     }
 
     pub fn latest(&self) -> Frame {
+        if self.private() {
+            return Frame::default();
+        }
         self.tx.borrow().clone()
     }
 
@@ -358,5 +392,23 @@ mod tests {
         let n = s.stats.captures.load(Relaxed);
         tokio::time::sleep(Duration::from_millis(80)).await;
         assert_eq!(s.stats.captures.load(Relaxed), n);
+    }
+
+    #[tokio::test]
+    async fn an_open_privacy_gate_stops_capture_and_clears_the_shown_frame() {
+        let cap = Fake::new(&["secret-on-screen"], 0);
+        let (s, _awake) = screen(cap.clone(), true);
+        let private = Arc::new(AtomicBool::new(false));
+        let flag = private.clone();
+        s.set_privacy_gate(Arc::new(move || flag.load(Relaxed)));
+        let _rx = s.watch();
+        until(|| !s.latest().png.is_empty()).await;
+        private.store(true, Relaxed);
+        until(|| s.latest().png.is_empty()).await;
+        let n = s.stats.captures.load(Relaxed);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(s.stats.captures.load(Relaxed), n, "captured while private");
+        private.store(false, Relaxed);
+        until(|| !s.latest().png.is_empty()).await;
     }
 }

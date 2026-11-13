@@ -135,6 +135,18 @@ pub fn schemas(bare: &[Value], computer: bool) -> Vec<Value> {
             json!({"question": {"type":"string"}}),
             &["question"],
         ));
+        out.push(tool(
+            "request_secret",
+            "Ask the owner for a password, code or key through protected input. Give a short label and the purpose. The reply names a reference such as ${NAME}. Type that reference. You never see the value. Your task waits.",
+            json!({"label": {"type":"string"}, "purpose": {"type":"string"}}),
+            &["label", "purpose"],
+        ));
+        out.push(tool(
+            "signin_verified",
+            "Call this after a sign-in with a protected value has succeeded. Screenshots stay off until you do.",
+            json!({}),
+            &[],
+        ));
     }
     out
 }
@@ -270,10 +282,19 @@ impl Tools {
                     },
                 };
             }
-            _ => self
-                .browser(name, args)
-                .await
-                .map(|content| (content, None)),
+            "request_secret" if self.guest.is_some() => {
+                return self.request_secret(chat_id, args).await;
+            }
+            "signin_verified" if self.guest.is_some() => {
+                self.signin_verified(chat_id).await.map(|c| (c, None))
+            }
+            _ => match self.screen_refused(chat_id, name, args).await {
+                Some(why) => Err(anyhow!(why)),
+                None => self
+                    .browser(name, args)
+                    .await
+                    .map(|content| (content, None)),
+            },
         };
         match r {
             Ok((content, file)) => Outcome {
@@ -288,6 +309,92 @@ impl Tools {
                 file: None,
                 wait: None,
             },
+        }
+    }
+
+    /// A screenshot could show a value that sign-in typed. Refuse it while the bot's privacy gate
+    /// is open. A failed lookup also refuses.
+    async fn screen_refused(&self, chat_id: i64, name: &str, args: &Value) -> Option<&'static str> {
+        let shot = name == "browser_screenshot"
+            || (name == "browser_step"
+                && args["steps"]
+                    .as_str()
+                    .is_some_and(|t| t.lines().any(|l| l.trim_start().starts_with("screenshot"))));
+        if !shot || self.guest.is_none() {
+            return None;
+        }
+        let open = match self.store.bot_for_chat(chat_id).await {
+            Ok(Some(bot)) => self.store.privacy_gate_open(&bot).await.unwrap_or(true),
+            Ok(None) => false,
+            Err(_) => true,
+        };
+        open.then_some("Screenshots are off until the sign-in is verified. Call signin_verified after it succeeds.")
+    }
+
+    async fn signin_verified(&self, chat_id: i64) -> anyhow::Result<String> {
+        let bot = self
+            .store
+            .bot_for_chat(chat_id)
+            .await?
+            .ok_or_else(|| anyhow!("no bot for this chat"))?;
+        self.store.close_privacy_gate(&bot).await?;
+        Ok(json!({"ok": true}).to_string())
+    }
+
+    /// Open a durable request for protected input. The reply has a reference, never a value.
+    async fn request_secret(&self, chat_id: i64, args: &Value) -> Outcome {
+        let fail = |why: &str| Outcome {
+            ok: false,
+            content: json!({"ok": false, "error": why}).to_string(),
+            file: None,
+            wait: None,
+        };
+        let text = |key: &str, max: usize| {
+            args[key].as_str().map(str::trim).filter(|t| {
+                !t.is_empty() && t.chars().count() <= max && !t.chars().any(char::is_control)
+            })
+        };
+        let (Some(label), Some(purpose)) = (text("label", 100), text("purpose", 300)) else {
+            return fail(
+                "label (up to 100 characters) and purpose (up to 300) are required, with no control characters",
+            );
+        };
+        if args
+            .as_object()
+            .is_some_and(|o| o.keys().any(|k| k != "label" && k != "purpose"))
+        {
+            return fail(
+                "Pass only label and purpose. Never pass a value: the owner enters it in protected input",
+            );
+        }
+        let opened = async {
+            let bot = self
+                .store
+                .bot_for_chat(chat_id)
+                .await?
+                .ok_or_else(|| anyhow!("no bot for this chat"))?;
+            let task = self
+                .store
+                .owner_task(&bot)
+                .await?
+                .filter(|t| t.state == "running")
+                .ok_or_else(|| anyhow!("no running task"))?;
+            let id = format!("secret-{}", uuid::Uuid::new_v4().simple());
+            let expires = crate::bot::secrets::unix_now() + crate::bot::secrets::REQUEST_TTL_SECS;
+            self.store
+                .create_secret_request(&id, &bot, &task.id, label, purpose, expires)
+                .await?;
+            anyhow::Ok(id)
+        }
+        .await;
+        match opened {
+            Ok(id) => Outcome {
+                ok: true,
+                content: json!({"ok": true, "waiting": "protected input requested", "reference": format!("${{{}}}", crate::bot::secrets::canonical_name(label))}).to_string(),
+                file: None,
+                wait: Some(format!("Protected input needed for {label}: {purpose} (request {id})")),
+            },
+            Err(_) => fail("could not open the request"),
         }
     }
 
@@ -852,6 +959,125 @@ mod tests {
             s[0]["function"]["parameters"]["properties"]
                 .get("window")
                 .is_none()
+        );
+    }
+
+    /// A bot with a running task and a computer. The computer is never used by these tools.
+    async fn computer_bot() -> (Tools, Store, i64, Arc<FakeHost>) {
+        let (_, store, _, ws) = setup().await;
+        let chat = store.bot_flags("b", "Bot").await.unwrap().chat_id;
+        let task = store
+            .add_task("b", chat, "message", "t".into(), "work".into(), 1)
+            .await
+            .unwrap();
+        store
+            .move_task(&task.id, &["queued"], "running", None)
+            .await
+            .unwrap();
+        let host = Arc::new(FakeHost::default());
+        let hub = Hub::new(
+            store.clone(),
+            "b",
+            ws.clone(),
+            crate::bot::vm::FakeVm::new(true, false),
+            5,
+        );
+        let tools = Tools::new(host.clone(), store.clone(), ws.clone(), &ws).with_guest(hub);
+        (tools, store, chat, host)
+    }
+
+    #[tokio::test]
+    async fn request_secret_waits_and_names_a_reference_without_taking_a_value() {
+        let (tools, store, chat, _) = computer_bot().await;
+        let names: Vec<String> = schemas(&[], true)
+            .iter()
+            .map(|t| t["function"]["name"].as_str().unwrap().to_owned())
+            .collect();
+        assert!(
+            names.contains(&"request_secret".to_owned())
+                && names.contains(&"signin_verified".to_owned())
+        );
+        let args = json!({"label": "Site password", "purpose": "sign in to the site"});
+        let out = tools.execute(chat, "request_secret", &args).await;
+        assert!(out.ok, "{}", out.content);
+        let name = crate::bot::secrets::canonical_name("Site password");
+        assert!(out.content.contains(&format!("${{{name}}}")));
+        let question = out.wait.expect("the task waits");
+        let id = question
+            .split("request ")
+            .nth(1)
+            .unwrap()
+            .trim_end_matches(')')
+            .to_owned();
+        let open = store
+            .pending_secret_request("b", &id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(open.label, "Site password");
+        // The model cannot pass a value, and a refused call opens nothing.
+        let bad = tools
+            .execute(
+                chat,
+                "request_secret",
+                &json!({"label": "L", "purpose": "p", "value": "hunter2"}),
+            )
+            .await;
+        assert!(!bad.ok && bad.wait.is_none() && !bad.content.contains("hunter2"));
+        assert!(
+            store
+                .pending_secret_request("b", "x")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        for args in [
+            json!({"purpose": "p"}),
+            json!({"label": "L\nM", "purpose": "p"}),
+            json!({"label": "L"}),
+        ] {
+            assert!(!tools.execute(chat, "request_secret", &args).await.ok);
+        }
+    }
+
+    #[tokio::test]
+    async fn screenshots_stay_off_until_the_sign_in_is_verified() {
+        let (tools, store, chat, host) = computer_bot().await;
+        store
+            .record_secret("b", "r1", "L", "DECK_X", None)
+            .await
+            .unwrap();
+        for (name, args) in [
+            ("browser_screenshot", json!({})),
+            (
+                "browser_step",
+                json!({"steps": "open https://x.test\nscreenshot"}),
+            ),
+        ] {
+            let out = tools.execute(chat, name, &args).await;
+            assert!(
+                !out.ok && out.content.contains("signin_verified"),
+                "{name}: {}",
+                out.content
+            );
+        }
+        assert!(host.calls.lock().unwrap().is_empty());
+        // Other browser calls still work, and verification lifts the gate.
+        host.replies.lock().unwrap().push_back(json!({"ok": true}));
+        assert!(
+            tools
+                .execute(chat, "browser_open", &json!({"url": "https://x.test"}))
+                .await
+                .ok
+        );
+        assert!(tools.execute(chat, "signin_verified", &json!({})).await.ok);
+        assert!(!store.privacy_gate_open("b").await.unwrap());
+        host.replies.lock().unwrap().push_back(json!({"ok": true}));
+        assert!(
+            tools
+                .execute(chat, "browser_screenshot", &json!({}))
+                .await
+                .ok
         );
     }
 }
