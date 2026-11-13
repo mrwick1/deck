@@ -254,6 +254,8 @@ if sub == "status":
     print(json.dumps({"running": mode == "running", "state_saved": mode == "saved"}))
 elif sub == "start" and os.path.exists(os.path.join(here, "failstart")):
     sys.exit("boom")
+elif sub == "restore" and os.path.exists(os.path.join(here, "failrestore")):
+    sys.exit("restore boom")
 "#;
 
     fn harness(dir: &Path, runtime: &str, limit: u64) -> Harness {
@@ -324,5 +326,19 @@ elif sub == "start" and os.path.exists(os.path.join(here, "failstart")):
         std::fs::write(d.join("failstart"), "").unwrap();
         assert!(h.wake().await.is_err());
         assert_eq!(log(&d).last().unwrap()[4], "kill");
+    }
+
+    #[tokio::test]
+    async fn a_failed_restore_never_boots_the_disk_and_keeps_the_saved_state() {
+        let d = temp_dir();
+        let h = harness(&d, "/rt", 20);
+        std::fs::write(d.join("mode"), "saved").unwrap();
+        std::fs::write(d.join("failrestore"), "").unwrap();
+        assert!(h.wake().await.is_err());
+        assert!(h.status().await.unwrap().state_saved, "the state stays");
+        assert!(h.wake().await.is_err(), "the next wake restores again");
+        let subs: Vec<_> = log(&d).iter().map(|a| a[4].clone()).collect();
+        assert!(!subs.contains(&"start".to_string()), "{subs:?}");
+        assert_eq!(subs.iter().filter(|s| *s == "restore").count(), 2);
     }
 }

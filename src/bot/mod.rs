@@ -236,6 +236,15 @@ impl Bot {
                     .await?;
             }
         }
+        // The resume mark lives in memory. A waiting task whose chat ends with an owner message
+        // got its answer before the restart: run it once, and keep the pause and budget gates.
+        if let Some(t) = self.store.owner_task(&self.id).await?
+            && t.state == "waiting"
+            && let Some(msgs) = self.store.list_messages(t.chat_id).await?
+            && msgs.last().is_some_and(|m| m.role == "user")
+        {
+            self.inner.lock().unwrap().resume = Some(t.id);
+        }
         let st = self.vm.status().await?;
         if st.running {
             self.set_comp(Comp::Waking);
@@ -1620,6 +1629,81 @@ mod tests {
         done(&t, &a.task_id, "done").await;
         let last = t.seen.lock().unwrap().last().unwrap().to_string();
         assert!(last.contains("red"));
+    }
+
+    /// A new process on the same database, computer and model script.
+    async fn second_process(t: &T) -> Arc<Bot> {
+        let model = ModelClient::new(&t.config.model.base_url, Some("k".into()), "K");
+        let tools = Tools::new(
+            Arc::new(GuestHost(t.g.hub.clone())),
+            t.g.store.clone(),
+            t.config.workspace(),
+            &t.config.data_dir,
+        )
+        .with_guest(t.g.hub.clone());
+        let agent = Arc::new(Agent::with_tools(
+            t.config.clone(),
+            t.g.store.clone(),
+            model,
+            tools,
+        ));
+        Bot::new(
+            &t.config,
+            t.g.store.clone(),
+            agent,
+            t.g.vm.clone(),
+            t.g.hub.clone(),
+            t.cap.clone(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_owner_answer_survives_a_host_restart_and_the_pause_still_holds() {
+        let t = setup(
+            vec![
+                call("ask_owner", json!({"question": "which color?"})),
+                text("used red"),
+            ],
+            5000,
+            false,
+        )
+        .await;
+        let a = t.bot.submit("paint".into(), Mode::Queue, 1).await.unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        t.bot.set_paused(true).await.unwrap();
+        t.bot.submit("red".into(), Mode::Steer, 1).await.unwrap();
+        t.bot.stop_loop();
+        // The host restarts before the answer runs. The computer keeps running.
+        let t2 = second_process(&t).await;
+        t2.start().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(state(&t, &a.task_id).await, "waiting", "pause still holds");
+        assert_eq!(t.seen.lock().unwrap().len(), 1);
+        t2.set_paused(false).await.unwrap();
+        done(&t, &a.task_id, "done").await;
+        assert!(
+            t.seen
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .to_string()
+                .contains("red")
+        );
+        let msgs =
+            t.g.store
+                .list_messages(t2.chat_id())
+                .await
+                .unwrap()
+                .unwrap();
+        let answers = msgs
+            .iter()
+            .filter(|m| m.role == "user" && m.content.contains("\"red\""))
+            .count();
+        assert_eq!(answers, 1, "the answer is stored once");
+        t2.stop_loop();
     }
 
     #[tokio::test]
