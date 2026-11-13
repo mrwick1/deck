@@ -237,3 +237,5 @@ A fresh combined UI/VM run now uses the isolated candidate. The owner-authorized
 The parent integrated the candidate-browser report. The actual UI and VM completed protected delivery, both verified owner-help rounds, and one final action. Restarts added no work. The run recorded 43 passes and failed aggregate acceptance because two UI evidence gates were absent. The parent confirmed cleanup and retained the failed manifest unchanged.
 
 The follow-up clears the model fixture's held flag on release and timeout. The controller now returns expected credential length and hash prefix. Its finish response explicitly lists missing UI gates. The fill script returns a visible-text leak boolean without returning the value. Focused regressions reproduced the defects and now pass. A complete focused-suite run and fresh live evidence run remain pending.
+
+The complete synthetic-service and UI-controller suites now pass all 79 tests. A fresh real-UI/VM run has started with the metadata-fixed candidate. Its brief requires all four UI gates before finish and retains sanitized images for parent review. No new live result is available yet.
