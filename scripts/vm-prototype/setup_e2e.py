@@ -8,6 +8,11 @@ release or debug `deck` binary. It is functional acceptance, not a benchmark.
 `protected` checks the frozen protected-input and challenge endpoints. It marks each gate `pending`
 when this checkout does not offer the capability. It never reports a mock as a real pass.
 
+`synthetic-login` is the full owner flow on a local login service: protected delivery, a real sign-in
+through the guest's bare, a phone approval and a CAPTCHA-style owner wait, a Deck restart during a wait,
+and one success action. See docs/setup-synthetic-login.md. It reports `ok` only when every required gate
+passes. A skipped or pending gate is a failure there.
+
 Only synthetic data. The secret is generated in memory, sent in one JSON body and never written to a
 file, argv or log by this script. Raw evidence stays in --out (outside Git). The manifest holds
 identifiers, counts and statuses, never a value.
@@ -31,6 +36,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import setup_synthetic_login as sl
 import stage3
 import vmproto as v
 
@@ -73,7 +79,8 @@ def take_lock(path=LOCK):
 def variants(value):
     """The byte forms a value could take in a log, a URL, JSON or base64. Kept in memory only."""
     raw = value.encode()
-    out = {raw, json.dumps(value).strip('"').encode(), urllib.parse.quote(value, safe="").encode(), base64.b64encode(raw), base64.urlsafe_b64encode(raw)}
+    out = {raw, json.dumps(value).strip('"').encode(), urllib.parse.quote(value, safe="").encode(), urllib.parse.quote_plus(value).encode(),
+           base64.b64encode(raw), base64.urlsafe_b64encode(raw), raw.hex().encode(), raw.hex().upper().encode()}
     return {x for x in out if x}
 
 
@@ -125,11 +132,27 @@ class ArgvWatcher(threading.Thread):
         return {"samples": self.samples, "argv_hits": self.hits}
 
 
+class Stop(Exception):
+    """A gate failed or an outcome is unknown. Stop the flow; keep the evidence."""
+
+
 class Manifest:
     def __init__(self, mode):
         self.data = {"mode": mode, "started": time.time(), "gates": {}, "evidence": {}}
+        self.needles = set()
+
+    def scrub(self, text):
+        """The text with every form of the protected value removed. Used for any text that may hold it."""
+        raw = text.encode(errors="replace")
+        for n in self.needles:
+            raw = raw.replace(n, b"[redacted]")
+        return raw.decode(errors="replace")
 
     def gate(self, name, status, detail=None):
+        if detail is not None and self.needles:
+            seen = (json.dumps(detail) + str(detail)).encode(errors="replace")
+            if any(n in seen for n in self.needles):
+                status, detail = FAIL, "[redacted: the gate detail held the protected value]"
         self.data["gates"][name] = {"status": status, **({"detail": detail} if detail is not None else {})}
         print(f"{status.upper():11} {name}" + (f": {detail}" if detail else ""), flush=True)
 
@@ -139,11 +162,25 @@ class Manifest:
     def open_gates(self):
         return sorted(n for n, g in self.data["gates"].items() if g["status"] in (PENDING, NOT_TESTED))
 
+    def require(self, required, optional=()):
+        """One closing gate. PASS only when each required gate passed, nothing failed and nothing else was skipped.
+        A missing gate, a pending gate or an unlisted not-tested gate is a failure: a skipped dependency is never a pass."""
+        gates = self.data["gates"]
+        problems = [f"{n}: absent" for n in required if n not in gates]
+        problems += [f"{n}: {gates[n]['status']}" for n in required if n in gates and gates[n]["status"] != PASS]
+        problems += [f"{n}: {g['status']}" for n, g in gates.items() if g["status"] in (PENDING, NOT_TESTED) and n not in required and n not in optional]
+        problems += [f"{n}: fail" for n, g in gates.items() if g["status"] == FAIL and n not in required]
+        self.gate("acceptance_complete", FAIL if problems else PASS, "; ".join(sorted(set(problems))) if problems else f"{len(required)} required gates passed")
+
     def write(self, path):
         self.data["finished"] = time.time()
         self.data["ok"] = self.ok()
         self.data["open_gates"] = self.open_gates()
-        Path(path).write_text(json.dumps(self.data, indent=1))
+        text = json.dumps(self.data, indent=1)
+        if any(n in text.encode() for n in self.needles):  # last guard: never write the value
+            self.data["ok"] = False
+            text = self.scrub(text)
+        Path(path).write_text(text)
 
 
 def http(base, method, path, body=None, timeout=30):
@@ -216,9 +253,15 @@ class ScriptedModel(stage3.Model):
 
 # ---------- the stack under test ----------
 
+def server_log_path(private, n):
+    return Path(private) / f"server-{n}-{int(time.time())}.log"
+
+
 class Stack:
     def __init__(self, a):
         self.a = a
+        self.starts = 0
+        self.service = self.model = None
         self.out = Path(a.out)
         self.rt = self.out / "computers"
         self.procs = {}
@@ -282,8 +325,23 @@ request_usage = true
 ''')
         self.cfg.chmod(0o600)
 
-    def start_helpers(self):
+    def start_helpers(self, value=None):
         a = self.a
+        if value is not None:  # synthetic-login: the service and the model live in this process, so the value stays in memory
+            priv = self.out / "private"
+            self.fixture_log = open(priv / "fixture.log", "ab")
+            lock = threading.Lock()
+
+            def log(line):
+                with lock:
+                    self.fixture_log.write(line.encode() + b"\n")
+                    self.fixture_log.flush()
+
+            self.service = sl.Service(value, port=a.fixture_port, log=log)
+            self.model = sl.Model(port=a.model_port, request_log=priv / "model-requests.jsonl", response_log=priv / "model-responses.jsonl")
+            self.service.start()
+            self.model.start()
+            return
         ScriptedModel.log_path = self.out / "private" / "model-requests.jsonl"
         self.httpd = ThreadingHTTPServer(("127.0.0.1", a.model_port), ScriptedModel)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -292,7 +350,8 @@ request_usage = true
 
     def start_server(self):
         env = dict(os.environ, DECK_CONFIG=str(self.cfg), DECK_MODEL_KEY="scripted-key")
-        log = open(self.out / "private" / f"server-{int(time.time())}.log", "wb")
+        self.starts += 1
+        log = open(server_log_path(self.out / "private", self.starts), "wb")
         self.procs["server"] = subprocess.Popen([self.a.deck], env=env, stdout=log, stderr=subprocess.STDOUT, cwd=self.out)
         self.client.until("the server", lambda: self.client.raw("GET", "/api/setup-options")[0] == 200 if self.alive("server") else sys.exit("FAILED: the server exited"), 60)
 
@@ -326,6 +385,9 @@ request_usage = true
         for d in self.vm_dirs():
             subprocess.run([sys.executable, "-I", str(HERE / "vmproto.py"), "--dir", str(d), "kill"], stdin=subprocess.DEVNULL, capture_output=True)
         self.stop("fixture")
+        for helper in (self.service, self.model):
+            if helper:
+                helper.stop()
         if getattr(self, "httpd", None):
             self.httpd.shutdown()
             self.httpd.server_close()
@@ -353,10 +415,10 @@ def verify_base(base):
     return v.sha256_file(Path(base)) == json.loads(Path(base).with_suffix(".json").read_text())["sha256"]
 
 
-def create_and_approve(c, job, credentials=()):
+def create_and_approve(c, job, credentials=(), task=TASK):
     row = c.json("POST", "/api/setups", {"job": job})
     sid = row["setup"]["id"]
-    draft = dict(row["setup"]["draft"], task=TASK, credentials=list(credentials))
+    draft = dict(row["setup"]["draft"], task=task, credentials=list(credentials))
     code, _ = c.raw("POST", f"/api/setups/{sid}", {"version": row["version"], "draft": draft})
     assert code == 204, f"edit -> {code}"
     row = c.setup(sid)
@@ -467,6 +529,14 @@ class Guest:
         return json.loads(out) if code == 0 else {"error": code}
 
 
+def synthetic_value(profile):
+    """A fresh synthetic password. `special` keeps a space and symbols, and avoids characters that would break
+    the step line or the secrets file by design (quote, backslash, `$`, `{`, line breaks). `plain` is for diagnosis only."""
+    if profile == "plain":
+        return "e2e-" + secrets.token_urlsafe(24)
+    return "Syn " + secrets.token_urlsafe(9) + " #%&=+;:/?@!*"
+
+
 def derived_name(label):
     return label if re.fullmatch(r"[A-Z_][A-Z0-9_]*", label) else "DECK_" + hashlib.sha256(label.encode()).hexdigest()[:16].upper()
 
@@ -501,13 +571,58 @@ def protected(c, m, guest, sid, label, value, watch):
     m.data["evidence"]["argv_watch"] = watch
 
 
+def wait_of(row):
+    return ((row or {}).get("setup") or {}).get("wait")
+
+
+def wait_kind(w):
+    """`PhoneApproval`, `Captcha` or `Credential`. The wire form is a string or a one-key object."""
+    k = (w or {}).get("kind")
+    return k if isinstance(k, str) else next(iter(k), None) if isinstance(k, dict) else None
+
+
+def login_wait(row, kind, task_id):
+    w = wait_of(row)
+    return w if w and wait_kind(w) == kind and w.get("step") == {"Login": task_id} else None
+
+
+def owner_answer_state(row, rid):
+    """open | answered | verified | closed | absent. Only a `verified` outcome in the resolved list is service success.
+    A wait that merely disappeared is `absent`, never success."""
+    s = row["setup"]
+    w = s.get("wait")
+    if w and w.get("request_id") == rid:
+        return "answered" if w.get("answered") else "open"
+    for r in s.get("resolved") or []:
+        if r.get("request_id") == rid:
+            return "verified" if r.get("outcome") == "verified" else "closed"
+    return "absent"
+
+
+def ownership(row, status, executor, task_id):
+    """The durable identity of one waiting task. The row version is left out: it may change on a restart."""
+    w = wait_of(row) or {}
+    t = next((x for x in status.get("tasks", []) if x["id"] == task_id), None)
+    return {"setup_id": row["setup"]["id"], "chat_id": row["chat_id"], "request_id": w.get("request_id"), "step": w.get("step"), "kind": wait_kind(w),
+            "match_number": w.get("match_number"), "instructions": w.get("instructions"), "answered": bool(w.get("answered")),
+            "task_id": t["id"] if t else None, "task_state": t["state"] if t else None, "tasks": len(status.get("tasks", [])),
+            "bot_id": executor.get("bot_id"), "guest_id": executor.get("guest_id")}
+
+
+def ownership_diff(a, b):
+    return sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+
+
+def counts_changed(a, b):
+    return sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+
+
 def challenges(c, m, sid, wait_s):
-    """Phone or CAPTCHA waits come from a local fixture trigger, which this checkout does not have."""
+    """Phone or CAPTCHA waits that exist when this is called. The `protected` mode has no fixture that raises one."""
     row = c.setup(sid)
-    w = (row["setup"].get("wait") or {}) if row else {}
-    kind = w.get("kind")
-    if kind not in ("PhoneApproval", "Captcha"):
-        m.gate("challenge_owner_response", PENDING, "no fixture trigger raised a PhoneApproval or Captcha wait in this checkout")
+    w = wait_of(row)
+    if wait_kind(w) not in ("PhoneApproval", "Captcha"):
+        m.gate("challenge_owner_response", PENDING, "no fixture trigger raised a PhoneApproval or Captcha wait in this mode; use synthetic-login")
         return
     for name, body in [("stale", {"version": row["version"] - 1, "request_id": w["request_id"], "decision": "completed"}),
                        ("wrong_request", {"version": row["version"], "request_id": "wrong", "decision": "completed"}),
@@ -516,8 +631,88 @@ def challenges(c, m, sid, wait_s):
         m.gate(f"challenge_refuses_{name}", PASS if 400 <= code < 500 else FAIL, f"status {code}")
     code, _ = c.raw("POST", f"/api/setups/{sid}/challenge/respond", {"version": row["version"], "request_id": w["request_id"], "decision": "completed"})
     m.gate("challenge_completed_response", PASS if code == 204 else FAIL, f"status {code}")
+    state = owner_answer_state(c.setup(sid), w["request_id"])
+    m.gate("completion_is_not_service_success", PASS if state in ("answered", "closed") else FAIL, f"state after the owner answer: {state}; only a verified outcome is service success")
+
+
+def need(m, name, ok, detail=None):
+    """Record a gate. A failure stops the flow, so no later gate runs on top of it."""
+    m.gate(name, PASS if ok else FAIL, detail)
+    if not ok:
+        raise Stop(name)
+
+
+KINDS = {"phone": "PhoneApproval", "captcha": "Captcha"}
+
+
+def await_owner_wait(c, m, svc, sid, task_id, kind, seen, timeout, status):
+    """Wait for this task's new owner wait of `kind`. Check it against the service, not only against itself."""
+    wk = KINDS[kind]
+
+    def pick():
+        row = c.setup(sid)
+        if row and row.get("phase") in ("Investigate", "Exhausted"):
+            m.gate(f"{kind}_wait_raised", FAIL, f"setup phase {row['phase']}: an outcome is unknown, nothing was retried")
+            raise Stop("unknown outcome")
+        w = login_wait(row, wk, task_id)
+        return row if w and w["request_id"] not in seen else None
+
+    try:
+        row = c.until(f"the {kind} wait", pick, timeout)
+    except SystemExit as x:
+        m.gate(f"{kind}_wait_raised", FAIL, str(x)[:200])
+        raise Stop(f"{kind} wait") from None
+    w = login_wait(row, wk, task_id)
+    task = next((t for t in status()["tasks"] if t["id"] == task_id), None)
+    want = svc.phone_match() if kind == "phone" else svc.captcha_check()
+    shown = w.get("match_number") == want if kind == "phone" else bool(want) and want in (w.get("instructions") or "")
+    ok = shown and not w.get("answered") and bool(task) and task["state"] == "waiting"
+    need(m, f"{kind}_wait_raised", ok, f"request {w['request_id']}, task {task and task['state']}, wait shows the service's id={shown}, answered={w.get('answered')}")
+    return row, w
+
+
+def answer_owner_wait(c, m, svc, model, sid, task_id, kind, row, w, timeout, settle=0.0):
+    """Failed answers, the owner action in the service, the answer, the held resume, then verification and a duplicate answer."""
+    wk, rid, path = KINDS[kind], w["request_id"], f"/api/setups/{sid}/challenge/respond"
+    base = {"version": row["version"], "request_id": rid, "decision": "completed"}
+    bad = [("stale", {**base, "version": row["version"] - 1}), ("wrong_request", {**base, "request_id": "wrong"}), ("value_field", {**base, "value": "123456"})]
+    codes = {name: c.raw("POST", path, body)[0] for name, body in bad}
+    for name, code in codes.items():
+        m.gate(f"{kind}_refuses_{name}", PASS if 400 <= code < 500 else FAIL, f"status {code}")
+    if any(not 400 <= code < 500 for code in codes.values()):
+        raise Stop(f"{kind} refusals")
     after = c.setup(sid)
-    m.gate("completion_is_not_service_success", PASS if after["setup"]["phase"] != "Ready" or after["setup"].get("wait") is None else FAIL, "owner completion alone must not mark the service step verified")
+    still = login_wait(after, wk, task_id)
+    need(m, f"{kind}_failed_answers_keep_the_wait", bool(still) and still["request_id"] == rid and not still.get("answered") and owner_answer_state(after, rid) == "open")
+    act = svc.owner_phone if kind == "phone" else svc.owner_captcha
+    need(m, f"{kind}_service_refuses_wrong_owner_id", act("wrong") is False)
+    ident = w.get("match_number") if kind == "phone" else (re.search(r"CHK-\d{4}", w.get("instructions") or "") or [""])[0]
+    # The id comes from what Deck stored, so a lost match number or check id fails here.
+    need(m, f"{kind}_owner_action_completed_in_service", bool(act(ident)) and svc.state()[kind] == "completed", f"service {kind} step: {svc.state()[kind]}")
+    start = len(model.ledger)
+    model.hold_wake()
+    fresh = c.setup(sid)
+    code, _ = c.raw("POST", path, {**base, "version": fresh["version"]})
+    need(m, f"{kind}_answer_accepted", code == 204, f"status {code}")
+    need(m, f"{kind}_resume_reached_the_model", model.wait_held(timeout), "the wake did not reach the model before the timeout")
+    # The model call is held. The owner action is done in the service. Deck must still be waiting for verification.
+    held = c.setup(sid)
+    state = owner_answer_state(held, rid)
+    need(m, f"{kind}_answer_alone_leaves_verification_pending", state == "answered" and svc.state()[kind] == "completed",
+         f"service step {svc.state()[kind]}; Deck request {state}. The owner answer alone is not verification")
+    model.release_wake()
+    try:
+        c.until(f"{kind} verification", lambda: owner_answer_state(c.setup(sid), rid) == "verified", timeout)
+    except SystemExit as x:
+        m.gate(f"{kind}_verified_only_after_service_evidence", FAIL, str(x)[:200])
+        raise Stop("verification") from None
+    turns = model.ledger[start:start + 3]
+    ok = [x["name"] for x in turns] == ["owner_help_status", "browser_read", "report_help_verification"] and turns[2]["args"].get("result") == "verified" and svc.state()[kind] == "completed"
+    need(m, f"{kind}_verified_only_after_service_evidence", ok, "the task read the owner help state, then the service page, then reported; the service shows the step completed")
+    time.sleep(settle)
+    code, _ = c.raw("POST", path, {**base, "version": c.setup(sid)["version"]})
+    time.sleep(settle)
+    need(m, f"{kind}_duplicate_answer_adds_nothing", code in (200, 204) and model.wakes.get(rid, 0) == 1, f"status {code}, wake messages for the request: {model.wakes.get(rid, 0)}")
 
 
 def protected_mode(stack, m, a):
@@ -549,11 +744,140 @@ def protected_mode(stack, m, a):
     return sid
 
 
+
+# ---------- the synthetic login flow ----------
+
+CREDENTIAL = "FIXTURE_PASS"
+PROTECTED_GATES = ["credential_wait_label_from_request", "refuses_stale_version", "refuses_wrong_request", "refuses_newline_value", "refuses_label_in_body",
+                   "ordinary_completion_refuses_credentials", "failed_attempts_keep_the_wait", "delivery_returns_204", "wait_cleared_only_after_delivery",
+                   "guest_file_protected", "replay_of_a_cleared_request_refused"]
+ROUND_GATES = ["wait_raised", "refuses_stale", "refuses_wrong_request", "refuses_value_field", "failed_answers_keep_the_wait", "service_refuses_wrong_owner_id",
+               "owner_action_completed_in_service", "answer_accepted", "resume_reached_the_model", "answer_alone_leaves_verification_pending",
+               "verified_only_after_service_evidence", "duplicate_answer_adds_nothing"]
+OPTIONAL_SYNTHETIC = ["restart_from_saved_state", "second_task_after_wake", "raster_secrecy"]
+
+
+def required_gates():
+    return (["base_frozen_and_verified", "setup_ready_through_api", "bot_data_dir_created_by_server"] + PROTECTED_GATES
+            + ["special_characters_preserved_in_guest_file", "special_characters_authenticated_in_service", "service_login_succeeded_with_reference",
+               "restart_preserves_waiting_ownership", "restart_adds_no_work"]
+            + [f"{k}_{g}" for k in ("phone", "captcha") for g in ROUND_GATES]
+            + ["first_task_done", "single_success_action", "scripted_calls_exactly_once", "task_final_report", "restart_after_completion_no_duplicate",
+               "model_uses_the_reference_not_the_value", "model_turns_hold_no_value", "secret_never_in_argv", "secret_absent_from_host_evidence",
+               "logs_accounted_before_and_after_restart", "base_unchanged", "no_owned_process_left"])
+
+
+def read_executor(stack, sid):
+    return json.loads((stack.rt / sid / "executor.json").read_text())
+
+
+def counters(stack, sid, chat_id):
+    c, st = stack.client, stack.service.state()
+    return {"tasks": len(bot_status(c, sid)["tasks"]), "messages": len(c.json("GET", f"/api/chats/{chat_id}/messages")), "model_calls": stack.model.calls,
+            **{k: st[k] for k in ("login_success", "login_failure", "submit_attempts", "submit_success")}}
+
+
+def restart(stack, sid):
+    a, c = stack.a, stack.client
+    stack.stop("server")
+    stack.start_server()
+    c.until("runtime ready after restart", lambda: (r := c.setup(sid)) and r["runtime_ready"] and r, a.ready_timeout)
+    c.until("status after restart", lambda: bot_status(c, sid), 60)
+    time.sleep(a.settle)
+
+
+def finish_scans(stack, m, watch, needles):
+    """Argv count, the host sinks and the logs of every server start. The guest disk and saved state are not scanned: the guest holds the value by design."""
+    res = watch.finish()
+    m.gate("secret_never_in_argv", PASS if res["argv_hits"] == 0 else FAIL, f"{res['samples']} samples")
+    stack.stop("server")
+    priv = stack.out / "private"
+    leak = scan_tree([stack.out / "data", priv, stack.rt], needles, skip=("disk.qcow2", "vm.state", "*.sock"))
+    m.data["evidence"]["leak_scan"] = leak
+    m.data["evidence"]["leak_scan_boundary"] = {"scanned": ["data (database and WAL)", "private (server logs, model request and response logs, service log, config)", "computers (run metadata)", "process argv (sampled)", "model turns (memory)"],
+                                                 "excluded": ["disk.qcow2: the guest credential file lives here by design", "vm.state: guest memory", "*.sock"]}
+    m.gate("secret_absent_from_host_evidence", PASS if leak["files_with_match"] == 0 else FAIL, f"{leak['files_scanned']} files scanned; matches: {leak['matches']}")
+    logs = sorted(priv.glob("server-*.log"))
+    mreq = priv / "model-requests.jsonl"
+    m.data["evidence"]["logs"] = {"server_logs": [f.name for f in logs], "server_starts": stack.starts, "model_request_bytes": mreq.stat().st_size if mreq.exists() else 0}
+    m.gate("logs_accounted_before_and_after_restart", PASS if len(logs) == stack.starts >= 3 and mreq.exists() and mreq.stat().st_size > 0 else FAIL,
+           f"{len(logs)} server log(s) for {stack.starts} start(s); the first start, the restart during the wait and the restart after completion need three")
+
+
+def synthetic_login_mode(stack, m, a, value):
+    c, svc, model = stack.client, stack.service, stack.model
+    needles = variants(value)
+    watch = ArgvWatcher(needles)
+    watch.start()
+    try:
+        sid = create_and_approve(c, "Sign in to the local synthetic service", [CREDENTIAL], task=sl.TASK)
+        m.data["evidence"]["setup_id"] = sid
+        task_id = f"setup-{sid}"
+        chat_id = c.setup(sid)["chat_id"]
+        protected(c, m, Guest(stack.rt / sid), sid, CREDENTIAL, value, None)
+        special = a.credential_profile == "special"
+        m.gate("special_characters_preserved_in_guest_file", m.data["gates"]["guest_file_protected"]["status"] if special else NOT_TESTED, "the guest file line equals NAME=value" if special else "diagnostic plain profile")
+        if m.data["gates"]["guest_file_protected"]["status"] == FAIL:
+            raise Stop("guest file")
+        status = lambda: bot_status(c, sid)  # noqa: E731
+        row, w = await_owner_wait(c, m, svc, sid, task_id, "phone", set(), a.ready_timeout + a.task_timeout, status)
+        bot_dir = stack.out / "data" / "bots" / sid
+        need(m, "setup_ready_through_api", row["phase"] == "Ready" and row["runtime_ready"], f"phase {row['phase']}, runtime ready {row['runtime_ready']}")
+        m.gate("bot_data_dir_created_by_server", PASS if bot_dir.is_dir() else FAIL, "created by the server" if bot_dir.is_dir() else "the artifact and journal path of a provisioned bot must exist")
+        st = svc.state()
+        used_ref = any(sl.REF in json.dumps(e["args"]) for e in model.ledger if e["name"] == "browser_step")
+        need(m, "service_login_succeeded_with_reference", st["login_success"] == 1 and st["login_failure"] == 0 and used_ref, f"service logins {st['login_success']} ok / {st['login_failure']} failed; the model typed the reference: {used_ref}")
+        m.gate("special_characters_authenticated_in_service", PASS if special and st["login_success"] == 1 else NOT_TESTED, "the service compared the exact value that bare typed from the reference" if special else "diagnostic plain profile")
+        # Restart while the phone wait is open.
+        before = ownership(row, status(), read_executor(stack, sid), task_id)
+        n0 = counters(stack, sid, chat_id)
+        m.data["evidence"]["ownership_before_restart"] = before
+        restart(stack, sid)
+        row = c.setup(sid)
+        after = ownership(row, status(), read_executor(stack, sid), task_id)
+        n1 = counters(stack, sid, chat_id)
+        m.data["evidence"]["ownership_after_restart"] = after
+        need(m, "restart_preserves_waiting_ownership", not ownership_diff(before, after), f"changed: {ownership_diff(before, after)}")
+        need(m, "restart_adds_no_work", not counters_changed(n0, n1), f"changed: {counters_changed(n0, n1)}")
+        w = login_wait(row, "PhoneApproval", task_id)
+        need(m, "restart_keeps_the_phone_wait_open", bool(w) and not w.get("answered"))
+        answer_owner_wait(c, m, svc, model, sid, task_id, "phone", row, w, 60, a.settle)
+        phone_rid = w["request_id"]
+        row, w = await_owner_wait(c, m, svc, sid, task_id, "captcha", {phone_rid}, 120, status)
+        answer_owner_wait(c, m, svc, model, sid, task_id, "captcha", row, w, 60, a.settle)
+        done = c.until("the task to end", lambda: (st := status()) and any(t["id"] == task_id and t["state"] in ("done", "failed") for t in st["tasks"]) and not st["working"] and st, a.task_timeout)
+        t1 = next(t for t in done["tasks"] if t["id"] == task_id)
+        need(m, "first_task_done", t1["state"] == "done", t1.get("detail") or t1["state"])
+        msgs = c.json("GET", f"/api/chats/{chat_id}/messages")
+        st = svc.state()
+        need(m, "single_success_action", st["submit_success"] == 1 and st["submit_attempts"] == 1 and st["login_success"] == 1 and st["login_failure"] == 0 and st["phone"] == st["captcha"] == "completed",
+             f"service: logins {st['login_success']}/{st['login_failure']}, submit success {st['submit_success']} of {st['submit_attempts']} attempt(s)")
+        problems = sl.ledger_problems(model.ledger)
+        need(m, "scripted_calls_exactly_once", not problems, "; ".join(problems) or f"{len(model.ledger)} tool calls, each once")
+        need(m, "task_final_report", sl.DONE_TEXT in json.dumps(msgs), "the task's closing text is in the chat")
+        refs = [e for e in model.ledger if e["name"] == "browser_step" and sl.REF in json.dumps(e["args"])]
+        m.gate("model_uses_the_reference_not_the_value", PASS if refs else FAIL, f"{len(refs)} step list(s) typed ${{{sl.REF}}}")
+        m.gate("model_turns_hold_no_value", PASS if not any(n in json.dumps(model.ledger + model.texts).encode() for n in needles) else FAIL)
+        # Restart after the task is done. Nothing may run again.
+        n2 = counters(stack, sid, chat_id)
+        restart(stack, sid)
+        n3 = counters(stack, sid, chat_id)
+        need(m, "restart_after_completion_no_duplicate", not counters_changed(n2, n3) and svc.state()["submit_success"] == 1, f"changed: {counters_changed(n2, n3)}")
+        m.gate("restart_from_saved_state", NOT_TESTED, "optional: not run in this mode")
+        m.gate("second_task_after_wake", NOT_TESTED, "optional: not run in this mode")
+        m.gate("raster_secrecy", NOT_TESTED, "needs real bare capture evidence; PNG byte search proves nothing")
+    finally:
+        try:
+            finish_scans(stack, m, watch, needles)
+        except BaseException as e:
+            m.gate("scans_completed", FAIL, f"{type(e).__name__}: {m.scrub(str(e))[:200]}")
+
+
 # ---------- entry ----------
 
 def parse(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["baseline", "protected"])
+    ap.add_argument("mode", choices=["baseline", "protected", "synthetic-login"])
     ap.add_argument("--base", required=True, help="frozen base .qcow2 with its sidecar")
     ap.add_argument("--deck", default=str(HERE.parent.parent / "target/release/deck"))
     ap.add_argument("--out", default=str(Path.home() / ".cache/deck" / time.strftime("se-%m%d-%H%M%S")))
@@ -568,12 +892,16 @@ def parse(argv=None):
     ap.add_argument("--min-avail-mib", type=int, default=6144)
     ap.add_argument("--max-load", type=float, default=8.0)
     ap.add_argument("--diagnostic-precreate-bot-dir", action="store_true", help="diagnosis only: hide the missing-directory gap so later gates can run; recorded as a workaround")
+    ap.add_argument("--credential-profile", choices=["special", "plain"], default="special", help="plain is diagnosis only: the special-character gates stay not_tested and the run cannot be a complete pass")
     ap.add_argument("--keep-disk", action="store_true")
     return ap.parse_args(argv)
 
 
 def main(argv=None):
     a = parse(argv)
+    if a.mode == "synthetic-login" and a.diagnostic_precreate_bot_dir:
+        print("STOPPED: --diagnostic-precreate-bot-dir hides a product gap and cannot count as a pass. It is not allowed in synthetic-login.", file=sys.stderr)
+        return 2
     lock = take_lock()
     why = pressure(Path("/proc/meminfo").read_text(), Path("/proc/loadavg").read_text(), a.min_avail_mib, a.max_load)
     if why:
@@ -586,6 +914,9 @@ def main(argv=None):
     out.mkdir(mode=0o700, parents=True)
     (out / "private").mkdir(mode=0o700)
     m = Manifest(a.mode)
+    value = synthetic_value(a.credential_profile) if a.mode == "synthetic-login" else None
+    if value:
+        m.needles = variants(value)
     stack = Stack(a)
     base = base_identity(a.base)
     head = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -595,15 +926,17 @@ def main(argv=None):
     left = []
     try:
         stack.write_config()
-        stack.start_helpers()
+        stack.start_helpers(value)
         stack.start_server()
         if a.mode == "baseline":
             sid = baseline(stack, m, base)
             fail_closed_probes(stack.client, sid, m)
+        elif a.mode == "synthetic-login":
+            synthetic_login_mode(stack, m, a, value)
         else:
             protected_mode(stack, m, a)
     except BaseException as e:  # keep the evidence, then report
-        m.gate("run_completed", FAIL, f"{type(e).__name__}: {str(e)[:300]}")
+        m.gate("run_completed", FAIL, f"{type(e).__name__}: {m.scrub(str(e))[:300]}")
     finally:
         sizes = {d.name: v.allocated_bytes(d / "disk.qcow2") for d in stack.vm_dirs() if (d / "disk.qcow2").exists()}
         left = stack.cleanup()
@@ -615,6 +948,8 @@ def main(argv=None):
         m.data["host"]["loadavg_end"] = Path("/proc/loadavg").read_text().split()[:3]
         m.gate("base_unchanged", PASS if verify_base(a.base) else FAIL)
         m.gate("no_owned_process_left", PASS if not left else FAIL, f"{len(left)} left")
+        if a.mode == "synthetic-login":
+            m.require(required_gates(), OPTIONAL_SYNTHETIC)
         m.write(out / "manifest.json")
         print(f"manifest: {out / 'manifest.json'}")
     lock.close()
