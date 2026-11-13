@@ -217,3 +217,7 @@ The combined UI/VM controller preparation check passed. Its live start exited 3 
 ## Combined run retry
 
 The next combined UI/VM start also exited 3 before launch. Host load was 10.25, above the unchanged 8.0 limit. No process or VM started. Both phone rendering issues remain open in bare. The latest verified privacy and saved-state work is ready for draft review while live browser acceptance waits for host capacity.
+
+## Combined live run started
+
+The owner explicitly authorized bypass of the load gate for this run. The parent raised only the run's load threshold to 32. The memory check and exclusive VM lock remain active. The local controller started. A browser worker now drives the actual setup, protected-input and owner-answer forms. The VM starts only after UI approval. No acceptance result is available yet.
