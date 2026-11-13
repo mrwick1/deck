@@ -87,6 +87,7 @@ pub fn router_with_setups(
     let mut r = Router::new()
         .merge(crate::bot::setup_api::routes())
         .merge(crate::bot::challenge_api::routes())
+        .merge(crate::bot::secret_requests_api::routes())
         .route("/api/me", get(me))
         .route("/api/chats", get(list_chats).post(create_chat))
         .route(

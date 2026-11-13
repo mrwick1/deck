@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, respondChallenge, sendMessage, submitSecret, type SetupRecord, type SetupWait } from "./api";
-import { deliverSecret, describeWait, validSecret, waitFor } from "./wait";
+import { ApiError, listSecretRequests, respondChallenge, sendMessage, submitSecret, submitTaskSecret, type SetupRecord, type SetupWait, type TaskSecretRequest } from "./api";
+import { deliverSecret, describeTaskSecret, describeWait, validSecret, waitFor } from "./wait";
 
 afterEach(() => vi.unstubAllGlobals());
 const SECRET = randomBytes(18).toString("base64url") + "é word";
@@ -150,5 +150,60 @@ describe("waitFor", () => {
     expect(waitFor(rows, "b")?.setup.wait?.request_id).toBe("rb");
     expect(waitFor(rows, "c")).toBeUndefined();
     expect(waitFor(rows, undefined)).toBeUndefined();
+  });
+});
+
+describe("active-task protected input", () => {
+  const req = (over: Partial<TaskSecretRequest> = {}): TaskSecretRequest => ({ request_id: "secret-1", label: "Site pass", purpose: "to sign in", expires_at: 2000, ...over });
+  it("lists a bot's own requests from its own route and reads metadata only", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([req()]), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await listSecretRequests("bot a/b")).toEqual([req()]);
+    expect(fetch.mock.calls[0][0]).toBe("/api/bots/bot%20a%2Fb/secret-requests");
+  });
+  it("posts only request id and value to the bot's task route, never a setup route or a message", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetch);
+    await submitTaskSecret("bot a/b", "secret-1", SECRET);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/bots/bot%20a%2Fb/secret");
+    expect(!String(url).includes(SECRET), "protected value escaped in URL").toBe(true);
+    const { value, ...metadata } = JSON.parse(init.body);
+    expect(metadata).toEqual({ request_id: "secret-1" });
+    expect(value === SECRET, "protected body value differs").toBe(true);
+    expect(init.method).toBe("POST");
+    expect(String(url)).not.toContain("/setups/");
+    expect(String(url)).not.toContain("/messages");
+  });
+  it("counts only 204 as delivered and never shows server text", async () => {
+    for (const status of [200, 409, 410, 403, 500, 503]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: `bad ${SECRET}` }), { status })));
+      const e = await submitTaskSecret("b", "r", SECRET).catch(x => x as ApiError);
+      expect(e, String(status)).toBeInstanceOf(ApiError);
+      expect(!(e as ApiError).message.includes(SECRET), "protected value escaped in response").toBe(true);
+      expect((e as ApiError).message).not.toContain("bad");
+    }
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError(`offline ${SECRET}`)));
+    const e = await submitTaskSecret("b", "r", SECRET).catch(x => x as ApiError);
+    expect(!(e as ApiError).message.includes(SECRET), "protected value escaped in network error").toBe(true);
+  });
+  it("shows a form until the request expires, then points to a replacement", () => {
+    const open = describeTaskSecret(req(), 1000);
+    expect(open.mode).toBe("secret");
+    expect(open.title).toContain("Site pass");
+    expect(open.detail).toContain("to sign in");
+    const gone = describeTaskSecret(req(), 2000);
+    expect(gone.mode).toBe("expired");
+    expect(gone.detail).toMatch(/ask|again|new request/i);
+  });
+  it("keeps the shared delivery rules: zero trim, size limit, field cleared first", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.fn();
+    const padded = `  ${SECRET}  `;
+    expect((await deliverSecret({ read: () => padded, clear, send })).ok).toBe(true);
+    expect(send.mock.calls[0][0] === padded, "value was trimmed or changed").toBe(true);
+    expect(clear).toHaveBeenCalled();
+    expect((await deliverSecret({ read: () => "x".repeat(4097), clear, send })).ok).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

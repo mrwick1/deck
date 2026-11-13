@@ -1,6 +1,7 @@
 //! Authenticated setup and managed-bot routes. Machine event intake exposes none of these.
 use super::{
     provisioning::Service,
+    secret_requests_api::{Woke, delivered_text, expire, resume_delivered, sender, wake},
     secrets::{self, Failure, HarnessChannel, Secret},
     setup::{Authority, Budget, Draft, Setup, WaitKind},
 };
@@ -470,12 +471,42 @@ async fn task_secret(
         .runtime(&id)
         .ok_or_else(|| error(StatusCode::CONFLICT, "The bot is not ready"))?;
     let stale = || error(StatusCode::CONFLICT, "No open request has this identity");
+    let send = sender(runtime.bot.clone());
+    let wake_failed = |m: String| {
+        error(
+            StatusCode::CONFLICT,
+            &format!("Delivered, but the task did not resume: {m}. Send the same request again."),
+        )
+    };
+    let now = secrets::unix_now();
+    // An expired request tells the task to ask again. The owner gets a replacement path.
+    if let Some(w) = expire(&st.store, &id, &b.request_id, now, &send)
+        .await
+        .map_err(wake_failed)?
+    {
+        return Err(match w {
+            Woke::NoTask => stale(),
+            _ => error(
+                StatusCode::CONFLICT,
+                "The request expired. The task was asked to request it again.",
+            ),
+        });
+    }
+    // A delivered request whose resume failed: resume without a second delivery.
+    if let Some(w) = resume_delivered(&st.store, &id, &b.request_id, &send)
+        .await
+        .map_err(wake_failed)?
+    {
+        return match w {
+            Woke::Sent => Ok(StatusCode::NO_CONTENT),
+            _ => Err(stale()),
+        };
+    }
     let request = st
         .store
         .pending_secret_request(&id, &b.request_id)
         .await
         .map_err(conflict)?
-        .filter(|r| r.expires_at > secrets::unix_now())
         .ok_or_else(stale)?;
     // The task that asked must still wait for this answer.
     let task = st.store.owner_task(&id).await.map_err(conflict)?;
@@ -510,20 +541,17 @@ async fn task_secret(
     )
     .await
     .map_err(refused)?;
-    let text = format!(
-        "Protected value delivered as ${{{}}}. Continue.",
-        secrets::canonical_name(&request.label)
-    );
-    runtime
-        .bot
-        .submit(text, super::Mode::Steer, super::db::HIGH)
-        .await
-        .map_err(|_| {
-            error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Delivered, but the task did not resume",
-            )
-        })?;
+    let marker = format!("[request {}]", b.request_id);
+    wake(
+        &st.store,
+        &id,
+        &request.task_id,
+        &marker,
+        delivered_text(&b.request_id, &request.label),
+        &send,
+    )
+    .await
+    .map_err(wake_failed)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

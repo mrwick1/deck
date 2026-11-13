@@ -1,5 +1,9 @@
 //! The owner's answer to a challenge request. It carries metadata only.
-use super::{challenge::Decision, setup::SetupError};
+use super::{
+    challenge::Decision,
+    secret_requests_api::{resume_challenge, sender},
+    setup::{SetupError, Step},
+};
 use crate::api::AppState;
 use axum::{
     Json, Router,
@@ -55,6 +59,45 @@ async fn respond(
         .map_err(|e| conflict(&e))?
         .as_secs();
     let before = row.setup.clone();
+    // A sign-in help request belongs to one task. Its answer resumes that task and no other.
+    let key = before
+        .wait
+        .as_ref()
+        .filter(|w| w.request_id == body.request_id)
+        .and_then(|w| match &w.step {
+            Step::Login(k) => Some(k.clone()),
+            _ => None,
+        });
+    let mut wake = None;
+    if let Some(key) = key {
+        let waiting = st
+            .store
+            .owner_task(&id)
+            .await
+            .map_err(|e| conflict(&e))?
+            .is_some_and(|t| t.id == key && t.state == "waiting");
+        if waiting {
+            // Refuse before the answer is saved, so the owner can send it again.
+            let bot = s.runtime(&id).map(|r| r.bot.clone()).ok_or_else(|| {
+                error(
+                    StatusCode::CONFLICT,
+                    "The bot is not ready; answer again soon",
+                )
+            })?;
+            let held = st
+                .store
+                .bot_flags(&id, "Bot")
+                .await
+                .map_err(|e| conflict(&e))?;
+            if body.decision == Decision::Cancel && held.budget_hold {
+                return Err(error(
+                    StatusCode::CONFLICT,
+                    "A budget hold blocks the task: approve it first",
+                ));
+            }
+            wake = Some((key, bot));
+        }
+    }
     let answer = row.setup.respond(&body.request_id, body.decision, now);
     // An expired answer opens a replacement request, so it saves even though it fails.
     if row.setup != before {
@@ -65,7 +108,27 @@ async fn respond(
         s.notify();
     }
     match answer {
-        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Ok(()) => {
+            if let Some((key, bot)) = wake {
+                // The answer is saved. Pause and holds still gate the run.
+                resume_challenge(
+                    &st.store,
+                    &id,
+                    &key,
+                    &body.request_id,
+                    body.decision,
+                    &sender(bot),
+                )
+                .await
+                .map_err(|m| {
+                    error(
+                        StatusCode::CONFLICT,
+                        &format!("Saved, but the task did not resume: {m}. Answer again."),
+                    )
+                })?;
+            }
+            Ok(StatusCode::NO_CONTENT)
+        }
         Err(e @ SetupError::Invalid(_)) => Err(error(StatusCode::BAD_REQUEST, &e.to_string())),
         Err(e) => Err(conflict(&e)),
     }
@@ -400,5 +463,53 @@ mod tests {
                 .wait
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn an_answer_for_a_waiting_task_is_refused_unsaved_when_the_bot_cannot_resume_it() {
+        let (app, store, _, _) = app();
+        let (id, chat) = ready(&store).await;
+        let task = store
+            .add_task(&id, chat, "message", "t".into(), "t".into(), 1)
+            .await
+            .unwrap();
+        store
+            .move_task(&task.id, &["queued"], "running", None)
+            .await
+            .unwrap();
+        store
+            .move_task(&task.id, &["running"], "waiting", None)
+            .await
+            .unwrap();
+        let req =
+            match request_login_help(&store, chat, &task.id, Challenge::Phone, help(), None, 0)
+                .await
+                .unwrap()
+                .unwrap()
+            {
+                Requested::Open(r) => r,
+                other => panic!("{other:?}"),
+            };
+        let path = format!("/api/setups/{id}/challenge/respond");
+        for d in ["completed", "cancel"] {
+            let v = store.setup_record(&id).await.unwrap().unwrap().version;
+            let body = json!({"version":v,"request_id":req,"decision":d});
+            // No runtime is registered, so the task cannot resume. Nothing may be saved.
+            assert_eq!(post(&app, &path, body, true).await.0, StatusCode::CONFLICT);
+            assert_eq!(
+                challenge_state(&store, chat, &req, 1).await.unwrap(),
+                State::Open { expires_at: None }
+            );
+            assert!(
+                store
+                    .setup_record(&id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .setup
+                    .wait
+                    .is_some_and(|w| !w.answered)
+            );
+        }
     }
 }

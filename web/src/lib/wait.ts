@@ -1,4 +1,4 @@
-import { ApiError, secretFailure, type SetupRecord, type SetupWait } from "./api";
+import { ApiError, secretFailure, type SetupRecord, type SetupWait, type TaskSecretRequest } from "./api";
 
 /** NUL, CR and LF cannot go in the guest's NAME=value store. An empty value is no value. Spaces stay. */
 export const validSecret = (v: string) => v.length > 0 && v.length <= 4096 && !/[\0\r\n]/.test(v) && new TextEncoder().encode(v).length <= 4096;
@@ -53,3 +53,10 @@ export function describeWait(w: SetupWait, protectedInput: boolean, nowSecs: num
 /** The pending wait of one bot, by its own id. Never another bot's. */
 export const waitFor = (rows: SetupRecord[], botId: string | undefined) =>
   botId === undefined ? undefined : rows.find(r => r.setup.id === botId && r.setup.wait);
+
+/** What an active task asked for. An expired request offers no form: the bot is asked again. */
+export function describeTaskSecret(r: TaskSecretRequest, nowSecs: number): WaitView {
+  if (r.expires_at <= nowSecs)
+    return { mode: "expired", title: `The request for ${r.label} expired`, detail: "The bot is told to ask again if it still needs the value. A new request will appear here. Refresh to check." };
+  return { mode: "secret", title: `Protected input needed: ${r.label}`, detail: `${r.purpose} The value goes straight to the bot's computer. It never enters chat or the model.` };
+}

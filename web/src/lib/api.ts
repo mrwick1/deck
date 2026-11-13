@@ -197,3 +197,14 @@ export const secretFailure = (status:number) =>
 export type ChallengeDecision = "completed" | "cancel";
 export const respondChallenge = (id:string,version:number,request_id:string,decision:ChallengeDecision) =>
   call<void>(`/api/setups/${encodeURIComponent(id)}/challenge/respond`,post({version,request_id,decision}));
+
+/** An open protected-input request of the bot's active task. Metadata only. Unix seconds. */
+export interface TaskSecretRequest { request_id:string; label:string; purpose:string; expires_at:number; }
+export const listSecretRequests = (botId:string) => call<TaskSecretRequest[]>(`${botBase(botId)}/secret-requests`);
+/** Active-task protected input. Not a setup answer: it has no version. The value goes only in this body. */
+export const submitTaskSecret = async (botId:string,request_id:string,value:string):Promise<void> => {
+  let res: Response;
+  try { res = await fetch(`${botBase(botId)}/secret`, post({request_id,value})); }
+  catch { throw new ApiError(0,"Cannot reach the server. Enter the value again."); }
+  if (res.status !== 204) throw new ApiError(res.status, secretFailure(res.status));
+};
