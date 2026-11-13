@@ -14,6 +14,28 @@ use tokio::sync::Mutex;
 
 const PROTOCOL: &str = "2025-06-18";
 const CALL_TIMEOUT: Duration = Duration::from_secs(180);
+const MAX_CALL_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// The time limit of one call. Step lines can ask for long waits, such as a
+/// phone approval in a login, so the limit covers each line at its step time.
+fn call_timeout(args: &Value) -> Duration {
+    let mut step_ms = args["timeout_ms"].as_u64().unwrap_or(10_000);
+    let mut lines = 1; // the open step of open and ensure_session
+    for key in ["login", "check", "steps"] {
+        for line in args[key].as_str().unwrap_or("").lines().map(str::trim) {
+            match line
+                .strip_prefix("timeout ")
+                .map(|n| n.trim().parse::<u64>())
+            {
+                Some(Ok(ms)) => step_ms = step_ms.max(ms),
+                _ if line.is_empty() || line.starts_with('#') => {}
+                _ => lines += 1,
+            }
+        }
+    }
+    let want = Duration::from_millis(step_ms.saturating_mul(lines)) + Duration::from_secs(30);
+    want.clamp(CALL_TIMEOUT, MAX_CALL_TIMEOUT)
+}
 
 /// One JSON-RPC connection over any byte transport.
 pub struct Conn<R, W> {
@@ -198,7 +220,8 @@ impl Bare {
                 *guard = Some(self.spawn().await?);
             }
             let s = guard.as_mut().expect("session set above");
-            let r = tokio::time::timeout(CALL_TIMEOUT, s.conn.call_tool(name, args.clone())).await;
+            let r = tokio::time::timeout(call_timeout(&args), s.conn.call_tool(name, args.clone()))
+                .await;
             let r = match r {
                 Ok(r) => r,
                 Err(_) => {
@@ -305,6 +328,25 @@ mod tests {
         let mut c = Conn::new(r, w);
         assert!(c.call_tool("open", json!({})).await.is_err());
         assert!(c.dead);
+    }
+
+    #[test]
+    fn call_timeout_covers_the_requested_step_time() {
+        assert_eq!(
+            call_timeout(&json!({"url": "https://x.test"})),
+            CALL_TIMEOUT
+        );
+        // The ensure_session call of a Gmail login that waits for a phone approval.
+        let login = json!({
+            "login": "type css=\"input[type=email]\" \"${E}\"\npress Enter\ntimeout 180000\nexpect url~\"mail\"",
+            "check": "expect url~\"inbox\"",
+            "timeout_ms": 190000,
+        });
+        assert!(call_timeout(&login) > Duration::from_secs(190 * 2));
+        assert_eq!(
+            call_timeout(&json!({"steps": "timeout 99999999\nclick ref=e1"})),
+            MAX_CALL_TIMEOUT
+        );
     }
 
     #[tokio::test]
