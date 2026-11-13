@@ -16,6 +16,24 @@ import unittest
 from setup_secrets_fixture import Stack, deck_binary
 
 
+class GuestReplayContract(unittest.TestCase):
+    def test_completed_request_cannot_restore_an_overwritten_value(self):
+        import subprocess, sys, tempfile, pathlib, secrets
+        from setup_secrets_fixture import GUEST
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "executor.json").write_text(json.dumps({"bot_id": "fixture"}))
+            first, second = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+            def send(request, value):
+                return subprocess.run([sys.executable, "-I", str(GUEST), "--dir", tmp, "deliver-secret", "--bot", "fixture", "--request-id", request], input=json.dumps({"label": "FIXTURE_PASS", "value": value}).encode(), capture_output=True)
+            self.assertEqual(send("first", first).returncode, 0)
+            self.assertEqual(send("second", second).returncode, 0)
+            replay = send("first", first)
+            self.assertEqual(replay.returncode, 1)
+            self.assertEqual(json.loads(replay.stdout), {"ok": False, "error": "not_delivered"})
+            self.assertTrue((root / "guest" / "secrets.env").read_text() == f"FIXTURE_PASS={second}\n", "replay changed current value")
+
+
 class Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -283,9 +301,9 @@ class ProtectedSecret(Base):
         self.assertEqual((st, subs), (204, ["secret-receipt", "deliver-secret"]), "first delivery after a not_delivered probe")
         self.assert_clean()
 
-    def test_a_receipt_voided_by_an_overwrite_is_delivered_again(self):
+    def test_a_receipt_voided_by_an_overwrite_cannot_clear_the_wait(self):
         """Guest stored the value and the host never heard. Another request then overwrites the name.
-        The first receipt no longer matches, so a retry must store the value again, once."""
+        The production guest refuses replay of a completed identity after overwrite. Keep the wait."""
         import subprocess, sys
         from setup_secrets_fixture import GUEST
         sid = self.s.new_waiting_setup()
@@ -300,8 +318,9 @@ class ProtectedSecret(Base):
         self.assertEqual(guest("other-req", "synthetic-overwrite"), 0)
         self.assert_open_credential_wait(sid, rid)
         v = self.s.setup(sid)["version"]
-        self.assertEqual(self.s.secret(sid, v, rid)[0], 204, "a retry must restore the value and finish")
-        self.assertEqual(self.s.guest_secrets(sid), [f"FIXTURE_PASS={self.s.sentinel.value}"], "the retried value, once, no residue")
+        self.assertGreaterEqual(self.s.secret(sid, v, rid)[0], 400, "an overwritten completed identity cannot be replayed")
+        self.assert_open_credential_wait(sid, rid)
+        self.assertEqual(self.s.guest_secrets(sid), ["FIXTURE_PASS=synthetic-overwrite"], "failed replay preserves the newer value")
         self.assert_clean()
 
     def test_the_task_secret_route_needs_auth_and_an_open_request(self):

@@ -165,7 +165,9 @@ def deliver(root, a, stdin):
     if prior:
         if prior[-1]["label"] != label or digest(prior[-1]["salt"], value) != prior[-1]["digest"]:
             die("request_mismatch")
-        store(root, label, value)  # a replay restores a value that was overwritten
+        current = env_pairs(root).get(label)
+        if current is None or digest(prior[-1]["salt"], current) != prior[-1]["digest"]:
+            die("not_delivered")
         print(json.dumps({"ok": True, **public(prior[-1])}))
         return
     store(root, label, value)

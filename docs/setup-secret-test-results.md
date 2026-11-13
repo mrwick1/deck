@@ -85,3 +85,7 @@ No safety assertion was removed to make a test pass.
 - Concurrent posts of one request.
 - Screenshots and the privacy gate in the browser. Skipped.
 - The seeded phone, sign-in and expiry snapshots bypass the driver. Only the answer path uses the real endpoint.
+
+## Parent fixture correction
+
+The results above describe the child's run at `da249a4`. Parent review found that the fake guest restored an overwritten value on replay of a completed request. The production guest refuses that replay. A new fixture-only regression failed before the correction and passes after it. The HTTP overwrite case now requires rejection, an open wait and preservation of the newer value. This adds one test; the combined HTTP suite has not yet been rerun with the pending host fix.

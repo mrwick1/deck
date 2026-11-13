@@ -81,3 +81,7 @@ Host commit `9378c28` is integrated as `67b0d14`. Failure harness `a262434` is i
 Parent inspection found a guest receipt mismatch. The real guest returns exit 1 with `not_delivered` for an absent receipt. The host expects a successful false reply. Active-task requests also lack a visible protected form, and owner challenge answers do not yet wake the waiting task. Capture gates need runtime wiring. These are integration blockers.
 
 Three isolated follow-up tasks started from `da249a4`: runtime/guest contract and challenge tools; active-task API/UI and owner resumption; and the HTTP failure/leakage harness. Each has separate file ownership. No new live VM experiment started. The original real VM worker remains the only live VM owner and has not reported completion. Final bare and live acceptance wait for the combined implementation.
+
+## Failure-harness recheck checkpoint: 2026-11-13
+
+Recheck `0e6141a` is integrated as `c9807c1`. The child reports 22 passes, seven receipt-probe failures and one skipped screenshot gate on `da249a4`. Parent review found and corrected an additional fixture mismatch: a completed identity must not restore an overwritten secret. Its fixture-only regression failed before the correction and passes after it. The seven-failure report remains historical evidence, not a result for the corrected combined head. Runtime and task UI follow-ups remain active. The original live VM worker has not reported completion.
