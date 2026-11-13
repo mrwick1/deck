@@ -38,6 +38,8 @@ export function describeWait(w: SetupWait, protectedInput: boolean, nowSecs: num
   const k = w.kind;
   if (typeof k === "object" && "Unsupported" in k)
     return { mode: "blocked", title: "Blocked: this challenge is not supported", detail: `Deck cannot complete it${k.Unsupported.reason ? ` (${k.Unsupported.reason})` : ""}. Setup stays paused and keeps its progress.` };
+  if (typeof k === "string" && w.answered)
+    return { mode: "pending", title: "Waiting for verification", detail: "You said this is done. The sign-in is not yet verified." };
   if (w.expires_at != null && w.expires_at <= nowSecs)
     return { mode: "expired", title: "This request expired", detail: "Progress is saved. Refresh to see the replacement request." };
   if (typeof k === "object")
@@ -45,9 +47,7 @@ export function describeWait(w: SetupWait, protectedInput: boolean, nowSecs: num
       ? { mode: "secret", title: `Protected input needed: ${k.Credential.label}`, detail: "The value goes straight to the bot's computer. It never enters chat or the model." }
       : { mode: "blocked", title: `Blocked: ${k.Credential.label}`, detail: "Protected input is not available on this server. Setup keeps its progress. Do not send credentials in chat." };
   const what = k === "Captcha" ? "Complete the CAPTCHA" : "Approve the sign-in on your phone";
-  if (w.verification_pending)
-    return { mode: "pending", title: "Waiting for verification", detail: "You said this is done. The sign-in is not yet verified, so setup has not resumed." };
-  return { mode: "challenge", title: what, detail: w.instruction?.trim() || `${what}, then confirm here. Your confirmation does not by itself prove the sign-in worked.` };
+  return { mode: "challenge", title: what, detail: [w.instructions?.trim() || `${what}, then confirm here. Your confirmation does not by itself prove the sign-in worked.`, w.match_number ? `Match number: ${w.match_number}.` : ""].filter(Boolean).join(" ") };
 }
 
 /** The pending wait of one bot, by its own id. Never another bot's. */

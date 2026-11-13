@@ -119,16 +119,23 @@ describe("describeWait", () => {
     expect(off.detail).toMatch(/not available/i);
   });
   it("keeps phone and CAPTCHA waits and shows the instruction", () => {
-    const p = describeWait({ request_id: "r", kind: "PhoneApproval", instruction: "Match 42" }, false, now);
+    const p = describeWait({ request_id: "r", kind: "PhoneApproval", instructions: "Match 42" }, false, now);
     expect(p.mode).toBe("challenge");
     expect(p.detail).toContain("Match 42");
     expect(describeWait({ request_id: "r", kind: "Captcha" }, false, now).mode).toBe("challenge");
   });
   it("does not call owner completion a verified sign-in", () => {
-    const d = describeWait({ request_id: "r", kind: "Captcha", verification_pending: true }, false, now);
+    const d = describeWait({ request_id: "r", kind: "Captcha", answered: true }, false, now);
     expect(d.mode).toBe("pending");
     expect(d.detail).toMatch(/not yet verified|verif/i);
     expect(d.detail).not.toMatch(/signed in successfully/i);
+  });
+  it("reads the challenge backend fields and keeps answered requests pending past expiry", () => {
+    const pending = describeWait({ request_id: "r", kind: "PhoneApproval", instructions: "Approve the fixture", match_number: "17", answered: true, expires_at: 999 }, false, now);
+    expect(pending.mode).toBe("pending");
+    const open = describeWait({ request_id: "r", kind: "PhoneApproval", instructions: "Approve the fixture", match_number: "17" }, false, now);
+    expect(open.detail).toContain("Approve the fixture");
+    expect(open.detail).toContain("17");
   });
   it("blocks an expired or unsupported request", () => {
     expect(describeWait(cred({ expires_at: 999 }), true, now).mode).toBe("expired");

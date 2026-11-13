@@ -164,9 +164,10 @@ export interface SetupWait {
   /** Unix seconds. Null or absent never expires. */
   expires_at?:number | null;
   /** Service-specific owner instructions, such as a number to match. */
-  instruction?:string | null;
+  instructions?:string | null;
+  match_number?:string | null;
   /** The owner said done. The server has not yet verified the service. */
-  verification_pending?:boolean;
+  answered?:boolean;
 }
 export interface SetupRecord {
   version:number; chat_id:number; phase:"Draft" | "Provisioning" | "Waiting" | "Investigate" | "Exhausted" | "Ready";

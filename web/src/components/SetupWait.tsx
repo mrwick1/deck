@@ -15,7 +15,7 @@ function SecretForm({ row, label, onDone }: { row: api.SetupRecord; label: strin
   const [error, setError] = useState<string | null>(null);
   const wait = row.setup.wait!;
   const clear = () => { if (input.current) input.current.value = ""; };
-  useEffect(() => () => { if (input.current) input.current.value = ""; }, []);
+  useEffect(() => { const node = input.current; return () => { if (node) node.value = ""; }; }, []);
   const submit = async () => {
     setBusy(true);
     const r = await deliverSecret({ read: () => input.current?.value ?? "", clear, guard: guard.current, send: v => api.submitSecret(row.setup.id, row.version, wait.request_id, v) });
@@ -52,7 +52,7 @@ export function WaitPanel({ row, protectedInput, refresh }: { row: api.SetupReco
   return <section aria-label={`Setup request for ${row.setup.draft.name}`} className="bg-muted/40 flex flex-col gap-2 rounded-lg border p-3">
     <p role="status" className="text-sm font-medium">{view.title}</p>
     <p className="text-sm">{view.detail}</p>
-    {left !== null && view.mode !== "expired" && <p className="text-muted-foreground text-xs">Expires in {Math.floor(left / 60)}m {left % 60}s.</p>}
+    {left !== null && view.mode !== "expired" && view.mode !== "pending" && <p className="text-muted-foreground text-xs">Expires in {Math.floor(left / 60)}m {left % 60}s.</p>}
     {/* Keyed by request, so a replacement request starts with an empty field. */}
     {view.mode === "secret" && <SecretForm key={wait.request_id} row={row} label={label} onDone={refresh} />}
     {view.mode === "challenge" && <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={() => answer("completed")}>I completed it</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => answer("cancel")}>Cancel this request</Button></div>}

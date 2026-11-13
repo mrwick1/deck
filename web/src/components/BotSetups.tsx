@@ -11,6 +11,7 @@ const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
 function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise<void> }) {
   const [draft, setDraft] = useState<api.SetupDraft>(() => structuredClone(row.setup.draft));
   const [busy, setBusy] = useState(false);
+  const [credentials, setCredentials] = useState(() => row.setup.draft.credentials.join("\n"));
   const budget = draft.budget;
   const [allowance, setAllowance] = useState(budget ? (budget.allowance / 10 ** budget.exponent).toFixed(budget.exponent) : "");
   const [ceiling, setCeiling] = useState(budget ? (budget.ceiling / 10 ** budget.exponent).toFixed(budget.exponent) : "");
@@ -21,7 +22,7 @@ function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise
     if (a === null || c === null || a > c) return toast.error("Enter a working allowance at or below the spending ceiling.");
     setBusy(true);
     try {
-      await api.editSetup(row.setup.id, row.version, { ...draft, budget: { ...budget, allowance: a, ceiling: c } });
+      await api.editSetup(row.setup.id, row.version, { ...draft, credentials: credentials.split("\n").map(s => s.trim()).filter(Boolean), budget: { ...budget, allowance: a, ceiling: c } });
       if (approve) await api.approveSetup(row.setup.id, row.version + 1, row.setup.draft.revision + 1);
       await refresh();
     } catch (e) { fail(e); } finally { setBusy(false); }
@@ -43,7 +44,7 @@ function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise
       <label className="text-xs">Absolute ceiling<input inputMode="decimal" className={field} value={ceiling} onChange={e => setCeiling(e.target.value)} /></label>
       <label className="col-span-2 text-xs">Accounting period<input className={field} value={budget.period} onChange={e => setDraft({ ...draft, budget: { ...budget, period: e.target.value } })} /></label>
     </fieldset>}
-    <label className="text-sm">Credential labels, one per line<textarea className={field} placeholder="Labels only. Never enter passwords here." value={draft.credentials.join("\n")} onChange={e => setDraft({ ...draft, credentials: e.target.value.split("\n").map(s => s.trim()).filter(Boolean) })} /></label>
+    <label className="text-sm">Credential labels, one per line<textarea className={field} placeholder="Labels only. Never enter passwords here." value={credentials} onChange={e => setCredentials(e.target.value)} /></label>
     <p className="text-muted-foreground text-xs">A bot that needs credentials asks for them through protected input after setup. It preserves progress and waits. If protected input is unavailable, it stays blocked.</p>
     <label className="text-sm">First task, if you have one<textarea className={field} value={draft.task ?? ""} onChange={e => setDraft({ ...draft, task: e.target.value.trim() ? e.target.value : null })} /></label>
     <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !budget} onClick={() => save(true)}>Approve setup and create computer</Button></div>
