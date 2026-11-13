@@ -5,7 +5,7 @@
 //! therefore cannot be confused with an older connection.
 
 use std::collections::HashMap;
-use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -549,7 +549,8 @@ impl Session {
 }
 
 /// Create `dir` below `root`, refusing links and directories that another user owns.
-fn private_dir(root: &Path, dir: &Path) -> anyhow::Result<()> {
+/// `root` must exist. Each new folder is owner-only.
+pub(crate) fn private_dir(root: &Path, dir: &Path) -> anyhow::Result<()> {
     let rel = dir
         .strip_prefix(root)
         .context("artifact path escapes the data directory")?;
@@ -559,7 +560,7 @@ fn private_dir(root: &Path, dir: &Path) -> anyhow::Result<()> {
         match std::fs::symlink_metadata(&cur) {
             Ok(m) if m.is_dir() => {}
             Ok(_) => bail!("{} is not a plain directory", cur.display()),
-            Err(_) => std::fs::create_dir(&cur)?,
+            Err(_) => std::fs::DirBuilder::new().mode(0o700).create(&cur)?,
         }
         let m = std::fs::symlink_metadata(&cur)?;
         // SAFETY: geteuid has no preconditions.

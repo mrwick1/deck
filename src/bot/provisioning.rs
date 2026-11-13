@@ -8,7 +8,8 @@ use super::{
     setup::{Draft, HarnessProvisioner, Phase, Provisioner},
     setup_store::Record,
 };
-use crate::executor::proto::Sha256;
+use crate::executor::client::private_dir;
+use crate::executor::proto::{Sha256, valid_id};
 use crate::{agent::Agent, config::Config, model::ModelClient, store::Store};
 use anyhow::{Context, ensure};
 use tokio::sync::Notify;
@@ -138,6 +139,14 @@ impl Service {
         Ok(c)
     }
 
+    /// Create the private data folder and workspace of an approved bot. Only folders below the
+    /// configured data root are made. A link or a foreign folder fails the setup.
+    fn prepare_folders(&self, id: &str, c: &Config) -> anyhow::Result<()> {
+        ensure!(valid_id(id), "bad bot ID");
+        private_dir(&self.config.data_dir, &c.data_dir)?;
+        private_dir(&self.config.data_dir, &c.workspace())
+    }
+
     pub fn start(self: &Arc<Self>) {
         let this = self.clone();
         tokio::spawn(async move {
@@ -199,6 +208,7 @@ impl Service {
                 if ready.setup.phase() == Phase::Ready {
                     self.store.finish_setup(&id).await?;
                     let c = Arc::new(self.bot_config(&ready)?);
+                    self.prepare_folders(&id, &c)?;
                     let (agent, bot) =
                         super::runtime(c, self.store.clone(), self.model.clone()).await?;
                     self.runtimes
@@ -279,6 +289,7 @@ mod tests {
         Authority, Budget, Limits, Resources, Step, StepOutcome, StepRequest, WaitKind,
     };
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
     struct Fake {
         calls: Mutex<Vec<Step>>,
@@ -451,10 +462,18 @@ mod tests {
             .require_ceiling_review("held", "test ceiling hold")
             .await
             .unwrap();
+        // The store creates the configured root at startup. Only the bot folders may be missing.
+        std::fs::create_dir_all(&service.config.data_dir).unwrap();
         service.scan().await.unwrap();
         let runtime = service
             .runtime("held")
             .unwrap_or_else(|| panic!("{:?}", service.errors.read().unwrap()));
+        let bot = service.config.data_dir.join("bots").join("held");
+        assert_eq!(
+            std::fs::metadata(&bot).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert!(bot.join("workspace").is_dir(), "no workspace folder");
         assert!(
             runtime
                 .bot
@@ -474,5 +493,86 @@ mod tests {
                 .any(|h| h.kind == super::super::state::HoldKind::Ceiling)
         );
         runtime.bot.stop_loop();
+    }
+
+    fn fixture_draft(service: &Service) -> Draft {
+        let p = service.config.provisioning.as_ref().unwrap();
+        Draft {
+            revision: 1,
+            name: "Fixture bot".into(),
+            instructions: "Read fixture".into(),
+            model: service.config.model.agent_model.clone(),
+            authority: Authority::Full,
+            resources: p.resources.clone(),
+            budget: Some(Budget {
+                currency: "TST".into(),
+                exponent: 2,
+                period: "test".into(),
+                allowance: 10,
+                ceiling: 100,
+            }),
+            credentials: vec![],
+            task: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unapproved_setup_allocates_no_bot_folders() {
+        let (_, store, _dir, service) = super::super::setup_api::tests::app();
+        std::fs::create_dir_all(&service.config.data_dir).unwrap();
+        let setup = super::super::setup::Setup::new("draft", fixture_draft(&service)).unwrap();
+        store.create_setup(&setup).await.unwrap();
+        service.scan().await.unwrap();
+        let row = store.setup_record("draft").await.unwrap().unwrap();
+        // bot_config is also read for protected endpoints. It must not create folders either.
+        service.bot_config(&row).unwrap();
+        assert!(!service.config.data_dir.join("bots").exists());
+        assert!(service.runtime("draft").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_linked_bot_folder_stops_setup_and_writes_nothing_behind_the_link() {
+        let (_, store, dir, original) = super::super::setup_api::tests::app();
+        let script = dir.join("status-only.py");
+        std::fs::write(&script,"import sys\nassert sys.argv[-1] == 'status'\nprint('{\"running\":false,\"state_saved\":true}')\n").unwrap();
+        let mut config = (*original.config).clone();
+        config.provisioning.as_mut().unwrap().template.harness = script;
+        let model = ModelClient::new(&config.model.base_url, None, &config.model.api_key_env);
+        let service = Service::new(Arc::new(config), store.clone(), model);
+        let data = &service.config.data_dir;
+        let target = dir.join("elsewhere");
+        std::fs::create_dir_all(data.join("bots")).unwrap();
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, data.join("bots").join("linked")).unwrap();
+        let setup = super::super::setup::Setup::new("linked", fixture_draft(&service)).unwrap();
+        store.create_setup(&setup).await.unwrap();
+        let p = service.config.provisioning.as_ref().unwrap();
+        store
+            .approve_setup(
+                "linked",
+                1,
+                1,
+                "owner",
+                &p.limits,
+                &service.profile().unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut row = store.setup_record("linked").await.unwrap().unwrap();
+        for step in &mut row.setup.steps {
+            step.status = super::super::setup::Status::Done;
+        }
+        store
+            .save_setup_state(row.version, &row.setup)
+            .await
+            .unwrap();
+        store
+            .require_ceiling_review("linked", "test ceiling hold")
+            .await
+            .unwrap();
+        service.scan().await.unwrap();
+        assert!(service.runtime("linked").is_none());
+        assert!(service.errors.read().unwrap().contains_key("linked"));
+        assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
     }
 }
