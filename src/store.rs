@@ -265,6 +265,15 @@ CREATE TABLE privacy_gates(
 );
 ";
 
+/// One counter per bot. It grows at each gate open and is never deleted, so it survives the
+/// close. It holds no protected value.
+const SCHEMA_V9: &str = "
+CREATE TABLE privacy_generations(
+    bot_id TEXT PRIMARY KEY,
+    generation INTEGER NOT NULL
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -345,6 +354,7 @@ pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let steps = [
         SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+        SCHEMA_V9,
     ];
     for (i, sql) in steps.iter().enumerate() {
         let v = i as i64 + 1;
@@ -627,7 +637,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 8);
+        assert_eq!(v, 9);
     }
 
     #[test]

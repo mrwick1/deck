@@ -115,11 +115,18 @@ pub struct Screen {
     tx: watch::Sender<Frame>,
     running: AtomicBool,
     /// True while a protected value may show on the screen. Set once, when the bot is wired.
-    gate: std::sync::OnceLock<PrivacyGate>,
+    gate: std::sync::OnceLock<PrivacyState>,
+    /// The generation of the frame in the cache.
+    frame_gen: AtomicU64,
     pub stats: Stats,
 }
 
+#[cfg(test)]
 pub type PrivacyGate = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// The gate and its generation, sampled together: `(open, generation)`. The generation grows at
+/// each open and never shrinks, so a gate that opened and shut again still changes it.
+pub type PrivacyState = Arc<dyn Fn() -> (bool, u64) + Send + Sync>;
 
 impl Screen {
     pub fn new(
@@ -134,18 +141,27 @@ impl Screen {
             tx: watch::channel(Frame::default()).0,
             running: AtomicBool::new(false),
             gate: std::sync::OnceLock::new(),
+            frame_gen: AtomicU64::new(0),
             stats: Stats::default(),
         })
     }
 
     /// While the gate answers true, nothing is captured and no frame is shown. The gate must
     /// answer true when it cannot tell. Only the first call has effect.
+    #[cfg(test)]
     pub fn set_privacy_gate(&self, gate: PrivacyGate) {
-        let _ = self.gate.set(gate);
+        self.set_privacy_state(Arc::new(move || (gate(), 0)));
     }
 
-    fn private(&self) -> bool {
-        self.gate.get().is_some_and(|g| g())
+    /// Like `set_privacy_gate`, with a generation. A capture is dropped when the gate is open
+    /// at its end or when the generation differs from its start. Only the first call has effect.
+    pub fn set_privacy_state(&self, state: PrivacyState) {
+        let _ = self.gate.set(state);
+    }
+
+    /// `(open, generation)`. No gate means shut, generation 0.
+    fn privacy(&self) -> (bool, u64) {
+        self.gate.get().map_or((false, 0), |g| g())
     }
 
     /// Subscribe. The first viewer starts the worker, if the computer is awake.
@@ -195,7 +211,8 @@ impl Screen {
         let mut awake = self.awake.clone();
         let mut last = String::new();
         while self.tx.receiver_count() > 0 && *awake.borrow() {
-            if self.private() {
+            let (open, before) = self.privacy();
+            if open {
                 last.clear();
                 self.scrub();
                 tokio::select! {
@@ -211,10 +228,11 @@ impl Screen {
                 .capture_us
                 .fetch_add(t.elapsed().as_micros() as u64, Relaxed);
             self.stats.captures.fetch_add(1, Relaxed);
-            // The gate may have opened while the grab ran. The grab cannot be cancelled, so
-            // the result is dropped here. A gate that opened and shut again inside one grab
-            // is not seen.
-            if self.private() {
+            // The gate may have opened while the grab ran, even if it has shut again. The grab
+            // cannot be cancelled, so the result is dropped when the gate is open now or the
+            // generation moved since the grab began.
+            let (open, after) = self.privacy();
+            if open || after != before {
                 self.stats.withheld.fetch_add(1, Relaxed);
                 last.clear();
                 self.scrub();
@@ -233,6 +251,7 @@ impl Screen {
                         self.stats
                             .bytes_delivered
                             .fetch_add(png.len() as u64, Relaxed);
+                        self.frame_gen.store(after, Relaxed);
                         self.tx.send_modify(|f| {
                             *f = Frame {
                                 seq: f.seq + 1,
@@ -253,10 +272,11 @@ impl Screen {
         }
     }
 
-    /// The newest frame. A read while the gate is open also clears the cache, so the frame
+    /// The newest frame. A read while the gate is open, or after its generation moved, also clears the cache, so the frame
     /// cannot return if the gate shuts before the worker looks again.
     pub fn latest(&self) -> Frame {
-        if self.private() {
+        let (open, generation) = self.privacy();
+        if open || generation != self.frame_gen.load(Relaxed) {
             self.scrub();
             return Frame::default();
         }
@@ -497,6 +517,95 @@ mod tests {
         assert!(rx.borrow().png.is_empty());
         assert_eq!(s.stats.delivered.load(Relaxed), 1);
         assert_eq!(s.stats.withheld.load(Relaxed), 1);
+    }
+
+    /// A gate with a generation. `open` and `generation` are set by the test.
+    fn gated_gen(
+        cap: Arc<Held>,
+        interval_ms: u64,
+    ) -> (Arc<Screen>, Arc<AtomicBool>, Arc<AtomicU64>) {
+        let (_, rx) = watch::channel(true);
+        let s = Screen::new(cap, Duration::from_millis(interval_ms), rx);
+        let (open, generation) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let (o, g) = (open.clone(), generation.clone());
+        s.set_privacy_state(Arc::new(move || (o.load(Relaxed), g.load(Relaxed))));
+        (s, open, generation)
+    }
+
+    #[tokio::test]
+    async fn a_gate_that_opens_and_shuts_inside_one_grab_drops_that_capture() {
+        let cap = Held::new("public-1");
+        let (s, open, generation) = gated_gen(cap.clone(), 10);
+        let _rx = s.watch();
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        // The next grab starts. The gate opens and shuts before it finishes.
+        until(|| cap.started.load(Relaxed) == 2).await;
+        open.store(true, Relaxed);
+        generation.fetch_add(1, Relaxed);
+        open.store(false, Relaxed);
+        *cap.bytes.lock().unwrap() = b"private-frame".to_vec();
+        cap.permits.add_permits(1);
+        until(|| s.stats.captures.load(Relaxed) == 2).await;
+        until(|| s.stats.withheld.load(Relaxed) == 1).await;
+        // Stop the worker from taking a public frame: hold the next grab.
+        assert!(s.latest().png.is_empty(), "the private frame was published");
+        assert_eq!(s.stats.delivered.load(Relaxed), 1);
+        // A fresh public capture at the new generation resumes.
+        *cap.bytes.lock().unwrap() = b"public-2".to_vec();
+        cap.permits.add_permits(100);
+        until(|| !s.latest().png.is_empty()).await;
+        assert_eq!(s.latest().png.as_slice(), b"public-2");
+    }
+
+    #[tokio::test]
+    async fn a_frame_from_an_older_generation_does_not_return_after_an_unseen_open_and_shut() {
+        let cap = Held::new("public-1");
+        let (s, open, generation) = gated_gen(cap.clone(), 10_000);
+        let _rx = s.watch();
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        open.store(true, Relaxed);
+        generation.fetch_add(1, Relaxed);
+        open.store(false, Relaxed);
+        assert!(s.latest().png.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_store_generation_persists_across_close_and_reopen() {
+        let dir = std::env::temp_dir().join(format!("deck-gen-{}", uuid::Uuid::new_v4().simple()));
+        let store = crate::store::Store::open(&dir).unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (false, 0));
+        store
+            .record_secret("b", "r1", "L", "N", None)
+            .await
+            .unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (true, 1));
+        store.close_privacy_gate("b").await.unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (false, 1));
+        store
+            .record_secret("b", "r2", "L", "N", None)
+            .await
+            .unwrap();
+        store.close_privacy_gate("b").await.unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (false, 2));
+        assert_eq!(store.privacy_state_sync("other"), (false, 0));
+        drop(store);
+        let again = crate::store::Store::open(&dir).unwrap();
+        assert_eq!(again.privacy_state_sync("b"), (false, 2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_failed_gate_read_answers_open() {
+        let store = crate::store::Store::open_memory().unwrap();
+        store
+            .run_sync(|c| c.execute_batch("DROP TABLE privacy_generations"))
+            .unwrap();
+        assert!(store.privacy_state_sync("b").0);
     }
 
     #[tokio::test]

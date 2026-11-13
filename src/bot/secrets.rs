@@ -341,6 +341,7 @@ impl Store {
                 t.execute("UPDATE secret_requests SET state='delivered' WHERE request_id=?1 AND bot_id=?2 AND state='pending'", params![id, bot])?;
             }
             t.execute("INSERT OR IGNORE INTO privacy_gates(bot_id,opened_at) VALUES (?1,?2)", params![bot, now()])?;
+            t.execute("INSERT INTO privacy_generations(bot_id,generation) VALUES (?1,1) ON CONFLICT(bot_id) DO UPDATE SET generation=generation+1", [&bot])?;
             t.commit()
         })
         .await
@@ -353,8 +354,23 @@ impl Store {
     }
 
     /// Fails closed: a read error counts as open.
+    #[cfg(test)]
     pub fn privacy_gate_open_sync(&self, bot: &str) -> bool {
         self.run_sync(|c| gate(c, bot)).unwrap_or(true)
+    }
+
+    /// The gate and its generation, read in one statement. The generation grows at each open and
+    /// stays after the close. Fails closed: a read error answers open.
+    pub fn privacy_state_sync(&self, bot: &str) -> (bool, u64) {
+        self.run_sync(|c| {
+            c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM privacy_gates WHERE bot_id=?1), \
+                 COALESCE((SELECT generation FROM privacy_generations WHERE bot_id=?1),0)",
+                [bot],
+                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, i64>(1)? as u64)),
+            )
+        })
+        .unwrap_or((true, 0))
     }
 
     pub async fn close_privacy_gate(&self, bot: &str) -> anyhow::Result<()> {

@@ -171,9 +171,7 @@ impl Bot {
         let screen = Screen::new(cap, Duration::from_millis(v.screen_interval_ms), awake_rx);
         // Every route that shows the screen passes this gate. A read error counts as open.
         let (gate_store, gate_bot) = (store.clone(), v.bot_id.clone());
-        screen.set_privacy_gate(Arc::new(move || {
-            gate_store.privacy_gate_open_sync(&gate_bot)
-        }));
+        screen.set_privacy_state(Arc::new(move || gate_store.privacy_state_sync(&gate_bot)));
         Ok(Arc::new(Self {
             id: v.bot_id.clone(),
             chat_id: flags.chat_id,

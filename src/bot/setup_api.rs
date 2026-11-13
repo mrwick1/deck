@@ -592,7 +592,7 @@ async fn proxy(st: AppState, id: String, rest: String, req: Request) -> Response
     // error counts as an open gate.
     let (store, bot_id) = (st.store.clone(), bot.id.clone());
     bot.screen
-        .set_privacy_gate(Arc::new(move || store.privacy_gate_open_sync(&bot_id)));
+        .set_privacy_state(Arc::new(move || store.privacy_state_sync(&bot_id)));
     let query = req
         .uri()
         .query()
