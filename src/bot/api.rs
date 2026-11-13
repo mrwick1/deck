@@ -300,7 +300,11 @@ async fn screen_stream(State(b): B) -> Sse<impl Stream<Item = Result<Event, Infa
 }
 
 async fn screen_latest(State(b): B) -> Response {
-    let f = b.screen.latest();
+    latest_response(&b.screen)
+}
+
+fn latest_response(screen: &crate::bot::screen::Screen) -> Response {
+    let f = screen.latest();
     if f.png.is_empty() {
         return StatusCode::NO_CONTENT.into_response();
     }
@@ -367,5 +371,76 @@ mod tests {
             .and_then(|s| s.split("\n}\n").next())
             .unwrap();
         assert!(owner.contains("/api/bot/ceiling-requests/respond"));
+    }
+
+    struct Frames(std::sync::Mutex<Vec<u8>>, std::sync::atomic::AtomicUsize);
+    impl crate::bot::screen::Capture for Frames {
+        fn grab(&self) -> futures_util::future::BoxFuture<'_, anyhow::Result<Vec<u8>>> {
+            Box::pin(async move {
+                self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Ok(self.0.lock().unwrap().clone())
+            })
+        }
+    }
+
+    async fn latest(s: &crate::bot::screen::Screen) -> (StatusCode, Vec<u8>) {
+        let r = latest_response(s);
+        let status = r.status();
+        let body = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        (status, body.to_vec())
+    }
+
+    #[tokio::test]
+    async fn latest_is_204_with_no_image_while_the_real_gate_is_open_and_resumes_public() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let store = crate::store::Store::open_memory().unwrap();
+        let cap = Arc::new(Frames(
+            std::sync::Mutex::new(b"\x89PNG-public-1".to_vec()),
+            Default::default(),
+        ));
+        let (_, awake) = tokio::sync::watch::channel(true);
+        let s = crate::bot::screen::Screen::new(cap.clone(), Duration::from_millis(10), awake);
+        let (st, id) = (store.clone(), "b".to_string());
+        // The same gate closure that Bot::new and the managed proxy install.
+        s.set_privacy_gate(Arc::new(move || st.privacy_gate_open_sync(&id)));
+        let _rx = s.watch();
+        // Positive control: a public frame is served with its image.
+        for _ in 0..200 {
+            if latest(&s).await.0 == StatusCode::OK {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            latest(&s).await,
+            (StatusCode::OK, b"\x89PNG-public-1".to_vec())
+        );
+        // The gate opens through the real store write. The route answers 204 with no body.
+        store
+            .record_secret("b", "r1", "l", "n", None)
+            .await
+            .unwrap();
+        assert_eq!(latest(&s).await, (StatusCode::NO_CONTENT, vec![]));
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let n = cap.1.load(Relaxed);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(cap.1.load(Relaxed), n, "captured while the gate was open");
+        // The gate shuts. The old frame stays gone. A new public frame replaces it.
+        *cap.0.lock().unwrap() = b"\x89PNG-public-2".to_vec();
+        store.close_privacy_gate("b").await.unwrap();
+        for _ in 0..200 {
+            let (code, body) = latest(&s).await;
+            assert_ne!(
+                body,
+                b"\x89PNG-public-1".to_vec(),
+                "the old frame came back"
+            );
+            if code == StatusCode::OK {
+                assert_eq!(body, b"\x89PNG-public-2".to_vec());
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("no public frame after the gate shut");
     }
 }
