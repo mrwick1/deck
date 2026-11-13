@@ -461,6 +461,67 @@ pub fn sender(
     }
 }
 
+/// Bind recovery to the current approved computer configuration.
+pub async fn channel_for(st: &AppState, bot: &str) -> Result<secrets::HarnessChannel, String> {
+    let unavailable = || "Protected delivery is unavailable".to_string();
+    let service = st.setups.as_ref().ok_or_else(unavailable)?;
+    let row = st
+        .store
+        .setup_record(bot)
+        .await
+        .map_err(|_| unavailable())?
+        .ok_or_else(unavailable)?;
+    let vm = service
+        .bot_config(&row)
+        .map_err(|_| unavailable())?
+        .vm
+        .ok_or_else(unavailable)?;
+    Ok(secrets::HarnessChannel::new(&vm))
+}
+
+/// Check current guest evidence before a delivery recovery can wake a task. Other owner answers
+/// carry metadata only and do not need secret delivery evidence.
+pub fn checked_sender<F>(
+    store: Store,
+    bot: String,
+    channel: secrets::HarnessChannel,
+    send: F,
+) -> impl Fn(String, String) -> BoxFuture<'static, Result<String, String>> + Sync
+where
+    F: Fn(String, String) -> BoxFuture<'static, Result<String, String>> + Send + Sync + 'static,
+{
+    let channel = std::sync::Arc::new(channel);
+    let send = std::sync::Arc::new(send);
+    move |task, text| {
+        let (store, bot, channel, send) =
+            (store.clone(), bot.clone(), channel.clone(), send.clone());
+        Box::pin(async move {
+            if text.starts_with("Protected value delivered for [request ") {
+                let (b, t) = (bot.clone(), task.clone());
+                let requests = store.run(move |c| {
+                    c.prepare("SELECT request_id,label FROM secret_requests WHERE bot_id=?1 AND task_id=?2 AND state='delivered'")?
+                        .query_map(rusqlite::params![b,t], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()
+                }).await.map_err(|_| "Could not verify the delivery".to_string())?;
+                let (request, label) = requests
+                    .into_iter()
+                    .find(|(r, l)| delivered_text(r, l) == text)
+                    .ok_or_else(|| "No matching delivery record".to_string())?;
+                if !channel
+                    .receipt(&bot, &request, &canonical_name(&label))
+                    .await
+                    .map_err(|_| "Could not verify the guest receipt".to_string())?
+                {
+                    return Err(
+                        "The guest no longer confirms delivery; request fresh protected input"
+                            .into(),
+                    );
+                }
+            }
+            send(task, text).await
+        })
+    }
+}
+
 /// Metadata of the open protected-input requests of one bot. It also heals a task that an
 /// earlier wake missed. A delivery in progress skips the healing, so no wake can run twice.
 async fn list(
@@ -477,8 +538,11 @@ async fn list(
         .map(|r| r.bot.clone())
         && let Ok(_one) = secrets::DELIVERY.try_lock()
     {
-        let send = sender(bot);
-        // A hold refuses the wake. The next poll tries again once the owner lifts it.
+        let channel = channel_for(&st, &id)
+            .await
+            .map_err(|_| fail("Protected delivery is unavailable"))?;
+        let send = checked_sender(st.store.clone(), id.clone(), channel, sender(bot));
+        // Answers are durable; the runtime still gates dispatch on holds.
         let _ = reconcile(&st.store, &id, now, &send).await;
     }
     st.store
@@ -822,6 +886,55 @@ mod tests {
         reconcile(&f.store, "b", 10, &f.send()).await.unwrap();
         assert_eq!(f.count(), 1);
         assert!(f.sent.lock().unwrap()[0].contains("cancelled"));
+    }
+
+    #[tokio::test]
+    async fn recovered_delivery_needs_a_matching_guest_receipt_before_waking() {
+        let f = waiting_task().await;
+        open(&f, "secret-1", FUTURE).await;
+        f.store
+            .record_secret(
+                "b",
+                "secret-1",
+                "Site pass",
+                &canonical_name("Site pass"),
+                Some("secret-1"),
+            )
+            .await
+            .unwrap();
+        let dir = crate::testutil::temp_dir();
+        let script = dir.join("receipt.py");
+        let config = crate::config::Config::parse(&format!(
+            "{}\n[vm]\nversion=1\nbot_id=\"b\"\nruntime_dir=\"{}\"\nharness=\"{}\"\n",
+            include_str!("../../deck.example.toml"),
+            dir.display(),
+            script.display()
+        ))
+        .unwrap();
+        std::fs::write(&script, "import json,sys\nprint(json.dumps({'ok':False,'error':'not_delivered'}))\nsys.exit(1)\n").unwrap();
+        let send = checked_sender(
+            f.store.clone(),
+            "b".into(),
+            secrets::HarnessChannel::new(config.vm.as_ref().unwrap()),
+            f.send(),
+        );
+        assert!(
+            resume_delivered(&f.store, "b", "secret-1", &send)
+                .await
+                .is_err()
+        );
+        assert_eq!(f.count(), 0);
+        assert!(reconcile(&f.store, "b", 10, &send).await.is_err());
+        assert_eq!(f.count(), 0);
+        let receipt = json!({"ok":true,"bot_id":"b","request_id":"secret-1","label":canonical_name("Site pass")});
+        std::fs::write(&script, format!("print({:?})\n", receipt.to_string())).unwrap();
+        assert_eq!(
+            resume_delivered(&f.store, "b", "secret-1", &send)
+                .await
+                .unwrap(),
+            Some(Woke::Sent)
+        );
+        assert_eq!(f.count(), 1);
     }
 
     #[tokio::test]

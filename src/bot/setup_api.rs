@@ -1,7 +1,9 @@
 //! Authenticated setup and managed-bot routes. Machine event intake exposes none of these.
 use super::{
     provisioning::Service,
-    secret_requests_api::{Woke, delivered_text, expire, resume_delivered, sender, wake},
+    secret_requests_api::{
+        Woke, channel_for, checked_sender, delivered_text, expire, resume_delivered, sender, wake,
+    },
     secrets::{self, Failure, HarnessChannel, Secret},
     setup::{Authority, Budget, Draft, Setup, WaitKind},
 };
@@ -471,7 +473,18 @@ async fn task_secret(
         .runtime(&id)
         .ok_or_else(|| error(StatusCode::CONFLICT, "The bot is not ready"))?;
     let stale = || error(StatusCode::CONFLICT, "No open request has this identity");
-    let send = sender(runtime.bot.clone());
+    let channel = channel_for(&st, &id).await.map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Protected delivery is unavailable",
+        )
+    })?;
+    let send = checked_sender(
+        st.store.clone(),
+        id.clone(),
+        channel,
+        sender(runtime.bot.clone()),
+    );
     let wake_failed = |m: String| {
         error(
             StatusCode::CONFLICT,
