@@ -1,7 +1,7 @@
 # Unattended implementation handoff
 
 Updated: 2026-11-13.
-Status: implementation and integration in progress. No merge or deployment ran. The integration branch is `document-bot-setup`. The local `THREAD.md` records its current review link and ownership.
+Status: implementation and integration in progress. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). The integration branch is `document-bot-setup`. The local `THREAD.md` records its current review link and ownership.
 
 ## Read first
 
