@@ -225,3 +225,9 @@ The owner explicitly authorized bypass of the load gate for this run. The parent
 ## Combined run blocked at protected input
 
 The actual UI approved setup and the real VM reached the credential wait. The one-use fill route refused the page fetch with 403 before releasing a value. Bare issue 475 tracks the suspected fetch-metadata header problem. The exact outgoing header is not verified. The run failed acceptance. No credential delivery, challenge or raster pass is claimed. Cleanup passed and the parent confirmed no owned process, disk, browser session or screen remains. See `setup-ui-vm-results.md`.
+
+## Fetch-metadata candidate and combined retry
+
+The owner approved the bare header design and its complete-suffix amendment. Draft bare PR 479 contains the fix. Five new regressions pass. A candidate bare MCP binary receives 200 from a local endpoint that requires same-origin metadata. The shared browser installation is unchanged. The bare library run has one reproduced baseline timer failure, with 1417 passes and six ignored tests. Strict baseline formatting and lint failures are documented in that PR.
+
+A fresh combined UI/VM run now uses the isolated candidate. The owner-authorized load bypass remains in effect for this functional run. The parent set its load threshold to 100; memory checks and exclusive VM ownership remain active. A browser worker drives the real forms. The result is pending. No merge or deployment ran.
