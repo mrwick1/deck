@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Relay one bare-mcp request to the session bare-mcp. Runs as a Deck executor command.
 
+Probe: `bare-call --ready [seconds]` prints one JSON line (see ready()).
 argv[1] is {"method": "tools/list" | "tools/call", "params": {...}, "timeout": seconds}.
 The reply goes to $DECK_OUT/reply.json, so the host fetches it as a checked artifact.
 Files that the reply names (screenshots, downloads) are copied next to it.
@@ -29,8 +30,12 @@ class Rpc:
         if rid is not None:
             msg["id"] = rid
         pos = os.path.getsize(os.path.join(self.d, "out"))
-        with open(os.path.join(self.d, "in"), "w") as f:
-            f.write(json.dumps(msg) + "\n")
+        # Non-blocking: a FIFO with no reader (bare-mcp gone) fails with ENXIO instead of hanging.
+        fd = os.open(os.path.join(self.d, "in"), os.O_WRONLY | os.O_NONBLOCK)
+        try:
+            os.write(fd, (json.dumps(msg) + "\n").encode())
+        finally:
+            os.close(fd)
         if rid is None:
             return None
         end = time.monotonic() + wait
@@ -50,13 +55,49 @@ class Rpc:
         raise TimeoutError(f"bare-mcp did not answer {method}")
 
 
-def handshake(rpc, d):
+def handshake(rpc, d, wait=30):
     marker = os.path.join(d, "init")
     if os.path.exists(marker):
         return
-    rpc.call("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "deck-relay", "version": "1"}}, wait=30)
+    rpc.call("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "deck-relay", "version": "1"}}, wait=wait)
     rpc.call("notifications/initialized", notify=True)
     open(marker, "w").close()
+
+
+def ready(wait):
+    """Read-only readiness probe: print one JSON line. Exit 0 only when bare-mcp answers tools/list.
+
+    It sends initialize (once per session) and tools/list. It acts on no page and reads no credential.
+    It prints stable reason codes, never guest output. It starts no session.
+    """
+    def out(**kw):
+        print(json.dumps(kw))
+        return 0 if kw.get("ready") else 3
+
+    d = session_dir()
+    try:
+        os.close(os.open(os.path.join(d, "in"), os.O_WRONLY | os.O_NONBLOCK))  # a reader must exist
+    except OSError:
+        return out(ready=False, reason="no_session")
+    try:
+        rpc = Rpc(d)
+        end = time.monotonic() + wait
+        handshake(rpc, d, wait)
+        v = rpc.call("tools/list", {}, wait=max(0.1, end - time.monotonic()))
+    except TimeoutError:
+        return out(ready=False, reason="no_answer")
+    except Exception:
+        return out(ready=False, reason="error")
+    tools = (v.get("result") or {}).get("tools")
+    if "error" in v or not isinstance(tools, list) or not tools:
+        return out(ready=False, reason="bad_reply")
+    try:
+        with open(os.path.expanduser("~/.local/state/deck-executor/identity.json")) as f:
+            ident = json.load(f)
+        bot, guest = ident["bot_id"], ident["guest_id"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return out(ready=False, reason="no_identity")
+    return out(ready=True, tools=len(tools), bot_id=bot, guest_id=guest)
 
 
 def prepare(params, out, workspace):
@@ -115,6 +156,8 @@ def collect(report, out, since, workspace):
 
 
 def main():
+    if sys.argv[1:2] == ["--ready"]:
+        sys.exit(ready(float(sys.argv[2]) if len(sys.argv) > 2 else 8.0))
     req = json.loads(sys.argv[1])
     out = os.environ["DECK_OUT"]
     workspace = os.environ["DECK_WORKSPACE"]

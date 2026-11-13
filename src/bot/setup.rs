@@ -668,6 +668,34 @@ impl HarnessProvisioner {
             .map_err(|_| Fail::Error("the harness status is not JSON".into()))
     }
 
+    /// The step is done only when the existing desktop session answers its protocol and the guest
+    /// identity matches. The probe reads only, so a retry is safe. It polls inside one deadline
+    /// that is shorter than the call limit.
+    async fn desktop_ready(&self, id: &str) -> Result<StepOutcome, Fail> {
+        let secs = self
+            .limit
+            .as_secs()
+            .saturating_sub(5)
+            .clamp(1, 120)
+            .to_string();
+        Ok(
+            match self
+                .call(id, &["ready", "--bot", id, "--timeout", &secs])
+                .await
+            {
+                Ok(_) => StepOutcome::Done,
+                Err(Fail::Error(m))
+                    if m.contains("identity_mismatch") || m.contains("bot_mismatch") =>
+                {
+                    StepOutcome::Unknown(format!(
+                        "the guest identity does not match this bot; nothing was changed ({m})"
+                    ))
+                }
+                Err(e) => StepOutcome::Retry(format!("the desktop is not ready: {}", e.msg())),
+            },
+        )
+    }
+
     async fn step(&self, req: &StepRequest) -> Result<StepOutcome, Fail> {
         let id = req.setup_id.as_str();
         match &req.step {
@@ -743,26 +771,20 @@ impl HarnessProvisioner {
                     let info = std::fs::read(binding)
                         .ok()
                         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-                    return Ok(
-                        if info.as_ref().is_some_and(|i| {
-                            i["bot_id"] == id
-                                && i["guest_id"].as_str().is_some_and(|g| !g.is_empty())
-                        }) {
-                            StepOutcome::Done
-                        } else {
-                            StepOutcome::Unknown("the executor identity is invalid or belongs to another bot; it was not changed".into())
-                        },
-                    );
+                    if !info.as_ref().is_some_and(|i| {
+                        i["bot_id"] == id && i["guest_id"].as_str().is_some_and(|g| !g.is_empty())
+                    }) {
+                        return Ok(StepOutcome::Unknown("the executor identity is invalid or belongs to another bot; it was not changed".into()));
+                    }
+                } else {
+                    if !self.status(id).await?["running"].as_bool().unwrap_or(false) {
+                        return Ok(StepOutcome::Retry("the computer is not running".into()));
+                    }
+                    if let Err(e) = self.call(id, &["install-executor", "--bot", id]).await {
+                        return Ok(e.for_change());
+                    }
                 }
-                if !self.status(id).await?["running"].as_bool().unwrap_or(false) {
-                    return Ok(StepOutcome::Retry("the computer is not running".into()));
-                }
-                Ok(
-                    match self.call(id, &["install-executor", "--bot", id]).await {
-                        Ok(_) => StepOutcome::Done,
-                        Err(e) => e.for_change(),
-                    },
-                )
+                self.desktop_ready(id).await
             }
             Step::Credential(_) | Step::Login(_) => Ok(StepOutcome::Fatal(
                 "an owner request is not a harness step".into(),
@@ -1184,6 +1206,10 @@ elif sub == "overlay":
     open(d + "/disk.qcow2.json", "w").write("{}")
 elif sub == "start":
     open(d + "/running", "w").write("")
+elif sub == "ready":
+    mode = open(d + "/ready-mode").read() if os.path.exists(d + "/ready-mode") else ""
+    if mode:
+        sys.exit(mode)
 elif sub == "install-executor":
     open(d + "/executor.json", "w").write(json.dumps({"bot_id":"bot-1","guest_id":"fixture"}))
 "#;
@@ -1249,7 +1275,9 @@ elif sub == "install-executor":
             [
                 format!("overlay --base {}", d.join("base.qcow2").display()),
                 "start".to_string(),
-                "install-executor --bot bot-1".to_string()
+                "install-executor --bot bot-1".to_string(),
+                "ready --bot bot-1 --timeout 15".to_string(),
+                "ready --bot bot-1 --timeout 15".to_string(),
             ]
         );
         assert!(d.join("rt/bot-1/executor.json").exists());
@@ -1270,6 +1298,78 @@ elif sub == "install-executor":
             StepOutcome::Unknown(_)
         ));
         assert!(log(&d).is_empty());
+    }
+
+    fn bind(d: &std::path::Path, mode: &str) {
+        std::fs::create_dir_all(d.join("rt/bot-1")).unwrap();
+        std::fs::write(
+            d.join("rt/bot-1/executor.json"),
+            serde_json::json!({"bot_id":"bot-1","guest_id":"g"}).to_string(),
+        )
+        .unwrap();
+        std::fs::write(d.join("rt/bot-1/ready-mode"), mode).unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_installed_executor_is_not_done_until_the_desktop_answers() {
+        let d = crate::testutil::temp_dir();
+        let h = harness(&d);
+        bind(&d, "not_ready");
+        let out = h.run(&req(Step::InstallExecutor, draft().resources)).await;
+        assert!(
+            matches!(out, StepOutcome::Retry(ref m) if m.contains("not_ready")),
+            "{out:?}"
+        );
+        // The desktop answers later: the same step now completes, and nothing else ran.
+        bind(&d, "");
+        assert_eq!(
+            h.run(&req(Step::InstallExecutor, draft().resources)).await,
+            StepOutcome::Done
+        );
+        let subs = log(&d);
+        assert!(subs.iter().all(|l| l.starts_with("ready ")), "{subs:?}");
+        assert!(subs.iter().all(|l| l == "ready --bot bot-1 --timeout 15"));
+    }
+
+    #[tokio::test]
+    async fn a_guest_with_another_identity_is_held_not_retried() {
+        let d = crate::testutil::temp_dir();
+        let h = harness(&d);
+        bind(&d, "identity_mismatch");
+        let out = h.run(&req(Step::InstallExecutor, draft().resources)).await;
+        assert!(
+            matches!(out, StepOutcome::Unknown(ref m) if m.contains("identity_mismatch")),
+            "{out:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fresh_install_is_probed_after_the_install() {
+        let d = crate::testutil::temp_dir();
+        let h = harness(&d);
+        let r = draft().resources;
+        for st in [Step::Allocate, Step::Boot, Step::InstallExecutor] {
+            assert_eq!(h.run(&req(st, r.clone())).await, StepOutcome::Done);
+        }
+        let subs = log(&d);
+        let (i, rd) = (
+            subs.iter()
+                .position(|l| l.starts_with("install-executor"))
+                .unwrap(),
+            subs.iter().position(|l| l.starts_with("ready")).unwrap(),
+        );
+        assert!(i < rd);
+    }
+
+    #[tokio::test]
+    async fn a_hung_probe_is_retryable_not_unknown() {
+        let d = crate::testutil::temp_dir();
+        let mut h = harness(&d);
+        bind(&d, "");
+        std::fs::write(d.join("fake.py"), "import time; time.sleep(30)").unwrap();
+        h.limit = Duration::from_secs(1);
+        let out = h.run(&req(Step::InstallExecutor, draft().resources)).await;
+        assert!(matches!(out, StepOutcome::Retry(_)), "{out:?}");
     }
 
     #[tokio::test]
