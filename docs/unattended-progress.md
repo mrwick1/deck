@@ -178,3 +178,9 @@ Report `9d091f1` confirms sidebar routing and keyboard controls. Bare issues 464
 The first real synthetic-login run reached successful login and preserved its phone wait across restart. It then failed on a harness name error. Report `4ccd4c2` keeps that failed run explicit. The parent fixed the name, corrected cleanup's launcher false positive and added whole-mode regressions. A faithful rendered-page emulator also required an explicit read-only refresh before checking owner actions.
 
 All 366 deterministic prototype tests pass; one screenshot gate remains skipped. Rust and frontend code are unchanged from the 303-unit/four-integration and 49-web-test checkpoint. The complete live owner rounds and final submission remain unverified until the rerun. No real account, merge or deployment was used.
+
+## Behavior-complete live checkpoint
+
+Report `2d3a463` records a live run with all behavior gates passed. Service counters are one login, zero failed logins, one submit attempt and one success. All 19 tool calls ran once. Owner answers remained pending until service evidence was refreshed and verified. Restart added no work. Host and argv scans found no value. The aggregate gate remains failed because cleanup reported one unidentified path match.
+
+The parent now tracks owned process identities and descendants with birth-time checks and auditable survivors. Its regression passes. The complete Python suite passes 366 tests with one screenshot gate skipped. A fresh serial run is required for the repaired aggregate audit. No other worker or VM remains active. No merge or deployment ran.

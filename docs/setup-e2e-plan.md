@@ -179,3 +179,11 @@ The full prototype suite runs 367 tests: 366 pass and one screenshot gate is ski
 ## Repaired whole-service live rerun assignment
 
 A new exclusive live rerun started from `5007996`. The worker may run the complete mode once on a fresh overlay with normal pressure limits. It must verify both owner rounds, refreshed service evidence and the final single submission. All previous workers are terminal. The failed earlier run remains retained. The new report must distinguish required gates from optional raster and saved-state checks.
+
+## Behavior-complete live run and owned-process audit repair
+
+Report `ff66d60` is integrated as `2d3a463`. Every live behavior gate passes: exact special-character delivery, both owner rounds with independent refreshed service evidence, one submission, restart persistence and zero scanned leaks. The aggregate result remains failed because cleanup counted one unidentified process naming the output path. The observer explanation is a hypothesis; the original manifest is not changed.
+
+The parent replaced path matching with registered process identities. Subprocess roots and verified VM PID files supply ownership. Descendants are captured before their parents stop. The audit compares process birth times, retains reparented helpers and ignores reused PIDs and unrelated observers. The manifest now records registered identities and survivors. A new regression failed before this registry existed.
+
+A fixture test also incorrectly required a repeated completion to fail. The endpoint permits an idempotent answer. The corrected test pauses the driver and requires 204 with the same snapshot, version, installer count and holds. The complete Python suite passes 366 tests with one screenshot gate skipped. A final fresh live run must verify the new audit and the aggregate gate.

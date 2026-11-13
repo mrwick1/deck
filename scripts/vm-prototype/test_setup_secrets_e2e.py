@@ -413,8 +413,16 @@ class Challenges(Base):
         self.assertEqual(self.s.respond(sid, v, rid, "maybe")[0] // 100, 4)
         self.assertEqual(self.s.respond(sid, v, rid, "completed", value="x")[0] // 100, 4, "metadata only")
         self.assertEqual(self.s.setup(sid)["setup"]["wait"]["request_id"], rid)
+        self.assertEqual(self.s.call("POST", f"/api/setups/{sid}/control", {"version":v,"command":{"action":"pause","value":True}})[0],204)
         self.assertEqual(self.s.respond(sid, v, rid, "completed")[0], 204)
-        self.assertGreaterEqual(self.s.respond(sid, self.s.setup(sid)["version"], rid, "completed")[0], 400, "duplicate")
+        before=self.s.setup(sid)
+        installs=len(self.s.calls(sid,"install-executor"))
+        self.assertEqual(self.s.respond(sid,before["version"],rid,"completed")[0],204,"repeat answers are idempotent")
+        after=self.s.setup(sid)
+        self.assertEqual((after["version"],after["setup"]),(before["version"],before["setup"]))
+        self.assertEqual(len(self.s.calls(sid,"install-executor")),installs)
+        self.assertEqual(self.s.sql("SELECT automation_paused FROM bot_state WHERE bot_id=?",(sid,)),[(1,)])
+        self.assertEqual(self.s.model.requests,0)
         self.assert_clean()
 
     def test_wrong_owner_and_cross_bot_responses_fail(self):

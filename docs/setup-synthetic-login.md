@@ -110,3 +110,7 @@ The live baseline exposed two inherited harness defects. The guest file check pa
 The first whole-service live run reached login and preserved the phone wait across restart. It then stopped on a misspelled counter helper. The parent added a complete orchestration test through both restarts and a changed-counter rejection test. Both failed before the name correction. A cleanup regression also showed that the launcher shell must be excluded without hiding reparented helper processes.
 
 Parent review found that the test browser fetched new HTML on every read. A real bare read returns the current rendered page. The corrected emulator keeps a rendered snapshot. Its service-flow regression failed until the script explicitly refreshed each read-only challenge page before reading service evidence. The model and gate ledger now include that refresh. No credential or submission is replayed.
+
+## Owned-process audit
+
+The second whole-service run passes all behavior gates but fails the aggregate cleanup check. Its path-matching check cannot establish ownership of a process that only names the output directory. The replacement audit records subprocess and verified VM identities and their descendants before stopping parents. It compares birth times after cleanup and records survivors in the manifest. Reparented helpers remain covered; unrelated observers and reused PIDs do not count as owned. The earlier failed manifest remains unchanged.

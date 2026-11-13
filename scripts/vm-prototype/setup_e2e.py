@@ -257,27 +257,35 @@ def server_log_path(private, n):
     return Path(private) / f"server-{n}-{int(time.time())}.log"
 
 
-def processes_left(out, proc_root=Path("/proc"), pid=None):
-    """Find run-path references after cleanup, excluding this process and its launch ancestors.
-    Orphans remain visible even when reparented outside the original process tree."""
-    excluded = set()
-    parent = os.getpid() if pid is None else pid
-    while parent and parent not in excluded:
-        excluded.add(parent)
-        try:
-            status = (proc_root / str(parent) / "status").read_text()
-            parent = int(next(line.split()[1] for line in status.splitlines() if line.startswith("PPid:")))
-        except (OSError, ValueError, StopIteration):
+def process_record(pid, proc_root=Path("/proc")):
+    try:
+        fields=(proc_root / str(pid) / "stat").read_text().rsplit(")",1)[1].split()
+        return int(fields[1]), fields[19], fields[0]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def capture_processes(roots, proc_root=Path("/proc")):
+    """Register run process identities and descendants before their parents stop."""
+    table={int(p.name): process_record(int(p.name),proc_root) for p in proc_root.iterdir() if p.name.isdigit()}
+    owned=set(roots)
+    while True:
+        children={pid for pid,record in table.items() if record and record[0] in owned}
+        if children <= owned:
             break
-    left = []
-    for entry in proc_root.iterdir():
-        if entry.name.isdigit() and int(entry.name) not in excluded:
-            try:
-                if str(out).encode() in (entry / "cmdline").read_bytes():
-                    left.append(entry.name)
-            except OSError:
-                pass
-    return sorted(left, key=int)
+        owned.update(children)
+    return {pid:table[pid][1] for pid in owned if table.get(pid)}
+
+
+def processes_left(registered, proc_root=Path("/proc")):
+    """Report only registered identities still running, including reparented helpers.
+    An observer naming the run path and a reused PID are not owned processes."""
+    left=[]
+    for pid,birth in registered.items():
+        record=process_record(pid,proc_root)
+        if record and record[1]==birth and record[2]!='Z':
+            left.append(str(pid))
+    return sorted(left,key=int)
 
 
 class Stack:
@@ -288,6 +296,7 @@ class Stack:
         self.out = Path(a.out)
         self.rt = self.out / "computers"
         self.procs = {}
+        self.owned = {}
         self.cfg = self.out / "private" / "deck.toml"
         self.client = Client(f"http://127.0.0.1:{a.server_port}")
 
@@ -370,12 +379,14 @@ request_usage = true
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.fixture_log = open(self.out / "private" / "fixture.log", "ab")
         self.procs["fixture"] = subprocess.Popen([sys.executable, str(HERE / "fixture.py"), "--port", str(a.fixture_port)], stdout=self.fixture_log, stderr=subprocess.STDOUT)
+        self.owned.update(capture_processes([self.procs["fixture"].pid]))
 
     def start_server(self):
         env = dict(os.environ, DECK_CONFIG=str(self.cfg), DECK_MODEL_KEY="scripted-key")
         self.starts += 1
         log = open(server_log_path(self.out / "private", self.starts), "wb")
         self.procs["server"] = subprocess.Popen([self.a.deck], env=env, stdout=log, stderr=subprocess.STDOUT, cwd=self.out)
+        self.owned.update(capture_processes([self.procs["server"].pid]))
         self.client.until("the server", lambda: self.client.raw("GET", "/api/setup-options")[0] == 200 if self.alive("server") else sys.exit("FAILED: the server exited"), 60)
 
     def alive(self, name):
@@ -385,6 +396,7 @@ request_usage = true
     def stop(self, name, wait=10):
         p = self.procs.get(name)
         if p and p.poll() is None:
+            self.owned.update(capture_processes([p.pid]))
             p.send_signal(signal.SIGTERM)
             try:
                 p.wait(wait)
@@ -406,6 +418,11 @@ request_usage = true
         """Stop only what this run started. Returns what is left."""
         self.stop("server")
         for d in self.vm_dirs():
+            paths=v.Paths(d)
+            if paths.pidfile.exists():
+                pid=int(paths.pidfile.read_text().strip())
+                if v.proc_ok(paths,pid):
+                    self.owned.update(capture_processes([pid]))
             subprocess.run([sys.executable, "-I", str(HERE / "vmproto.py"), "--dir", str(d), "kill"], stdin=subprocess.DEVNULL, capture_output=True)
         self.stop("fixture")
         for helper in (self.service, self.model):
@@ -414,7 +431,7 @@ request_usage = true
         if getattr(self, "httpd", None):
             self.httpd.shutdown()
             self.httpd.server_close()
-        return processes_left(self.out)
+        return processes_left(self.owned)
 
 
 # ---------- baseline gates ----------
@@ -707,7 +724,8 @@ def answer_owner_wait(c, m, svc, model, sid, task_id, kind, row, w, timeout, set
     fresh = c.setup(sid)
     code, _ = c.raw("POST", path, {**base, "version": fresh["version"]})
     need(m, f"{kind}_answer_accepted", code == 204, f"status {code}")
-    need(m, f"{kind}_resume_reached_the_model", model.wait_held(timeout), "the wake did not reach the model before the timeout")
+    reached=model.wait_held(timeout)
+    need(m, f"{kind}_resume_reached_the_model", reached, "the wake reached the model" if reached else "the wake did not reach the model before the timeout")
     # The model call is held. The owner action is done in the service. Deck must still be waiting for verification.
     held = c.setup(sid)
     state = owner_answer_state(held, rid)
@@ -960,7 +978,8 @@ def main(argv=None):
                     f.unlink(missing_ok=True)
         m.data["host"]["loadavg_end"] = Path("/proc/loadavg").read_text().split()[:3]
         m.gate("base_unchanged", PASS if verify_base(a.base) else FAIL)
-        m.gate("no_owned_process_left", PASS if not left else FAIL, f"{len(left)} left")
+        m.data["evidence"]["cleanup"]={"registered":{str(pid):birth for pid,birth in stack.owned.items()}, "survivors":left, "method":"registered subprocess and bound VM identities plus descendants"}
+        m.gate("no_owned_process_left", PASS if not left else FAIL, f"{len(left)} registered identities still running; survivors: {left}")
         if a.mode == "synthetic-login":
             m.require(required_gates(), OPTIONAL_SYNTHETIC)
         m.write(out / "manifest.json")

@@ -683,14 +683,27 @@ class WholeModeRegression(unittest.TestCase):
         self.assertEqual(restarts,1)
         self.assertEqual(manifest.data['gates']['restart_adds_no_work']['status'],e.FAIL)
 
-    def test_cleanup_excludes_launchers_but_finds_children_and_orphans(self):
+    def test_cleanup_tracks_owned_identities_not_observers_naming_the_path(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d)
-            for pid,parent,cmd in [(1,0,'init'),(50,1,'shell /owned/run'),(100,50,'harness /owned/run'),(101,100,'helper /owned/run'),(102,1,'orphan /owned/run'),(200,1,'other /different')]:
-                p=root/str(pid);p.mkdir()
-                (p/'status').write_text(f'PPid:\t{parent}\n')
-                (p/'cmdline').write_bytes(cmd.encode())
-            self.assertEqual(e.processes_left('/owned/run',root,100),['101','102'])
+            root = Path(d)
+            def proc(pid,parent,birth,state='S'):
+                p=root/str(pid);p.mkdir(exist_ok=True)
+                fields=[state,str(parent)]+['0']*17+[str(birth)]
+                (p/'stat').write_text(f'{pid} (python) '+ ' '.join(fields))
+                (p/'cmdline').write_bytes(b'observer /owned/run')
+            proc(50,1,10)
+            proc(100,50,20)
+            proc(101,100,21)
+            proc(102,1,22)
+            proc(200,50,23)
+            registered=e.capture_processes([100,102],root)
+            self.assertEqual(set(registered),{100,101,102})
+            (root/'100/stat').unlink()
+            proc(101,1,21)
+            self.assertEqual(e.processes_left(registered,root),['101','102'])
+            proc(101,1,999)
+            proc(102,1,22,'Z')
+            self.assertEqual(e.processes_left(registered,root),[])
 
 
 if __name__ == "__main__":
