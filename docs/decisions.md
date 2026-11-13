@@ -682,3 +682,9 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Create validated owner-only bot data and workspace folders before runtime registration. Refuse linked or foreign-owned path components. Keep configuration reads free of directory creation. Before the executor setup step completes, require the existing bare session to answer its protocol and match the bound guest identity. Use a bounded probe. A missing session cannot count as Ready.
 
 **Reason:** Live acceptance found missing host directories and a first browser task that ran before the desktop answered. These checks refine D62. They add no routine owner approval and authorize no replacement computer or browser fallback. Live confirmation remains a separate gate.
+
+## D65. Validate local synthetic sign-in before a real account (2026-11-13)
+
+**Decision:** Run setup acceptance against a local synthetic login first. Use generated credentials, a scripted model and one private guest computer. Exercise phone approval and CAPTCHA-style owner waits without a real account. Verify the service state separately from the owner answer. Keep live VM checks serial.
+
+**Reason:** The owner explicitly selected local synthetic login first. This permits delivery, restart and duplication checks without Gmail or private account state. A fixture pass does not establish real-service CAPTCHA support or universal screenshot secrecy.

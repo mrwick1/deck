@@ -1,7 +1,7 @@
 # Reviewed bot setup
 
 Updated: 2026-11-13.
-Status: Store, authenticated API, driver, runtime registration and review UI are connected. Deterministic tests pass. Fresh real-VM provisioning and the UI in bare remain unverified.
+Status: Store, authenticated API, driver, runtime registration, review UI and protected input are connected. Deterministic checks pass. Browser checks with a fake guest are documented. Full live sign-in acceptance remains open.
 
 ## Flow
 
@@ -62,7 +62,7 @@ For example, a pause command is `{"version":3,"command":{"action":"pause","value
 
 ## Credential and challenge boundary
 
-Protected credential storage and guest transfer are not implemented. The server advertises `protected_input: false`. The UI accepts labels only. Do not put passwords or codes in job text or labels.
+Protected input and guest transfer are implemented. The server advertises availability after probing the configured guest command. The UI accepts values only through protected input. Do not put passwords or codes in job text or labels.
 
 After the system steps, a required credential becomes a durable wait. Its value is never accepted by the ordinary wait-completion route. That route returns an unavailable response for credential waits. This preserves progress without pretending sign-in succeeded.
 
@@ -72,7 +72,7 @@ Phone and CAPTCHA wait states persist. Their real service interaction is not int
 
 Tests use real SQLite storage, a scripted model and fake harness operations. They cover restart, stale writes, approval idempotency, an atomic first task, a paused owner wait, held-runtime registration, authentication and image/executor mismatches. These tests do not prove fresh VM provisioning, desktop operation, model recommendation quality or real sign-in.
 
-The web passes type checking, tests and the production build. The existing bundle warning remains. No browser acceptance or accessibility interaction test ran for this screen. See [unattended-progress.md](unattended-progress.md) for exact checks and remaining work.
+The web passes type checking, tests and the production build. The existing bundle warning remains. Browser checks used a fake guest and seeded owner waits. Final sidebar, phone and keyboard checks remain in progress. See [unattended-progress.md](unattended-progress.md) for exact checks and remaining work.
 
 ## Protected input and readiness integration
 

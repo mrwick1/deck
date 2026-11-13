@@ -147,3 +147,7 @@ A separate harness task now extends the local fixture into an actual synthetic s
 Two checks started from `b48fcd9`. The browser check owns a fresh seeded, paused fixture stack and verifies sidebar bot routing, long request layout and review-toggle wording. It owns stack and screen cleanup. The live check is the sole VM owner. It runs baseline and protected delivery serially on fresh overlays, with the shared VM lock and normal host-pressure limits. It may not use diagnostic directory precreation.
 
 The synthetic-login harness implementation continues independently without a VM. These three tasks have separate file ownership. Their results must distinguish fixture checks, real guest delivery and whole-service sign-in. No merge or deployment is authorized.
+
+## Whole synthetic-login harness integration
+
+Commit `ed6bd71` is integrated as `ab53a1e`. The parent reproduced 51 acceptance-gate tests and 35 local-service/model-script tests. These 86 tests start no VM. The whole-service mode requires actual guest login, both owner-wait rounds, independent service evidence and one final submission. Its live run must wait for the current VM owner to finish and clean up. Final raster, saved-state wake and second-task gates remain explicit.

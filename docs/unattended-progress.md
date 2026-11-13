@@ -1,7 +1,7 @@
 # Unattended implementation handoff
 
 Updated: 2026-11-13.
-Status: implementation and integration in progress. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). The integration branch is `document-bot-setup`. The local `THREAD.md` records its current review link and ownership.
+Status: implementation and integration in progress. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher branch. The local `THREAD.md` records its current review link and ownership.
 
 ## Read first
 
@@ -132,8 +132,8 @@ No paid model calls, real account actions, live VM experiments or browser checks
 - The ceiling approval route is connected and covered by Store and handler checks. Complete HTTP authentication and browser acceptance for this operation remain untested. The legacy hold-release route remains separate from ceiling mutation.
 - Current authority loads between model steps. The trusted-instruction boundary still applies. Broader behavioral tests of instruction changes and restrictions remain useful.
 - Setup is connected to the real Store, worker, API and UI. Live fresh provisioning and browser acceptance remain unverified.
-- Protected credential input, credential lifetime and guest transfer are not implemented. Do not collect values in ordinary chat or journal them in command arguments.
-- CAPTCHA and phone wait types exist. No supported challenge-completion interaction has been verified.
+- Protected input and guest transfer are implemented. Real guest delivery and full sign-in acceptance remain open. Do not collect values in ordinary chat or journal them in command arguments.
+- Phone and CAPTCHA-style responses pass seeded UI and real-runtime fixture tests. A genuine service flow remains unverified.
 - Setup includes the reviewed ceiling, a serial driver and runtime registration. Its start claim and initial task commit together. Credential transfer and live acceptance remain open.
 - The harness uses fixed CPU and memory settings. Resource recommendations need actual support before the UI claims to apply them.
 - Resource changes beyond the current image and selection of an unpriced model are rejected. The configured managed-bot count is not awake-capacity scheduling.
@@ -160,3 +160,9 @@ The runtime and owner UI delegates are terminal. Their evidence is integrated. T
 Private folder preparation (`8d25d6a`) and protocol readiness (`aa06d84`) are integrated. The combined Rust run passes 303 unit tests and four integration tests. Formatting and clippy pass. The HTTP/fixture suite passes 31 tests with one screenshot gate skipped after correcting an asynchronous next-wait assumption. No live guest sign-in pass is claimed.
 
 The synthetic-login harness extension is the only active implementation delegate at this checkpoint. All previous live VM processes have been cleaned up. The next live run must use one fresh overlay and the shared VM lock. Keep performance claims separate. Live protected delivery, whole synthetic sign-in, raster secrecy and final browser rechecks remain open.
+
+## Synthetic-login harness integration
+
+Commit `ed6bd71` is integrated as `ab53a1e`. The parent reproduced all 86 focused harness tests. The mode now requires the service login, both owner-wait rounds, one final submission and restart persistence. It refuses missing required gates. No VM ran for these unit checks. The full prototype suite must not be rerun during the active VM check; its preflight tests require an idle host.
+
+Three acceptance tracks remain distinct. The sidebar/phone browser recheck owns its fake-guest stack. The serial live worker owns the only VM and runs the prior baseline and protected modes. The new whole synthetic-login mode will run after that VM is cleaned up. The draft review remains open. No merge or deployment ran.

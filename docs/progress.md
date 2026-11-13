@@ -6,7 +6,7 @@ For ongoing unattended-bot implementation, read [the implementation handoff](una
 
 ## Current branch checkpoint: 2026-11-13
 
-The unattended runtime and reviewed setup are integrated on `document-bot-setup`. Local checks pass: 229 Rust unit tests, four integration tests, 27 web tests, type checking, production build, formatting and clippy. Protected credentials, fresh live provisioning and bare UI acceptance remain open. No merge or deployment ran. Read [the handoff](unattended-progress.md) for commits and exact limits.
+The unattended runtime, reviewed setup and protected input are integrated in the current setup worktree. The publisher branch is `document-bot-setup`. Local checks pass: 303 Rust unit tests, four integration tests, 49 web tests, type checking, production build, formatting and clippy. The synthetic-login harness has 86 passing focused tests. Real VM and final browser acceptance remain in progress. Earlier browser runs used a fake guest. No merge or deployment ran. Read [the handoff](unattended-progress.md) for commits and exact limits.
 
 ## Earlier main checkpoint: 2026-11-13
 
