@@ -66,6 +66,9 @@ pub enum Outcome {
 pub struct Resolved {
     pub request_id: String,
     pub outcome: Outcome,
+    /// Retained for cancellation recovery after the open wait is removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +102,7 @@ impl Setup {
         self.resolved.push(Resolved {
             request_id: request_id.into(),
             outcome,
+            task_key: None,
         });
         let extra = self.resolved.len().saturating_sub(MAX_RESOLVED);
         self.resolved.drain(..extra);
@@ -242,6 +246,9 @@ impl Setup {
                     s.last_error = Some("the owner cancelled the request".into());
                 }
                 self.close(request_id, Outcome::Cancelled);
+                if let Step::Login(key) = step {
+                    self.resolved.last_mut().unwrap().task_key = Some(key.clone());
+                }
             }
         }
         Ok(())
@@ -556,6 +563,22 @@ mod tests {
             s.respond(&id, Decision::Cancel, 4),
             Err(SetupError::UnknownRequest)
         );
+    }
+
+    #[test]
+    fn cancelled_task_request_keeps_its_recovery_binding_after_reload() {
+        let mut s = ready();
+        let id = open(&mut s, 0, None);
+        s.respond(&id, Decision::Cancel, 1).unwrap();
+        let saved = serde_json::to_string(&s).unwrap();
+        let restored: Setup = serde_json::from_str(&saved).unwrap();
+        let resolved = restored
+            .resolved
+            .iter()
+            .find(|r| r.request_id == id)
+            .unwrap();
+        assert_eq!(resolved.task_key.as_deref(), Some("task-1"));
+        assert_eq!(resolved.outcome, Outcome::Cancelled);
     }
 
     #[test]

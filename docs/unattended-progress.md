@@ -146,3 +146,9 @@ No paid model calls, real account actions, live VM experiments or browser checks
 Review this integrated checkpoint. Implement protected input next, then validate one fresh VM and the bare UI. Setup authentication now has HTTP tests. Full live ceiling-form acceptance remains unverified. Run the combined Rust and web gates. Use synthetic fixtures and a scripted model. Serialize any later VM checks and retain evidence. Use only bare for browser acceptance.
 
 Keep this handoff current after each integration milestone. Record test results, unresolved gaps and exact commits. Do not label disconnected modules as finished product behavior.
+
+## Active-task owner response checkpoint
+
+Commit `733c5ce` adds active-task protected prompts and response reconciliation. Parent review replaces generic steering with an exact-task transactional answer. It also preserves cancelled task bindings for recovery. These changes keep pause, budget and unknown-outcome gates effective.
+
+The combined Rust run passes 271 unit tests and four integration tests. The later cancellation reconciliation test passes separately. Formatting and clippy pass. Web type checking, 49 tests and the build pass. These are deterministic checks. Live task resumption, protected browser rendering and the final HTTP failure suite remain open. The runtime/tool delegate and original live VM delegate have not reported completion.

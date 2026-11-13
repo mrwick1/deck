@@ -67,6 +67,16 @@ async fn respond(
         .and_then(|w| match &w.step {
             Step::Login(k) => Some(k.clone()),
             _ => None,
+        })
+        .or_else(|| {
+            before
+                .resolved
+                .iter()
+                .find(|r| {
+                    r.request_id == body.request_id
+                        && r.outcome == super::challenge::Outcome::Cancelled
+                })
+                .and_then(|r| r.task_key.clone())
         });
     let mut wake = None;
     if let Some(key) = key {
@@ -84,17 +94,6 @@ async fn respond(
                     "The bot is not ready; answer again soon",
                 )
             })?;
-            let held = st
-                .store
-                .bot_flags(&id, "Bot")
-                .await
-                .map_err(|e| conflict(&e))?;
-            if body.decision == Decision::Cancel && held.budget_hold {
-                return Err(error(
-                    StatusCode::CONFLICT,
-                    "A budget hold blocks the task: approve it first",
-                ));
-            }
             wake = Some((key, bot));
         }
     }

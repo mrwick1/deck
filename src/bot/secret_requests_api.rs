@@ -42,7 +42,8 @@ pub struct Open {
 }
 
 /// Sends one user message to the waiting task. It returns the id of the task that got it.
-pub type Wake<'a> = &'a (dyn Fn(String) -> BoxFuture<'static, Result<String, String>> + Sync);
+pub type Wake<'a> =
+    &'a (dyn Fn(String, String) -> BoxFuture<'static, Result<String, String>> + Sync);
 
 pub fn delivered_text(request: &str, label: &str) -> String {
     format!(
@@ -100,6 +101,30 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Row> {
 const COLS: &str = "request_id,task_id,label,state,expires_at";
 
 impl Store {
+    /// Save an answer only while this exact task owns the bot and waits. No new task is created.
+    /// The transaction also deduplicates the durable message across simultaneous responses.
+    async fn append_waiting_answer(
+        &self,
+        bot: &str,
+        task: &str,
+        text: &str,
+    ) -> anyhow::Result<bool> {
+        let (bot, task) = (bot.to_owned(), task.to_owned());
+        let message = json!({"role":"user", "content":text}).to_string();
+        self.run(move |c| {
+            let tx = rusqlite::Transaction::new_unchecked(c, rusqlite::TransactionBehavior::Immediate)?;
+            let owner: Option<(String, i64, String)> = tx.query_row(
+                "SELECT id,chat_id,state FROM tasks WHERE bot_id=?1 AND state IN ('running','waiting') ORDER BY seq LIMIT 1",
+                [&bot], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            ).optional()?;
+            let Some((id, chat, state)) = owner else { return Ok(false) };
+            if id != task || state != "waiting" { return Ok(false) }
+            tx.execute("INSERT INTO messages(chat_id,role,content,created_at) SELECT ?1,'user',?2,?3 WHERE NOT EXISTS(SELECT 1 FROM messages WHERE chat_id=?1 AND role='user' AND content=?2)", rusqlite::params![chat, message, crate::store::now()])?;
+            tx.commit()?;
+            Ok(true)
+        }).await
+    }
+
     /// Open requests whose task still waits. An expired request is not open.
     pub async fn open_secret_requests(&self, bot: &str, now: u64) -> anyhow::Result<Vec<Open>> {
         let bot = bot.to_owned();
@@ -169,11 +194,11 @@ impl Store {
 
     /// Whether the chat already holds a user message with this marker.
     async fn has_user_marker(&self, chat: i64, marker: &str) -> anyhow::Result<bool> {
-        let like = format!("%{}%", marker.replace(['\\', '%', '_'], "_"));
+        let marker = marker.to_owned();
         self.run(move |c| {
             c.query_row(
-                "SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id=?1 AND role='user' AND content LIKE ?2)",
-                rusqlite::params![chat, like],
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id=?1 AND role='user' AND instr(content, ?2) > 0)",
+                rusqlite::params![chat, marker],
                 |r| r.get(0),
             )
         })
@@ -192,8 +217,8 @@ pub enum Woke {
 }
 
 /// Wake the bot's waiting task `task_id` with `text`, once per `marker`. Pause, budget hold and
-/// unknown-outcome holds stay in force: `Bot::submit` queues the message and the step loop gates
-/// the run.
+/// unknown-outcome holds stay in force: the targeted sender saves the answer and the step loop
+/// gates the run.
 pub async fn wake(
     store: &Store,
     bot: &str,
@@ -217,7 +242,7 @@ pub async fn wake(
     {
         return Ok(Woke::Already);
     }
-    if send(text).await? != task.id {
+    if send(task.id.clone(), text).await? != task.id {
         return Err("the message reached another task".into());
     }
     Ok(Woke::Sent)
@@ -309,6 +334,24 @@ pub async fn reconcile(store: &Store, bot: &str, now: u64, send: Wake<'_>) -> Re
             .await,
         );
     }
+    if let Some(row) = store.setup_record(bot).await.map_err(internal)? {
+        for cancelled in row.setup.resolved.iter().filter(|r| {
+            r.outcome == super::challenge::Outcome::Cancelled
+                && r.task_key.as_deref() == Some(&task.id)
+        }) {
+            note(
+                wake(
+                    store,
+                    bot,
+                    &task.id,
+                    &challenge_marker(&cancelled.request_id, Decision::Cancel),
+                    challenge_text(&cancelled.request_id, Decision::Cancel),
+                    send,
+                )
+                .await,
+            );
+        }
+    }
     first.map_or(Ok(()), Err)
 }
 
@@ -396,20 +439,24 @@ pub async fn resume_challenge(
     .await
 }
 
-/// The wake of a real bot: a steering message to the task that waits.
+/// The wake of a real bot: append only to the exact waiting task. Never create or steer work.
 pub fn sender(
     bot: std::sync::Arc<super::Bot>,
-) -> impl Fn(String) -> BoxFuture<'static, Result<String, String>> + Sync {
-    move |text| {
+) -> impl Fn(String, String) -> BoxFuture<'static, Result<String, String>> + Sync {
+    move |task, text| {
         let bot = bot.clone();
         Box::pin(async move {
-            bot.submit(text, super::Mode::Steer, super::db::HIGH)
+            if !bot
+                .store
+                .append_waiting_answer(&bot.id, &task, &text)
                 .await
-                .map(|s| s.task_id)
-                .map_err(|e| match e {
-                    super::BotError::Conflict(m) => m,
-                    _ => "the task did not resume".into(),
-                })
+                .map_err(|_| "the task did not resume")?
+            {
+                return Err("the intended task no longer waits".into());
+            }
+            bot.inner.lock().unwrap().resume = Some(task.clone());
+            bot.kick();
+            Ok(task)
         })
     }
 }
@@ -452,7 +499,7 @@ mod tests {
     const FUTURE: u64 = 4_000_000_000;
 
     /// A fake bot: records each wake, answers with the task id, and adds the user message as
-    /// `Bot::submit` does.
+    /// the targeted sender does.
     struct Fake {
         store: Store,
         chat: i64,
@@ -464,10 +511,11 @@ mod tests {
     impl Fake {
         fn send(
             &self,
-        ) -> impl Fn(String) -> BoxFuture<'static, Result<String, String>> + Sync + use<> {
+        ) -> impl Fn(String, String) -> BoxFuture<'static, Result<String, String>> + Sync + use<>
+        {
             let (store, chat, task) = (self.store.clone(), self.chat, self.task.clone());
             let (sent, fail) = (self.sent.clone(), self.fail.clone());
-            move |text| {
+            move |_expected_task, text| {
                 let (store, task, sent, fail) =
                     (store.clone(), task.clone(), sent.clone(), fail.clone());
                 Box::pin(async move {
@@ -531,6 +579,71 @@ mod tests {
             .create_secret_request(id, "b", &f.task, "Site pass", "to sign in", expires)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_late_answer_cannot_create_or_steer_another_task() {
+        let f = waiting_task().await;
+        f.store
+            .move_task(&f.task, &["waiting"], "cancelled", None)
+            .await
+            .unwrap();
+        let next = f
+            .store
+            .add_task("b", f.chat, "message", "next".into(), "next".into(), 1)
+            .await
+            .unwrap();
+        f.store
+            .move_task(&next.id, &["queued"], "running", None)
+            .await
+            .unwrap();
+        assert!(
+            !f.store
+                .append_waiting_answer("b", &f.task, "late answer")
+                .await
+                .unwrap()
+        );
+        assert_eq!(f.store.tasks("b", 10).await.unwrap().len(), 2);
+        assert!(
+            f.store
+                .list_messages(f.chat)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_targeted_answer_is_durable_once_under_independent_holds() {
+        let f = waiting_task().await;
+        f.store.set_paused("b", true).await.unwrap();
+        f.store
+            .set_budget_hold("b", Some("fixture".into()))
+            .await
+            .unwrap();
+        assert!(
+            f.store
+                .append_waiting_answer("b", &f.task, "owner answer")
+                .await
+                .unwrap()
+        );
+        assert!(
+            f.store
+                .append_waiting_answer("b", &f.task, "owner answer")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            f.store.list_messages(f.chat).await.unwrap().unwrap().len(),
+            1
+        );
+        let flags = f.store.bot_flags("b", "Bot").await.unwrap();
+        assert!(flags.automation_paused && flags.budget_hold);
+        assert_eq!(
+            f.store.task(&f.task).await.unwrap().unwrap().state,
+            "waiting"
+        );
     }
 
     #[tokio::test]
@@ -641,6 +754,74 @@ mod tests {
             Some(Woke::Already)
         );
         assert_eq!(f.count(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_cancel_saved_before_a_failed_wake_is_reconciled_once() {
+        use crate::bot::{
+            challenge::Challenge,
+            setup::{Authority, Draft, Help, Limits, Resources, Setup, Status},
+        };
+        let f = waiting_task().await;
+        let mut setup = Setup::new(
+            "b",
+            Draft {
+                revision: 1,
+                name: "fixture".into(),
+                instructions: "fixture".into(),
+                model: "fixture".into(),
+                authority: Authority::Full,
+                resources: Resources {
+                    cpus: 2,
+                    memory_mib: 2048,
+                    disk_gib: 10,
+                },
+                budget: None,
+                credentials: vec![],
+                task: None,
+            },
+        )
+        .unwrap();
+        setup
+            .approve(
+                1,
+                "owner",
+                &Limits {
+                    max_cpus: 2,
+                    max_memory_mib: 2048,
+                    max_disk_gib: 10,
+                },
+            )
+            .unwrap();
+        setup.steps.iter_mut().for_each(|s| s.status = Status::Done);
+        let super::super::challenge::Requested::Open(request) = setup
+            .request_help(
+                &f.task,
+                Challenge::Phone,
+                Help {
+                    instructions: Some("Approve the fixture".into()),
+                    match_number: None,
+                },
+                None,
+                0,
+            )
+            .unwrap()
+        else {
+            panic!("expected request")
+        };
+        setup.respond(&request, Decision::Cancel, 1).unwrap();
+        let snapshot = serde_json::to_string(&setup).unwrap();
+        f.store.run(move |c| {
+            c.execute("INSERT INTO bot_setup_drafts(draft_id,bot_id,revision,body,updated_at,lifecycle) VALUES ('b','b',1,?1,?2,1)", rusqlite::params![snapshot, crate::store::now()]).map(drop)
+        }).await.unwrap();
+        *f.fail.lock().unwrap() = Some("temporary wake failure".into());
+        assert!(reconcile(&f.store, "b", 10, &f.send()).await.is_err());
+        assert_eq!(f.count(), 0);
+        *f.fail.lock().unwrap() = None;
+        reconcile(&f.store, "b", 10, &f.send()).await.unwrap();
+        reconcile(&f.store, "b", 10, &f.send()).await.unwrap();
+        assert_eq!(f.count(), 1);
+        assert!(f.sent.lock().unwrap()[0].contains("cancelled"));
     }
 
     #[tokio::test]
@@ -769,7 +950,7 @@ mod tests {
         // A wake that lands on a different task is an error, not a success.
         let g = waiting_task().await;
         *g.fail.lock().unwrap() = None;
-        let wrong = |_t: String| -> BoxFuture<'static, Result<String, String>> {
+        let wrong = |_task: String, _t: String| -> BoxFuture<'static, Result<String, String>> {
             Box::pin(async { Ok("other".to_string()) })
         };
         assert!(

@@ -85,3 +85,13 @@ Three isolated follow-up tasks started from `da249a4`: runtime/guest contract an
 ## Failure-harness recheck checkpoint: 2026-11-13
 
 Recheck `0e6141a` is integrated as `c9807c1`. The child reports 22 passes, seven receipt-probe failures and one skipped screenshot gate on `da249a4`. Parent review found and corrected an additional fixture mismatch: a completed identity must not restore an overwritten secret. Its fixture-only regression failed before the correction and passes after it. The seven-failure report remains historical evidence, not a result for the corrected combined head. Runtime and task UI follow-ups remain active. The original live VM worker has not reported completion.
+
+## Active-task integration checkpoint: 2026-11-13
+
+Task prompt commit `419c396` is integrated as `733c5ce`. Authenticated `GET /api/bots/{id}/secret-requests` returns pending task request metadata only. Chat shows those requests beside setup waits. Task input posts directly to the protected task endpoint. Delivered requests and expired requests have reconciliation paths. No live task-resumption or browser pass follows from this integration.
+
+Parent review removed generic steering from owner-answer delivery. The targeted sender now checks the exact waiting task and inserts its answer in one database transaction. It never creates a task or steers another task. Duplicate answer insertion applies once. Tests cover a task replaced before the answer and independent pause/budget holds.
+
+Cancellation now retains its task binding in the resolved snapshot. A failed cancellation wake can be reconciled after reload. The optional field preserves old snapshot decoding. A regression for the missing binding failed before implementation. The storage and recovery tests pass after the fixes. Cancellation metadata can be saved under spending holds; dispatch still obeys the holds.
+
+Verification: the combined Rust run passes 271 unit tests and four integration tests. A subsequently added cancellation reconciliation test also passes. Two live tests remain ignored. Formatting, clippy, web type checking, all 49 web tests and the production build pass. The existing bundle-size warning remains. The HTTP failure harness must run again after the pending receipt-contract fix. Runtime/tool integration and the original live VM worker have not reported completion.
