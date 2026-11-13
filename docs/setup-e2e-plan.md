@@ -175,3 +175,7 @@ The parent added orchestration tests through both restarts and a changed-counter
 A rendered-page emulator exposed another harness assumption: reading a page does not refresh server state. The script now reloads each read-only challenge page before reading its evidence. The corrected emulator's integration test failed before this change and passes after it. The owner sequence now contains status, refresh, read and verification.
 
 The full prototype suite runs 367 tests: 366 pass and one screenshot gate is skipped. These are deterministic checks. A new serial live rerun must use this repaired head. No other delegate or VM is active. The reported relay outside the live run has unverified ownership and was not touched.
+
+## Repaired whole-service live rerun assignment
+
+A new exclusive live rerun started from `5007996`. The worker may run the complete mode once on a fresh overlay with normal pressure limits. It must verify both owner rounds, refreshed service evidence and the final single submission. All previous workers are terminal. The failed earlier run remains retained. The new report must distinguish required gates from optional raster and saved-state checks.
