@@ -151,3 +151,13 @@ The synthetic-login harness implementation continues independently without a VM.
 ## Whole synthetic-login harness integration
 
 Commit `ed6bd71` is integrated as `ab53a1e`. The parent reproduced 51 acceptance-gate tests and 35 local-service/model-script tests. These 86 tests start no VM. The whole-service mode requires actual guest login, both owner-wait rounds, independent service evidence and one final submission. Its live run must wait for the current VM owner to finish and clean up. Final raster, saved-state wake and second-task gates remain explicit.
+
+## Live confirmation and final harness corrections
+
+Live report `ab05455` is integrated as `7558e42`. The fresh VM confirms normal directory creation, the readiness probe, browser/shell/file work, restart counts and idle quiet. Its fixture-visit gate failed because the harness discarded the fixture's stdout. Protected HTTP delivery passed but its guest-file check crashed because it supplied bytes to a text-only QGA API.
+
+The parent added two regressions. Both failed before the fixes. The fixture output now reaches the visit log, and the guest value check passes text on stdin. The complete prototype Python suite now runs 363 tests: 362 pass and the screenshot gate is skipped. This is deterministic evidence. The final real synthetic-login run remains pending.
+
+Navigation report `afc10e3` is integrated as `9d091f1`. Sidebar bot routing, review toggle, keyboard entry and seeded responses pass. Bare issue 464 blocks phone colors. [Bare issue 467](https://github.com/mrwick1/bare/issues/467) blocks unbroken-text wrapping. Deck adds no fallback. The owned UI fixtures and their synthetic values were removed after cleanup; sanitized reports and external screenshot evidence remain.
+
+All previous delegates and VM processes are terminal at this checkpoint. The next real run will use the complete `synthetic-login` mode, one fresh overlay and the shared VM lock. No competing VM run may start. Raster secrecy, saved-state second-task and phone rendering remain separate limits.

@@ -346,7 +346,7 @@ request_usage = true
         self.httpd = ThreadingHTTPServer(("127.0.0.1", a.model_port), ScriptedModel)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.fixture_log = open(self.out / "private" / "fixture.log", "ab")
-        self.procs["fixture"] = subprocess.Popen([sys.executable, str(HERE / "fixture.py"), "--port", str(a.fixture_port)], stdout=subprocess.DEVNULL, stderr=self.fixture_log)
+        self.procs["fixture"] = subprocess.Popen([sys.executable, str(HERE / "fixture.py"), "--port", str(a.fixture_port)], stdout=self.fixture_log, stderr=subprocess.STDOUT)
 
     def start_server(self):
         env = dict(os.environ, DECK_CONFIG=str(self.cfg), DECK_MODEL_KEY="scripted-key")
@@ -525,7 +525,7 @@ class Guest:
                   "print(json.dumps({'exists':os.path.exists(f),'mode':oct(os.stat(f).st_mode&0o777) if os.path.exists(f) else None,"
                   "'owner':os.stat(f).st_uid if os.path.exists(f) else None,'name_present':any(l.split('=',1)[0]==n for l in t),"
                   "'value_matches':(n+'='+v) in t}))\n")
-        code, out, _ = v.Qga(self.p.qga).exec(["/usr/bin/python3", "-c", script, name], stdin=value.encode())
+        code, out, _ = v.Qga(self.p.qga).exec(["/usr/bin/python3", "-c", script, name], stdin=value)
         return json.loads(out) if code == 0 else {"error": code}
 
 

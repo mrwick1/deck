@@ -100,3 +100,7 @@ These need the live run:
 ## Decision for the parent
 
 This mode follows the owner's choice of a local synthetic login first. The decisions log is outside this task's ownership. The parent should record the choice in `docs/decisions.md`.
+
+## Parent integration corrections
+
+The live baseline exposed two inherited harness defects. The guest file check passed bytes to the text-only QGA API. The fixture access log was discarded. The parent added regressions that fail on both defects and then fixed them. The full prototype Python suite runs 363 tests with one screenshot gate skipped; the other 362 pass. A live whole-service result is still required.

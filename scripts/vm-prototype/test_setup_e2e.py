@@ -16,6 +16,49 @@ import stage3
 SECRET = "e2e-synthetic-Zk9-value"
 
 
+class LiveHarnessRegressions(unittest.TestCase):
+    def test_guest_value_check_uses_the_qga_text_stdin_contract(self):
+        from unittest.mock import patch
+        import secrets
+        value = secrets.token_urlsafe(24)
+        seen = []
+        def run(argv, stdin=None):
+            if not isinstance(stdin, str):
+                raise TypeError("QGA stdin must be text")
+            seen.append(stdin == value and all(value not in arg for arg in argv))
+            return 0, '{"value_matches":true,"mode":"0o600"}', ''
+        with tempfile.TemporaryDirectory() as d, patch.object(e.v, "Qga") as qga:
+            qga.return_value.exec.side_effect = run
+            result = e.Guest(Path(d)).check_secret_file("FIXTURE_PASS",value)
+        self.assertEqual(seen,[True])
+        self.assertTrue(result["value_matches"])
+
+    def test_fixture_visits_count_the_actual_fixture_output(self):
+        import socket, time
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "private").mkdir()
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1",0))
+                port=sock.getsockname()[1]
+            stack=e.Stack(SimpleNamespace(out=d,server_port=0,model_port=0,fixture_port=port))
+            try:
+                stack.start_helpers()
+                deadline=time.monotonic()+5
+                while True:
+                    try:
+                        with urllib.request.urlopen(f"http://127.0.0.1:{port}/",timeout=1) as res:
+                            self.assertIn(b"Deck fixture",res.read())
+                        break
+                    except OSError:
+                        if time.monotonic()>=deadline: raise
+                        time.sleep(0.02)
+                self.assertEqual(stack.fixture_visits(),1)
+            finally:
+                stack.cleanup()
+                stack.fixture_log.close()
+
+
 class Helpers(unittest.TestCase):
     def test_pressure(self):
         mem = "MemTotal: 1 kB\nMemAvailable: 4194304 kB\n"

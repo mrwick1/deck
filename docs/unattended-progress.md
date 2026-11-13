@@ -166,3 +166,9 @@ The synthetic-login harness extension is the only active implementation delegate
 Commit `ed6bd71` is integrated as `ab53a1e`. The parent reproduced all 86 focused harness tests. The mode now requires the service login, both owner-wait rounds, one final submission and restart persistence. It refuses missing required gates. No VM ran for these unit checks. The full prototype suite must not be rerun during the active VM check; its preflight tests require an idle host.
 
 Three acceptance tracks remain distinct. The sidebar/phone browser recheck owns its fake-guest stack. The serial live worker owns the only VM and runs the prior baseline and protected modes. The new whole synthetic-login mode will run after that VM is cleaned up. The draft review remains open. No merge or deployment ran.
+
+## Latest live and browser evidence
+
+The serial live worker is terminal and cleaned up. Report `7558e42` confirms private folders, protocol readiness, one browser/shell/file task, restart counts and idle quiet. Its protected HTTP delivery passes, but two inherited harness defects prevented complete acceptance. Both now have failing regressions and fixes. The full Python suite passes 362 tests with one screenshot gate skipped. No real synthetic-login pass is claimed yet.
+
+Report `9d091f1` confirms sidebar routing and keyboard controls. Bare issues 464 and 467 retain the phone rendering and unbroken-text failures. No Deck fallback is added. Owned UI fixture directories were removed after their workers stopped. The next VM run must use the complete synthetic-login mode serially.
