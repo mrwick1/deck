@@ -239,3 +239,9 @@ The parent integrated the candidate-browser report. The actual UI and VM complet
 The follow-up clears the model fixture's held flag on release and timeout. The controller now returns expected credential length and hash prefix. Its finish response explicitly lists missing UI gates. The fill script returns a visible-text leak boolean without returning the value. Focused regressions reproduced the defects and now pass. A complete focused-suite run and fresh live evidence run remain pending.
 
 The complete synthetic-service and UI-controller suites now pass all 79 tests. A fresh real-UI/VM run has started with the metadata-fixed candidate. Its brief requires all four UI gates before finish and retains sanitized images for parent review. No new live result is available yet.
+
+## Text-collection blocker after the candidate retry
+
+The next candidate run failed before protected delivery. The field filled and stayed masked, but its async verification did not return. All four worker gates now carry a result; none was silently omitted. The parent verified no registered survivors, a free VM lock and removal of the disk and memory-state files. See `setup-ui-vm-final-results.md`.
+
+A separate minimal bare probe narrowed the failure. Timers and SHA-256 resolve on a fresh page. The body text getter throws Unsupported when it reaches a textarea. The same getter in an async continuation leaves that result and a later timer pending. The earlier promise-await fix is already an ancestor. Bare issues 481 and 482 track this evidence. The next focused design handles rendered textarea text without collecting form values. It awaits the owner review required by bare's repository instructions.
