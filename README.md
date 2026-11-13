@@ -35,6 +35,8 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 | File | Contents |
 | --- | --- |
 | [docs/progress.md](docs/progress.md) | Current status, verification and historical checkpoints |
+| [docs/unattended-implementation-plan.md](docs/unattended-implementation-plan.md) | Approved unattended requirements and implementation stages |
+| [docs/unattended-progress.md](docs/unattended-progress.md) | Agent assignments, integration state, verification and handoff |
 | [docs/vision.md](docs/vision.md) | Goal, user, scope and quality bar |
 | [docs/architecture.md](docs/architecture.md) | Parts of the system and how they talk |
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |

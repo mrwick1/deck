@@ -2,6 +2,8 @@
 
 Update this file when a stage or verification step ends.
 
+For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current failing check and remaining work.
+
 ## Current status: 2026-11-13
 
 Stages 1–3 are merged in PR #22. PR #23 contains the measurement harnesses, evidence fixes and one-bot save optimization. It is open and is not deployed. CI passed on implementation head `081ddeb`; later documentation edits need their own CI result.
