@@ -268,6 +268,8 @@ CREATE TABLE privacy_gates(
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bot_id: Option<String>,
     pub title: String,
     pub created_at: String,
 }
@@ -410,6 +412,7 @@ impl Store {
                 params![title, created_at],
             )?;
             Ok(Chat {
+                bot_id: None,
                 id: c.last_insert_rowid(),
                 title,
                 created_at,
@@ -420,9 +423,10 @@ impl Store {
 
     pub async fn list_chats(&self) -> anyhow::Result<Vec<Chat>> {
         self.run(|c| {
-            c.prepare("SELECT id, title, created_at FROM chats ORDER BY id DESC")?
+            c.prepare("SELECT c.id, c.title, c.created_at, b.bot_id FROM chats c LEFT JOIN bot_state b ON b.chat_id=c.id ORDER BY c.id DESC")?
                 .query_map([], |r| {
                     Ok(Chat {
+                        bot_id: r.get(3)?,
                         id: r.get(0)?,
                         title: r.get(1)?,
                         created_at: r.get(2)?,
@@ -630,6 +634,24 @@ mod tests {
     fn formats_rfc3339() {
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339(1_709_210_096), "2024-02-29T12:34:56Z");
+    }
+
+    #[tokio::test]
+    async fn listed_chats_identify_their_own_bot_for_navigation() {
+        let store = Store::open_memory().unwrap();
+        let a = store.bot_flags("a", "A").await.unwrap().chat_id;
+        let b = store.bot_flags("b", "B").await.unwrap().chat_id;
+        let plain = store.create_chat("plain".into()).await.unwrap().id;
+        let chats = store.list_chats().await.unwrap();
+        assert_eq!(
+            chats.iter().find(|c| c.id == a).unwrap().bot_id.as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            chats.iter().find(|c| c.id == b).unwrap().bot_id.as_deref(),
+            Some("b")
+        );
+        assert_eq!(chats.iter().find(|c| c.id == plain).unwrap().bot_id, None);
     }
 
     #[tokio::test]

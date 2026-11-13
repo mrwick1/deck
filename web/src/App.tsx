@@ -52,6 +52,7 @@ export default function App() {
     mode,
     priority,
     home: true,
+    onSelectBot: setSelectedBot,
   });
   const running = dock.running;
   const [drawer, setDrawer] = useState(false);

@@ -1,5 +1,6 @@
 export interface Chat {
   id: number;
+  bot_id?: string;
   title: string;
   created_at: string;
 }

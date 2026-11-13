@@ -48,7 +48,7 @@ export function WaitPanel({ row, protectedInput, refresh }: { row: api.SetupReco
     finally { setBusy(false); }
   };
   const left = wait.expires_at != null ? Math.max(0, wait.expires_at - tick) : null;
-  return <section aria-label={`Setup request for ${row.setup.draft.name}`} className="bg-muted/40 flex flex-col gap-2 rounded-lg border p-3">
+  return <section aria-label={`Setup request for ${row.setup.draft.name}`} className="bg-muted/40 flex min-w-0 flex-col gap-2 rounded-lg border p-3 [overflow-wrap:anywhere]">
     <p role="status" className="text-sm font-medium">{view.title}</p>
     <p className="text-sm">{view.detail}</p>
     {left !== null && view.mode !== "expired" && view.mode !== "pending" && <p className="text-muted-foreground text-xs">Expires in {Math.floor(left / 60)}m {left % 60}s.</p>}
@@ -65,7 +65,7 @@ export function TaskSecretPanel({ botId, request, refresh }: { botId: string; re
   useEffect(() => { const t = setInterval(() => setTick(now()), 1000); return () => clearInterval(t); }, []);
   const view = describeTaskSecret(request, tick);
   const left = Math.max(0, request.expires_at - tick);
-  return <section aria-label={`Protected input for ${request.label}`} className="bg-muted/40 flex flex-col gap-2 rounded-lg border p-3">
+  return <section aria-label={`Protected input for ${request.label}`} className="bg-muted/40 flex min-w-0 flex-col gap-2 rounded-lg border p-3 [overflow-wrap:anywhere]">
     <p role="status" className="text-sm font-medium">{view.title}</p>
     <p className="text-sm">{view.detail}</p>
     {view.mode === "secret" && <p className="text-muted-foreground text-xs">Expires in {Math.floor(left / 60)}m {left % 60}s.</p>}

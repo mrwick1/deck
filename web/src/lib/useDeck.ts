@@ -52,6 +52,7 @@ export function useDeck(bot?: {
   mode: "steer" | "queue";
   priority: number;
   home: boolean;
+  onSelectBot?: (id: string | undefined) => void;
 }) {
   const [chats, setChats] = useState<api.Chat[]>([]);
   const [chatId, setChatId] = useState<number | null>(null);
@@ -238,8 +239,12 @@ export function useDeck(bot?: {
           id: String(c.id),
           title: c.title,
         })),
-        onSwitchToNewThread: () => setChatId(null),
-        onSwitchToThread: (id) => setChatId(Number(id)),
+        onSwitchToNewThread: () => { bot?.onSelectBot?.(undefined); setChatId(null); },
+        onSwitchToThread: (id) => {
+          const chat = chats.find(c => c.id === Number(id));
+          bot?.onSelectBot?.(chat?.bot_id);
+          setChatId(Number(id));
+        },
       },
     },
   });

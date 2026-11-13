@@ -75,7 +75,7 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
     {rows.map(r => <article key={r.setup.id} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{r.setup.draft.name}</h3><span className="text-muted-foreground text-xs">{r.runtime_ready ? "Ready" : r.phase}</span></div>
-      {r.phase === "Draft" ? <><Button size="sm" variant="outline" onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>Review setup</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
+      {r.phase === "Draft" ? <><Button size="sm" variant="outline" aria-expanded={editing === r.setup.id} onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>{editing === r.setup.id ? "Hide review" : "Review setup"}</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
         <ul className="text-sm">{r.checklist.map(i => <li key={i.label}>{i.done ? "✓" : "·"} {i.label}</li>)}</ul>
         {r.error && <p role="alert" className="text-sm text-red-500">{r.error}</p>}
         {r.setup.wait && <WaitPanel row={r} protectedInput={protectedInput} refresh={refresh} />}

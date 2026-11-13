@@ -125,3 +125,11 @@ Live harness `289c95b` is integrated as `2778965`. The original worker has shut 
 ## Live-blocker implementation assignments
 
 Two isolated tasks started from `fa27294`. One creates validated private host directories before runtime registration. The other establishes a bounded protocol readiness check before setup can finish. Both must produce failing regressions and report exact fixture contracts. Neither may launch a VM. The live worker is terminal and has released its VM. A new serial live acceptance run will start only after these fixes integrate. The seeded owner-UI check remains active.
+
+## Seeded owner UI evidence and review fixes
+
+Report `0f90a62` is integrated as `7fa4198`. Seeded phone approval and CAPTCHA cancellation preserve task identity and pause. Active-task protected input clears on Escape, Clear and submission. Delivery and restart checks show one guest entry and no scanned leaks. The worker closed its sessions, screen and stack. The proxy's incomplete stream read appeared during shutdown; the report does not identify it as a failed product gate.
+
+The worker filed [bare issue 464](https://github.com/mrwick1/bare/issues/464) for missing CSS color support. Deck adds no color fallback. It also confirmed that a new draft already opens its review; the old button label made the first toggle look like an ignored click. The parent now labels that state Hide review and exposes its expanded state.
+
+Sidebar navigation previously changed the chat without its bot scope. The parent adds optional bot identity to chat-list responses and selects that identity with the sidebar chat. A Store regression failed before the association existed and passes after it. Plain chats retain no bot identity. Long request text now wraps within the thread and owner panels. Web type checking, 49 tests and the build pass. A browser recheck is required for navigation and phone layout. The full Rust rerun is in progress.
