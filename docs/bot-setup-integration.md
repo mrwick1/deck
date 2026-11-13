@@ -1,7 +1,7 @@
 # Reviewed bot setup
 
 Updated: 2026-11-13.
-Status: Store, authenticated API, driver, runtime registration, review UI and protected input are connected. Deterministic checks pass. Browser checks with a fake guest are documented. Full live sign-in acceptance remains open.
+Status: Store, authenticated API, driver, runtime registration, review UI and protected input are connected. Deterministic checks pass. Browser checks with a fake guest are documented. The local API/guest synthetic sign-in passes. Phone rendering and combined UI plus VM acceptance remain open.
 
 ## Flow
 
@@ -82,4 +82,4 @@ Phone and CAPTCHA-style owner responses use `POST /api/setups/{id}/challenge/res
 
 Runtime registration now prepares private host directories. The executor setup step also waits for a bounded bare protocol-readiness probe. The synthetic guest fixture models this command explicitly. This is implementation, not a full live acceptance pass. See [the completion plan](setup-e2e-plan.md), [runtime evidence](setup-runtime-acceptance.md) and [owner UI evidence](setup-owner-ui-results.md).
 
-The owner UI checks used seeded waits and a fake guest. Real guest protected delivery and the full synthetic sign-in still require a fresh serial run. [Bare issue 464](https://github.com/mrwick1/bare/issues/464) tracks missing CSS color support observed in the phone view. Deck adds no browser or color fallback.
+The owner UI checks used seeded waits and a fake guest. Real guest protected delivery and the full local synthetic sign-in now pass the [final live run](setup-synthetic-login-final.md). This does not establish a single unmocked UI plus VM journey. [Bare issue 464](https://github.com/mrwick1/bare/issues/464) tracks missing CSS color support observed in the phone view. Deck adds no browser or color fallback.

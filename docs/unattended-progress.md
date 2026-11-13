@@ -1,7 +1,15 @@
 # Unattended implementation handoff
 
 Updated: 2026-11-13.
-Status: implementation and integration in progress. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher branch. The local `THREAD.md` records its current review link and ownership.
+Status: core setup and local API/guest synthetic sign-in pass. Phone UI rendering remains blocked. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher branch. The local `THREAD.md` records its current review link and ownership.
+
+## Latest accepted evidence
+
+The [final live report](setup-synthetic-login-final.md) records exit 0. All 55 required API/guest gates pass. The manifest has 57 pass statuses, three optional checks unrun and zero failures. The service records one login, zero failed logins, one submit attempt and one success. Both owner rounds verify service evidence separately from owner answers. Restarts add no work. The cleanup registry has no survivors.
+
+The parent inspected that manifest, checked all registered PIDs are absent and verified the released VM lock. No VM disk or memory-state file remains. Metadata and earlier failed evidence remain private. All delegates are terminal.
+
+Local checks: 303 Rust unit tests, four integration tests, 49 web tests, type checking, build, formatting and clippy pass. The Python suite passes 366 tests with one screenshot gate skipped. No whole-product, real-account, performance or single unmocked UI plus VM claim follows. Bare issues [464](https://github.com/mrwick1/bare/issues/464) and [467](https://github.com/mrwick1/bare/issues/467) retain the phone rendering limits. Raster secrecy and saved-state second-task checks remain unrun.
 
 ## Read first
 
@@ -96,17 +104,14 @@ The parent reproduced the invalid-budget save in a failing Store regression. The
 
 The host lifecycle returned a partial slice, integrated as `67b0d14`. The failure harness is integrated as `da249a4`. Combined acceptance is pending. Parent inspection found an absent-receipt exit-status mismatch and missing active-task presentation/resumption seams. Three isolated follow-ups now own runtime integration, task API/UI and the failure harness. The original real VM delegate has not reported completion. See the completion plan for details. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
 
-## Current work and next edits
+## Current work and remaining validation
 
-The earlier reviewed-setup checkpoint is in draft review. Its original six children returned. The new end-to-end wave above has active delegates. The source passes deterministic checks. Keep live acceptance and the remaining product work separate.
+Core setup and API/guest synthetic acceptance pass. All assigned implementation and acceptance workers have returned. Keep the draft review open with its explicit limits. Do not rerun the old implementation steps in the historical checkpoints below.
 
-1. Inspect the T3 Code protected-input mechanism required by D29. Specify credential storage, lifetime, redaction and guest transfer before collecting any values.
-2. Connect protected credential input and supported phone/CAPTCHA interactions. Do not complete a credential wait through ordinary chat.
-3. Verify fresh private-computer creation with one owned real VM. Retain image, executor, task, save/restore and cleanup evidence. Keep Gmail and real account state outside this experiment.
-4. Verify the review and progress screen in bare at phone and desktop widths. Follow the bare feedback loop for failures.
-5. Extend job-specific recommendations and conversational follow-up behavior. The current defaults are explicit in the setup guide.
-6. Validate two-bot file, account and artifact isolation before making that claim. The API routing test does not prove VM isolation.
-7. Define automatic resource adjustment, spike/no-progress thresholds and period rollover separately. Current harness and capacity limits remain explicit.
+1. Resolve bare rendering issues 464 and 467 in bare. Deck adds no fallback.
+2. Validate raster secrecy, saved-state wake with a second task and a single unmocked owner UI plus VM journey separately.
+3. Keep real accounts and Gmail outside this synthetic workstream. No production action is authorized here.
+4. Review broader deferred work separately: conversational recommendations, memory, capacity scheduling, resource tuning, period rollover and no-progress policy.
 
 ## Verification ledger
 
@@ -131,10 +136,10 @@ No paid model calls, real account actions, live VM experiments or browser checks
 
 - The ceiling approval route is connected and covered by Store and handler checks. Complete HTTP authentication and browser acceptance for this operation remain untested. The legacy hold-release route remains separate from ceiling mutation.
 - Current authority loads between model steps. The trusted-instruction boundary still applies. Broader behavioral tests of instruction changes and restrictions remain useful.
-- Setup is connected to the real Store, worker, API and UI. Live fresh provisioning and browser acceptance remain unverified.
-- Protected input and guest transfer are implemented. Real guest delivery and full sign-in acceptance remain open. Do not collect values in ordinary chat or journal them in command arguments.
-- Phone and CAPTCHA-style responses pass seeded UI and real-runtime fixture tests. A genuine service flow remains unverified.
-- Setup includes the reviewed ceiling, a serial driver and runtime registration. Its start claim and initial task commit together. Credential transfer and live acceptance remain open.
+- Setup is connected to Store, worker, API and UI. Fresh API/guest provisioning and synthetic sign-in pass. UI checks used a fake guest; combined UI plus VM acceptance remains unverified.
+- Protected input and guest transfer are implemented. Real guest delivery and local synthetic sign-in pass. Real-account and universal raster acceptance are not claimed. Do not collect values in ordinary chat or journal them in command arguments.
+- Phone and CAPTCHA-style responses pass the local service flow through a real VM. Real provider challenges remain outside this run.
+- Setup includes the reviewed ceiling, a serial driver and runtime registration. Its start claim and initial task commit together. Credential transfer and required synthetic API/guest acceptance pass; optional visual and lifecycle checks remain open.
 - The harness uses fixed CPU and memory settings. Resource recommendations need actual support before the UI claims to apply them.
 - Resource changes beyond the current image and selection of an unpriced model are rejected. The configured managed-bot count is not awake-capacity scheduling.
 - Budget period rollover, spike thresholds and no-progress policy remain unimplemented. Do not invent a monetary default.
@@ -143,9 +148,7 @@ No paid model calls, real account actions, live VM experiments or browser checks
 
 ## Next delivery gate
 
-Review this integrated checkpoint. Implement protected input next, then validate one fresh VM and the bare UI. Setup authentication now has HTTP tests. Full live ceiling-form acceptance remains unverified. Run the combined Rust and web gates. Use synthetic fixtures and a scripted model. Serialize any later VM checks and retain evidence. Use only bare for browser acceptance.
-
-Keep this handoff current after each integration milestone. Record test results, unresolved gaps and exact commits. Do not label disconnected modules as finished product behavior.
+Publish the final accepted evidence to the existing draft. Retain rendering and optional validation limits. Do not merge or deploy. Use the latest evidence above; the dated checkpoints below preserve how the implementation reached this state.
 
 ## Active-task owner response checkpoint
 

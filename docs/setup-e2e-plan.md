@@ -1,7 +1,7 @@
 # Setup end-to-end completion plan
 
 Date: 2026-11-13.
-Status: authorized. The owner requested parallel implementation and orchestration. Use a local synthetic login first. Do not use Gmail or real account credentials.
+Status: required API/guest synthetic-login gates pass. The owner selected a local synthetic login first. UI checks remain a separate evidence layer. Bare issues 464 and 467 block phone rendering. Do not use Gmail or real account credentials.
 
 ## Acceptance target
 
@@ -191,3 +191,11 @@ A fixture test also incorrectly required a repeated completion to fail. The endp
 ## Tracked-cleanup live acceptance assignment
 
 The next exclusive live run started from `7118ba2`. It must preserve the already-passing behavior gates and verify the registered process audit. Its manifest will contain the registered identities and any survivors. All prior workers are terminal. The worker may run once, retain failures and clean up before returning. No competing VM may start. The optional visual and saved-state limits remain unchanged.
+
+## Final accepted API/guest checkpoint
+
+Report `86d3cdf` is integrated as `5c7df33`. The fresh real-VM run exits 0. It records 60 gates: 57 pass, three optional checks not run and zero failures. The aggregate confirms all 55 required gates. Both owner rounds, exact special-character login, one submission, restart persistence and zero scanned leaks pass. The registered cleanup audit has no survivors.
+
+The parent inspected the raw manifest, verified every registered PID is absent and acquired the released VM lock. No guest disk or saved-memory file remains. Runtime metadata is retained; the parent does not claim that the metadata directory is empty. Failed earlier manifests remain unchanged.
+
+This closes core API/guest synthetic acceptance. It does not close bare rendering issues 464/467, raster secrecy, saved-state second-task checks or a single unmocked UI plus VM journey. All delegates are terminal. No live process, merge or deployment is owned by this workstream. The draft PR retains these limits.

@@ -6,7 +6,7 @@ For ongoing unattended-bot implementation, read [the implementation handoff](una
 
 ## Current branch checkpoint: 2026-11-13
 
-The unattended runtime, reviewed setup and protected input are integrated in the current setup worktree. The publisher branch is `document-bot-setup`. Local checks pass: 303 Rust unit tests, four integration tests, 49 web tests, type checking, production build, formatting and clippy. The synthetic-login harness has 86 passing focused tests. Real VM and final browser acceptance remain in progress. Earlier browser runs used a fake guest. No merge or deployment ran. Read [the handoff](unattended-progress.md) for commits and exact limits.
+The unattended runtime, reviewed setup and protected input are integrated. The publisher branch is `document-bot-setup`. Local checks pass: 303 Rust unit tests, four integration tests, 49 web tests, type checking, production build, formatting and clippy. The prototype Python suite passes 366 tests with one screenshot gate skipped. The real API/guest synthetic-login run passes all 55 required gates: 57 pass statuses, three optional checks unrun and zero failures. Browser UI checks used a fake guest; a single unmocked UI plus VM journey is not claimed. Bare issues 464 and 467 block phone rendering. No merge or deployment ran. Read [the handoff](unattended-progress.md) and [final live report](setup-synthetic-login-final.md) for exact limits.
 
 ## Earlier main checkpoint: 2026-11-13
 

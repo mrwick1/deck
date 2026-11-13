@@ -47,3 +47,7 @@ The manifest lists four registered subprocess identities, each with a birth time
 ## Cleanup
 
 Server, VM, model, service and fixture processes ended. The overlay is gone. The lock is free. Evidence stays outside Git in a private directory. The earlier failed run manifests are unchanged.
+
+## Parent verification
+
+The parent read the original manifest and confirmed its aggregate pass, 57 pass statuses, three optional unrun checks and empty survivor list. The parent checked that all four registered PIDs are absent and acquired the released VM lock. No disk or saved-memory file remains. Runtime metadata remains in the private output directory; that directory is not empty. Earlier failed run evidence remains unchanged.

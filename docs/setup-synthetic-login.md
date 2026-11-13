@@ -5,6 +5,10 @@ Base: `8d25d6a`.
 Code: `scripts/vm-prototype/setup_e2e.py` (mode `synthetic-login`) and `scripts/vm-prototype/setup_synthetic_login.py`.
 Tests: `test_setup_e2e.py` and `test_setup_synthetic_login.py`. They start no VM and no browser.
 
+## Current result
+
+The [final real-VM run](setup-synthetic-login-final.md) passes all 55 required API/guest gates. It records 57 pass statuses, three optional checks not run and zero failures. Service counters show one successful login and one submitted report. This is not a single unmocked owner UI plus VM journey. Phone rendering remains blocked by bare issues 464 and 467.
+
 ## Purpose
 
 The owner chose a local synthetic login first. The earlier `protected` mode delivered a secret and then marked phone and CAPTCHA gates pending, because nothing raised them. This mode raises them with a real sign-in through the guest's bare.
