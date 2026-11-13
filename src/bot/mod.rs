@@ -7,6 +7,8 @@
 pub mod accounting;
 pub mod api;
 pub mod authority;
+pub mod challenge;
+pub mod challenge_api;
 pub mod db;
 pub mod events;
 pub mod hub;

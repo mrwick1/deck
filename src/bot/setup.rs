@@ -95,6 +95,9 @@ pub enum Step {
     Boot,
     InstallExecutor,
     Credential(String),
+    /// Owner help for a sign-in that a running task asked for. It is never a provisioning step.
+    /// The text names the task or session that owns the request.
+    Login(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -133,6 +136,22 @@ pub struct Wait {
     pub expires_at: Option<u64>,
     /// Seconds a re-issued request lives.
     pub ttl_secs: Option<u64>,
+    /// Short service instructions for the owner. Never a code or a secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// A number the owner must match on the phone, when the service shows one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_number: Option<String>,
+    /// The owner said the action is done. A running task still has to verify it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub answered: bool,
+}
+
+/// Owner-facing detail of one challenge request.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Help {
+    pub instructions: Option<String>,
+    pub match_number: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -163,6 +182,9 @@ pub struct Setup {
     pub wait: Option<Wait>,
     pub wait_seq: u64,
     pub started: bool,
+    /// Recent closed challenge requests, newest last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved: Vec<super::challenge::Resolved>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +215,8 @@ pub enum SetupError {
     UnknownRequest,
     #[error("the request expired; answer {0} instead")]
     Expired(String),
+    #[error("another owner request is open: {0}")]
+    Busy(String),
     #[error("the step is not waiting for a resolution")]
     NotUnknown,
     #[error("setup is not ready")]
@@ -219,6 +243,12 @@ pub enum StepOutcome {
     Wait {
         kind: WaitKind,
         ttl_secs: Option<u64>,
+    },
+    /// A wait with owner instructions. The next run of the step verifies the owner's action.
+    Help {
+        kind: WaitKind,
+        ttl_secs: Option<u64>,
+        help: Help,
     },
     /// Safe to retry. Costs one attempt.
     Retry(String),
@@ -256,6 +286,7 @@ impl Setup {
             wait: None,
             wait_seq: 0,
             started: false,
+            resolved: vec![],
         })
     }
 
@@ -362,7 +393,14 @@ impl Setup {
         persist(self).map_err(SetupError::Persist)
     }
 
-    fn open_wait(&mut self, step: Step, kind: WaitKind, ttl_secs: Option<u64>, now: u64) {
+    pub(super) fn open_wait(
+        &mut self,
+        step: Step,
+        kind: WaitKind,
+        ttl_secs: Option<u64>,
+        help: Help,
+        now: u64,
+    ) {
         self.wait_seq += 1;
         self.wait = Some(Wait {
             request_id: format!("{}:{}", self.id, self.wait_seq),
@@ -370,6 +408,9 @@ impl Setup {
             kind,
             expires_at: ttl_secs.map(|t| now + t),
             ttl_secs,
+            instructions: help.instructions,
+            match_number: help.match_number,
+            answered: false,
         });
     }
 
@@ -412,6 +453,7 @@ impl Setup {
                         label: label.clone(),
                     },
                     None,
+                    Help::default(),
                     now,
                 );
                 self.save(persist)?;
@@ -438,7 +480,15 @@ impl Setup {
                 StepOutcome::Done => st.status = Status::Done,
                 StepOutcome::Wait { kind, ttl_secs } => {
                     st.status = Status::Waiting;
-                    self.open_wait(step, kind, ttl_secs, now);
+                    self.open_wait(step, kind, ttl_secs, Help::default(), now);
+                }
+                StepOutcome::Help {
+                    kind,
+                    ttl_secs,
+                    help,
+                } => {
+                    st.status = Status::Waiting;
+                    self.open_wait(step, kind, ttl_secs, help, now);
                 }
                 StepOutcome::Retry(e) => {
                     st.status = Status::Pending;
@@ -467,8 +517,22 @@ impl Setup {
         let Some(w) = self.wait.clone().filter(|w| w.request_id == request_id) else {
             return Err(SetupError::UnknownRequest);
         };
+        if matches!(w.step, Step::Login(_)) {
+            return Err(SetupError::Invalid(
+                "answer a sign-in help request through the challenge response".into(),
+            ));
+        }
         if w.expires_at.is_some_and(|e| now >= e) {
-            self.open_wait(w.step, w.kind, w.ttl_secs, now);
+            self.open_wait(
+                w.step,
+                w.kind,
+                w.ttl_secs,
+                Help {
+                    instructions: w.instructions,
+                    match_number: w.match_number,
+                },
+                now,
+            );
             let id = self
                 .wait
                 .as_ref()
@@ -512,6 +576,7 @@ impl Setup {
                     Step::Boot => "Computer started".into(),
                     Step::InstallExecutor => "Executor installed".into(),
                     Step::Credential(l) => format!("Credential: {l}"),
+                    Step::Login(l) => format!("Sign-in help: {l}"),
                 },
                 done: s.status == Status::Done,
             })
@@ -699,8 +764,8 @@ impl HarnessProvisioner {
                     },
                 )
             }
-            Step::Credential(_) => Ok(StepOutcome::Fatal(
-                "a credential is not a harness step".into(),
+            Step::Credential(_) | Step::Login(_) => Ok(StepOutcome::Fatal(
+                "an owner request is not a harness step".into(),
             )),
         }
     }
