@@ -1,3 +1,5 @@
+#[allow(dead_code)] // Pure contract. Store and model slices call it later.
+mod accounting;
 mod agent;
 mod api;
 mod auth;
