@@ -1,0 +1,32 @@
+# Success criteria
+
+Work in `deck` follows success criteria. The owner sets one criterion at a time. Work on a criterion ends only when its checks pass. Each criterion names its tasks, its proof and its pass rule.
+
+## SC1. Gmail works end to end
+
+**Goal:** The deck agent signs in to Gmail through `bare`. It then does normal mail work in that account.
+
+**Proof:** Private eval tasks in `evals/run.py`. They run with the real model and the real `bare-mcp`. The task file, the secrets file and the browser state stay outside the repository (see `evals/README.md`, D52 and D53).
+
+**Pass rule:** One full run passes every task below. No task needs a manual step, except one phone approval on the first sign-in.
+
+### Tasks
+
+Run the tasks in this order. Each task after the first uses the saved session.
+
+| Id | Task | Check |
+| --- | --- | --- |
+| `gmail-login` | Sign in with the address and password secrets. Handle the second factor. Save the session. | Run ends `done`. The answer names the signed-in address. The password is not in the answer or a tool argument. |
+| `gmail-reuse` | In a new deck process, restore the session and read the inbox. | No sign-in form is used. The answer lists inbox messages. |
+| `gmail-send` | Send a mail to the test address with subject `deck-{{run_id}}`. Attach the three made files. | The send action shows in the trace. Later tasks find the message. |
+| `gmail-search` | Search for `deck-{{run_id}}`. Open the message. Report the sender, the subject and the body. | The answer holds `{{run_id}}` and the body text. |
+| `gmail-reply` | Reply to the message. Forward it to the test address. | Searches find the reply and the forward. |
+| `gmail-download` | Download the three attachments. | `downloaded` holds: each file has the SHA-256 of a made file. |
+| `gmail-organize` | Add a label. Star the message. Mark it unread, then read. Archive it. | A new chat reads the state back and finds each change. |
+| `gmail-delete` | Delete the test messages of this run. | A search for `deck-{{run_id}}` finds no message outside the trash. |
+
+### Known gaps
+
+- `evals/run.py` runs all tasks in one deck process. `gmail-reuse` needs a second run with the same `--state-dir`.
+- The checks of `gmail-organize` and `gmail-delete` read Gmail through the agent. No check reads Gmail state independent of the agent.
+- Gmail failures in `bare` become `bare` issues, as `docs/feedback-loop.md` describes.
