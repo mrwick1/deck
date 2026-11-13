@@ -1,7 +1,7 @@
 # Unattended bot implementation plan
 
 Date: 2026-11-13.
-Status: implementation proposal. No implementation or deployment is authorized by this document alone.
+Status: the owner authorized implementation on 2026-11-13. Delivery is in progress. Deployment and merge remain outside this authorization.
 
 ## Goal and authority
 

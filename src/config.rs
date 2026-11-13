@@ -22,6 +22,32 @@ pub struct Config {
     pub vm: Option<Vm>,
     /// Synthetic event intake for the bot of `[vm]`.
     pub events: Option<Events>,
+    /// Explicit model accounting for the configured bot. Missing leaves legacy mode unchanged.
+    pub accounting: Option<Accounting>,
+}
+
+/// Owner-supplied accounting. Monetary values use integer units of currency/exponent.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Accounting {
+    pub currency: String,
+    pub exponent: u8,
+    pub period: String,
+    pub policy_version: String,
+    pub ceiling: i64,
+    pub allowance: i64,
+    pub increase_increment: i64,
+    pub price_version: String,
+    pub input_per_million: i64,
+    pub output_per_million: i64,
+    pub extra_per_call: i64,
+    /// Provider's maximum billable input, including hidden request overhead.
+    pub max_input_tokens: u64,
+    pub max_input_bytes: usize,
+    pub max_output_tokens: u32,
+    pub max_response_bytes: usize,
+    pub completion_token_field: bool,
+    pub request_usage: bool,
 }
 
 pub const VM_CONFIG_VERSION: u32 = 1;
@@ -169,6 +195,35 @@ impl Config {
             anyhow::ensure!(
                 vm.screen_interval_ms >= 100,
                 "vm.screen_interval_ms must be at least 100"
+            );
+        }
+        if let Some(a) = &c.accounting {
+            anyhow::ensure!(c.vm.is_some(), "[accounting] needs [vm]");
+            crate::accounting::Unit::new(&a.currency, a.exponent)?;
+            anyhow::ensure!(
+                a.exponent <= 9
+                    && !a.period.trim().is_empty()
+                    && !a.policy_version.trim().is_empty()
+                    && !a.price_version.trim().is_empty(),
+                "accounting unit, period and versions must be explicit"
+            );
+            anyhow::ensure!(
+                a.ceiling >= 0
+                    && a.allowance >= 0
+                    && a.allowance <= a.ceiling
+                    && a.increase_increment > 0,
+                "accounting allowance must fit the ceiling and increase_increment must be positive"
+            );
+            anyhow::ensure!(
+                a.input_per_million >= 0 && a.output_per_million >= 0 && a.extra_per_call >= 0,
+                "accounting prices must be non-negative"
+            );
+            anyhow::ensure!(
+                a.max_input_tokens > 0
+                    && a.max_input_bytes > 0
+                    && a.max_output_tokens > 0
+                    && a.max_response_bytes > 0,
+                "accounting request bounds must be positive"
             );
         }
         if let Some(e) = &c.events {

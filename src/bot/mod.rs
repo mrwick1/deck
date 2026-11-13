@@ -4,6 +4,7 @@
 //! The loop is event-driven: it wakes on a change or at the next deadline (idle save, batch
 //! close). An idle bot makes no model call, no poll and no capture.
 
+pub mod accounting;
 pub mod api;
 pub mod db;
 pub mod events;
@@ -298,7 +299,9 @@ impl Bot {
         self.close_batches().await?;
         let busy = self.inner.lock().unwrap().current.is_some();
         let flags = self.store.bot_flags(&self.id, "Bot").await?;
-        let gates_open = !flags.automation_paused && !flags.budget_hold;
+        let gates_open = !flags.automation_paused
+            && !flags.budget_hold
+            && self.store.holds(&self.id).await?.is_empty();
         let owner = self.store.owner_task(&self.id).await?;
         if !busy && !self.stopping.load(Relaxed) {
             let resume = if gates_open {
@@ -396,7 +399,10 @@ impl Bot {
     async fn dispatch(self: &Arc<Self>, task: Task, resume: bool) -> anyhow::Result<()> {
         let gate = self.dispatch_gate.lock().await;
         let flags = self.store.bot_flags(&self.id, "Bot").await?;
-        if flags.automation_paused || flags.budget_hold {
+        if flags.automation_paused
+            || flags.budget_hold
+            || !self.store.holds(&self.id).await?.is_empty()
+        {
             if resume {
                 self.inner.lock().unwrap().resume = Some(task.id);
             }
@@ -1027,6 +1033,9 @@ impl Bot {
             "automation_paused": flags.automation_paused,
             "budget_hold": flags.budget_hold,
             "budget_reason": flags.budget_reason,
+            "accounting": internal(self.store.accounting(&self.id).await)?,
+            "exposure": internal(self.store.exposure(&self.id).await)?,
+            "holds": internal(self.store.holds(&self.id).await)?,
             "working": working,
             "waiting": waiting,
             "queued": queued,

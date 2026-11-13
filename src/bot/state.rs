@@ -464,7 +464,9 @@ impl Store {
                         version: r.get(1)?,
                         instructions: r.get(2)?,
                         authority: Authority::parse(&r.get::<_, String>(3)?),
-                        restrictions: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+                        restrictions: serde_json::from_str(&r.get::<_, String>(4)?).map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
+                        })?,
                         actor: r.get(5)?,
                     })
                 },
@@ -641,6 +643,81 @@ impl Store {
             Ok(Outcome::Applied(version))
         })
         .await
+    }
+
+    /// Increase the working allowance and reserve a charge in one write transaction.
+    /// The absolute ceiling is the only default monetary cap on automatic increases.
+    pub async fn admit_charge(
+        &self,
+        bot: &str,
+        reservation: &str,
+        amount: i64,
+        increment: i64,
+        price_version: &str,
+    ) -> anyhow::Result<Outcome> {
+        let (bot, id, price) = (
+            bot.to_owned(),
+            reservation.to_owned(),
+            price_version.to_owned(),
+        );
+        self.run(move |c| {
+            let t = immediate(c)?;
+            let Some(a) = accounting_row(&t, &bot)? else { return Ok(Outcome::Unconfigured) };
+            let prior: Option<(String, i64)> = t.query_row(
+                "SELECT bot_id, amount FROM accounting_reservations WHERE reservation_id = ?1",
+                [&id], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional()?;
+            if let Some((b, n)) = prior {
+                return Ok(if b == bot && n == amount {
+                    Outcome::Duplicate(exposure_of(&t, &a, &bot)?.remaining)
+                } else { conflict("reservation identity conflict") });
+            }
+            if amount < 0 || increment <= 0 || price.trim().is_empty() {
+                return Ok(conflict("charge, increase and pricing version must be valid"));
+            }
+            let paused: i64 = t.query_row(
+                "SELECT automation_paused OR budget_hold FROM bot_state WHERE bot_id = ?1", [&bot], |r| r.get(0),
+            )?;
+            let held: i64 = t.query_row("SELECT COUNT(*) FROM bot_holds WHERE bot_id = ?1", [&bot], |r| r.get(0))?;
+            if paused != 0 || held != 0 { return Ok(conflict("the bot is held or paused")); }
+            let e = exposure_of(&t, &a, &bot)?;
+            let invalid = |e: crate::accounting::AccountingError| rusqlite::Error::ToSqlConversionFailure(Box::new(e));
+            use crate::accounting::{Admission, IncreasePolicy, Ledger, LedgerParts, PeriodId, Quote, Unit};
+            let unit = Unit::new(&a.currency, a.exponent).map_err(invalid)?;
+            let money = |n: i64| unit.amount(n as u64);
+            let ledger = Ledger::restore(LedgerParts {
+                period: PeriodId::new(&a.period).map_err(invalid)?,
+                ceiling: money(a.ceiling), allowance: money(a.allowance),
+                settled: money(e.settled), pending: money(e.reserved), unresolved: money(e.unresolved),
+                auto_increased: money(0),
+                policy: IncreasePolicy { max_step: money(a.ceiling), min_increment: money(increment), max_period_total: money(a.ceiling) },
+            }).map_err(invalid)?;
+            let quote = Quote::Priced { version: price.clone(), amount: money(amount) };
+            match ledger.admit(&quote, None).map_err(invalid)? {
+                Admission::Admitted { next, increase } => {
+                    if let Some(increase) = increase {
+                        let allowance = i64::try_from(increase.to.units()).map_err(|_| overflow())?;
+                        let version = a.version.checked_add(1).ok_or_else(overflow)?;
+                        t.execute("UPDATE bot_accounting SET allowance = ?2, version = ?3 WHERE bot_id = ?1", params![bot, allowance, version])?;
+                        record_change(&t, &bot, &format!("auto:{id}"), "allowance", a.allowance, allowance,
+                            &format!("reserve {id} at price {price}; recent exposure {}", a.allowance - e.remaining), "policy", version)?;
+                        let content = serde_json::json!({"role":"assistant","content":format!("Working budget increased from {} to {} integer {} units to reserve the next model call. Absolute ceiling: {}. Price version: {}.", a.allowance, allowance, a.currency, a.ceiling, price)}).to_string();
+                        t.execute("INSERT INTO messages(chat_id, role, content, created_at) SELECT chat_id, 'assistant', ?2, ?3 FROM bot_state WHERE bot_id = ?1", params![bot, content, now()])?;
+                    }
+                    t.execute("INSERT INTO accounting_reservations(reservation_id, bot_id, period, amount, state, created_at) VALUES (?1,?2,?3,?4,'reserved',?5)", params![id, bot, a.period, amount, now()])?;
+                    let left = i64::try_from(next.allowance().units() - next.exposure().map_err(invalid)?.units()).map_err(|_| overflow())?;
+                    t.commit()?;
+                    Ok(Outcome::Applied(left))
+                }
+                Admission::CeilingHold { needed, .. } => {
+                    let reason = format!("absolute spending ceiling reached; requested exposure {}", needed.units());
+                    t.execute("INSERT INTO bot_holds(bot_id, kind, reason, created_at) VALUES (?1,'ceiling',?2,?3) ON CONFLICT(bot_id, kind) DO UPDATE SET reason = excluded.reason", params![bot, reason, now()])?;
+                    t.commit()?;
+                    Ok(Outcome::Insufficient(a.ceiling - (a.allowance - e.remaining)))
+                }
+                _ => Ok(conflict("accounting policy did not admit the charge")),
+            }
+        }).await
     }
 
     /// Reserve `amount` before a priced dispatch. Fits only inside the remaining working allowance.
@@ -821,6 +898,67 @@ mod tests {
             .unwrap();
         assert_eq!(w, Outcome::Applied(1));
         s
+    }
+
+    #[tokio::test]
+    async fn automatic_admission_is_atomic_and_never_crosses_the_ceiling() {
+        let s = configured().await;
+        let (a, b) = tokio::join!(
+            s.admit_charge("b", "one", 6000, 100, "test-price"),
+            s.admit_charge("b", "two", 6000, 100, "test-price")
+        );
+        let results = [a.unwrap(), b.unwrap()];
+        assert_eq!(
+            results
+                .iter()
+                .filter(|o| matches!(o, Outcome::Applied(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|o| matches!(o, Outcome::Insufficient(_)))
+                .count(),
+            1
+        );
+        let a = s.accounting("b").await.unwrap().unwrap();
+        assert!(a.allowance <= a.ceiling);
+        let e = s.exposure("b").await.unwrap().unwrap();
+        assert_eq!(e.reserved, 6000);
+        let winner = if matches!(results[0], Outcome::Applied(_)) {
+            "one"
+        } else {
+            "two"
+        };
+        assert_eq!(
+            s.admit_charge("b", winner, 6000, 100, "test-price")
+                .await
+                .unwrap(),
+            Outcome::Duplicate(e.remaining)
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_restrictions_fail_closed() {
+        let s = configured().await;
+        s.revise_definition(
+            "b",
+            0,
+            "owner",
+            Authority::Restricted,
+            "job",
+            &["no sends".into()],
+        )
+        .await
+        .unwrap();
+        s.run(|c| {
+            c.execute("UPDATE bot_definitions SET restrictions = 'broken'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(s.active_definition("b").await.is_err());
     }
 
     #[tokio::test]

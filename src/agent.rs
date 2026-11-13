@@ -475,7 +475,17 @@ impl Agent {
         let Some(bot) = self.config.vm.as_ref().map(|v| v.bot_id.as_str()) else {
             return Ok(false);
         };
-        Ok(run.task_id.is_some() && self.store.budget_held(bot).await?)
+        if run.task_id.is_none() {
+            return Ok(false);
+        }
+        if !self.store.holds(bot).await?.is_empty() {
+            return Ok(true);
+        }
+        Ok(self
+            .store
+            .active_definition(bot)
+            .await?
+            .is_some_and(|d| d.authority == crate::bot::state::Authority::Revoked))
     }
 
     /// Give each tool call without a result an error result, so the history stays valid.

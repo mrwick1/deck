@@ -100,20 +100,6 @@ impl Store {
         .await
     }
 
-    pub async fn budget_held(&self, bot: &str) -> anyhow::Result<bool> {
-        let bot = bot.to_owned();
-        self.run(move |c| {
-            Ok(c.query_row(
-                "SELECT budget_hold FROM bot_state WHERE bot_id = ?1",
-                [&bot],
-                |r| r.get::<_, i64>(0),
-            )
-            .optional()?
-            .is_some_and(|h| h != 0))
-        })
-        .await
-    }
-
     pub async fn set_paused(&self, bot: &str, paused: bool) -> anyhow::Result<()> {
         let bot = bot.to_owned();
         self.run(move |c| {

@@ -67,3 +67,11 @@ Units are abstract. Currency `TST`, scale 2. Ceiling 100. Allowance 40. Step 30.
 - Store: build a `Ledger` with `Ledger::restore(LedgerParts)` from stored rows. It rejects mixed units and an allowance above the ceiling. Write back from the accessors. The Store owns ceiling changes and builds a new ledger from the owner-approved value.
 - Model: call `quote(pricing, Usage, extra)` with bounded input and output tokens. `extra` bounds provider-specific charges. Missing pricing gives `Quote::Unpriced`.
 - Not covered: spike and no-progress thresholds, rollover, idempotency, notifications, and spending through raw browser or shell tools under D33.
+
+## Integration checkpoint
+
+The configured-bot adapter uses the absolute ceiling as the default monetary bound on automatic increases. It does not activate a separate step or period-increase cap. The configured increment can add headroom for the next request. The Store applies the allowance change and reservation in one transaction.
+
+Model accounting is opt-in for existing configured bots. The owner supplies currency, precision, period, allowance, ceiling, increment, prices and request bounds. Restart does not overwrite owner ceiling changes from the stored record. Missing usage retains the reservation as unresolved exposure. Provider bounds require verification before claiming an invoice cap. External purchases remain outside model-call accounting.
+
+Owner controls, setup provisioning and spike/no-progress policy are not complete at this checkpoint. No period rollover runs automatically.

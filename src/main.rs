@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     let model = model::ModelClient::new(&config.model.base_url, key, &config.model.api_key_env);
+    let accounting = bot::accounting::install(&config, &store).await?;
     // Without [vm], bare-mcp starts on the first browser tool call. With [vm], the guest runs bare.
     let (agent, bot) = match config.vm.as_ref() {
         None => {
@@ -72,12 +73,11 @@ async fn main() -> anyhow::Result<()> {
                 &config.data_dir,
             )
             .with_guest(hub.clone());
-            let agent = Arc::new(agent::Agent::with_tools(
-                config.clone(),
-                store.clone(),
-                model,
-                tools,
-            ));
+            let mut agent = agent::Agent::with_tools(config.clone(), store.clone(), model, tools);
+            if let Some(accounting) = accounting {
+                agent = agent.with_accounting(accounting);
+            }
+            let agent = Arc::new(agent);
             let cap = Arc::new(bot::screen::QmpCapture {
                 socket: vm.qmp(),
                 dir: config.data_dir.join("screen"),
