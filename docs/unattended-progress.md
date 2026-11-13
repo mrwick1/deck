@@ -221,3 +221,7 @@ The next combined UI/VM start also exited 3 before launch. Host load was 10.25, 
 ## Combined live run started
 
 The owner explicitly authorized bypass of the load gate for this run. The parent raised only the run's load threshold to 32. The memory check and exclusive VM lock remain active. The local controller started. A browser worker now drives the actual setup, protected-input and owner-answer forms. The VM starts only after UI approval. No acceptance result is available yet.
+
+## Combined run blocked at protected input
+
+The actual UI approved setup and the real VM reached the credential wait. The one-use fill route refused the page fetch with 403 before releasing a value. Bare issue 475 tracks the suspected fetch-metadata header problem. The exact outgoing header is not verified. The run failed acceptance. No credential delivery, challenge or raster pass is claimed. Cleanup passed and the parent confirmed no owned process, disk, browser session or screen remains. See `setup-ui-vm-results.md`.
