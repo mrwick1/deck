@@ -644,5 +644,15 @@ class Pages(unittest.TestCase):
         self.assertIn("sha256", js.lower())
 
 
+class RequestScript(unittest.TestCase):
+    def test_real_setup_request_identity(self):
+        request = SID + ":1"
+        self.assertIn("request_id=" + request + "&", ui.fill_js(request))
+
+    def test_query_injection_is_refused(self):
+        with self.assertRaises(ValueError):
+            ui.fill_js("x&label=other")
+
+
 if __name__ == "__main__":
     unittest.main()

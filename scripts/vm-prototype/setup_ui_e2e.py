@@ -55,7 +55,7 @@ return{filled:el.value===v,length:el.value.length,sha256:h.slice(0,12)}})()"""
 
 
 def fill_js(request_id):
-    if not re.fullmatch(r"[0-9A-Za-z_-]{1,64}", request_id):
+    if not re.fullmatch(r"[0-9A-Za-z_:-]{1,128}", request_id):
         raise ValueError("bad request id")
     return FILL_JS.replace("__REQUEST_ID__", request_id)
 
