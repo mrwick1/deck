@@ -4,7 +4,11 @@ Update this file when a stage or verification step ends.
 
 For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
 
-## Current status: 2026-11-13
+## Current branch checkpoint: 2026-11-13
+
+The unattended runtime and reviewed setup are integrated on `document-bot-setup`. Local checks pass: 229 Rust unit tests, four integration tests, 27 web tests, type checking, production build, formatting and clippy. Protected credentials, fresh live provisioning and bare UI acceptance remain open. No merge or deployment ran. Read [the handoff](unattended-progress.md) for commits and exact limits.
+
+## Earlier main checkpoint: 2026-11-13
 
 Stages 1–3 are merged in PR #22. PR #23 contains the measurement harnesses, evidence fixes and one-bot save optimization. It is open and is not deployed. CI passed on implementation head `081ddeb`; later documentation edits need their own CI result.
 

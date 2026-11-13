@@ -4,7 +4,7 @@
 
 ## Status
 
-M1 and the three-stage one-bot desktop prototype are merged. The measured save optimization and benchmark reports are in PR #23, pending merge. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
+M1, the three-stage one-bot desktop prototype and the measured save optimization are merged. This branch adds unattended accounting and reviewed bot setup. Protected credentials and live setup acceptance remain open. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 

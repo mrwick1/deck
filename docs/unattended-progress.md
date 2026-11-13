@@ -1,7 +1,7 @@
 # Unattended implementation handoff
 
 Updated: 2026-11-13.
-Status: implementation and integration in progress. Nothing is pushed or deployed.
+Status: implementation and integration in progress. No merge or deployment ran. The integration branch is `document-bot-setup`. The local `THREAD.md` records its current review link and ownership.
 
 ## Read first
 
@@ -53,7 +53,7 @@ The parent resolved the setup cherry-pick conflict by retaining both `setup` and
 - Runtime and tool-boundary hold checks read typed holds. Dispatch stays blocked by ceiling, investigation, pause and legacy budget holds.
 - A failing parent regression showed malformed stored restrictions became an empty list. The read now fails instead of weakening the instructions.
 
-## Latest integration checkpoint
+## Ceiling and authority checkpoint (`439ab6e`)
 
 Commit `439ab6e` connects the owner ceiling control to the ledger. Schema v6 stores durable requests and response receipts. Admission or a reported overrun creates an owner request. Authenticated responses apply once. Stale or changed responses fail. A denial keeps the ceiling and hold. Approval clears only the ceiling hold and makes accounting-held tasks eligible for the remaining gates.
 
@@ -66,18 +66,33 @@ Two parent regressions exposed integration defects:
 - A late hold stopped the next model call but still allowed a tool returned by an in-flight request. The regression failed on the browser call, then passed after adding the dispatch check.
 - A provider charge above the reserved bound created a ceiling hold without an owner request. The regression failed, then passed after making the request durable with the hold.
 
+## Reviewed setup checkpoint (`ca17fa3`)
+
+The Store, authenticated API, driver, private runtime registration and React review screen are connected. See [the setup guide](bot-setup-integration.md) for configuration and API details.
+
+- Schema v7 marks lifecycle snapshots in the existing draft table. Snapshot writes use version checks. Approval records the reviewed job and budget atomically.
+- Completion saves the ready marker, checklist and first task in one transaction. The real-database tests cover restart and duplicate completion.
+- The serial setup driver checks host holds before side effects. Waits and deferred work consume no retry attempt. Startup reloads approved snapshots.
+- Each ready bot gets its own runtime and control routes. Held ready bots still register so the owner can respond without a wake. Chat events and controls follow the selected bot.
+- Draft review includes instructions, authority, configured model and resource recommendations, working allowance, absolute ceiling, credential labels and an optional first task.
+- Recommendation generation currently uses the job text and configured defaults. It does not call a model or claim job-specific model selection.
+- Protected input is unavailable. Credential waits remain durable and their ordinary completion endpoint refuses them. No password input is shown.
+
+Parent tests exposed three provisioning defects before their fixes. The harness accepted an existing disk from a different base, accepted a reviewed disk size that the base could not provide, and accepted an executor binding for another bot. It now rejects each case without changing those files.
+
+The first-task integration test also caught an unsupported task source value. The task now uses the existing owner-message source. The failure rolled back the start claim with the insert; no task was silently lost.
+
 ## Current work and next edits
 
-Durable setup integration is next. There is no current red test or uncommitted code at this checkpoint. All six children have returned. No delegate remains active.
+This checkpoint is ready for draft review. All six children returned. No delegate remains active. The source passes deterministic checks. Keep live acceptance and the remaining product work separate.
 
-1. Persist setup state with compare-and-swap versions in the existing Store.
-2. Include the working budget and absolute ceiling in the reviewed draft. Reconcile the setup and runtime authority representations.
-3. Connect authenticated setup editing and approval. Keep drafts separate from active authority.
-4. Add a durable provisioning driver and an atomic completion outbox. A ready task must neither disappear nor run twice after restart.
-5. Register the ready bot with its private runtime. Keep bot files, accounts and journals isolated.
-6. Specify and implement protected credential storage and guest transfer before accepting any real values. Connect phone and CAPTCHA waits only to a supported owner interaction path.
-7. Add UI setup progress and review. Verify resource recommendations against real harness support.
-8. Test the integrated flow before claiming end-to-end creation or unattended provisioning.
+1. Inspect the T3 Code protected-input mechanism required by D29. Specify credential storage, lifetime, redaction and guest transfer before collecting any values.
+2. Connect protected credential input and supported phone/CAPTCHA interactions. Do not complete a credential wait through ordinary chat.
+3. Verify fresh private-computer creation with one owned real VM. Retain image, executor, task, save/restore and cleanup evidence. Keep Gmail and real account state outside this experiment.
+4. Verify the review and progress screen in bare at phone and desktop widths. Follow the bare feedback loop for failures.
+5. Extend job-specific recommendations and conversational follow-up behavior. The current defaults are explicit in the setup guide.
+6. Validate two-bot file, account and artifact isolation before making that claim. The API routing test does not prove VM isolation.
+7. Define automatic resource adjustment, spike/no-progress thresholds and period rollover separately. Current harness and capacity limits remain explicit.
 
 ## Verification ledger
 
@@ -91,7 +106,8 @@ These results apply to the revisions stated. Do not transfer them to later edits
 | Parent atomic admission | New test initially failed to compile without the method. It passes after implementation. Tests include competing reservations and the ceiling boundary. |
 | Stage 3 child only (`4fced56`) | Child reports 147 Rust tests and web checks pass. The parent later reproduced the integrated Rust and web gates below. |
 | Stage 4 child only (`8fb865d`) | Child reports 22 setup tests. The parent reproduced them as part of the combined suite below. This does not prove Store-backed setup. |
-| Latest parent checkpoint (`439ab6e`) | 221 Rust unit tests and four non-live integration tests pass. Two live tests remain ignored. Formatting and clippy pass. Web type checking, 26 web tests and the production build pass. |
+| Earlier parent checkpoint (`439ab6e`) | 221 Rust unit tests and four non-live integration tests pass. Two live tests remain ignored. Formatting and clippy pass. Web type checking, 26 web tests and the production build pass. |
+| Reviewed setup (`ca17fa3`) | 229 Rust unit tests and four non-live integration tests pass. Two live tests remain ignored. Formatting and clippy pass. Web type checking, 27 web tests and the production build pass. |
 
 The first integrated web check failed because dependencies were absent. `npm ci --ignore-scripts` restored the locked dependencies. The rerun passed. The existing bundle-size warning remains. The install reported ten dependency vulnerabilities; no lockfile or dependency version changed. Dependency remediation is outside this slice.
 
@@ -101,18 +117,18 @@ No paid model calls, real account actions, live VM experiments or browser checks
 
 - The ceiling approval route is connected and covered by Store and handler checks. Complete HTTP authentication and browser acceptance for this operation remain untested. The legacy hold-release route remains separate from ceiling mutation.
 - Current authority loads between model steps. The trusted-instruction boundary still applies. Broader behavioral tests of instruction changes and restrictions remain useful.
-- Setup is a state machine, not an integrated bot-creation flow. Its state is not yet stored in the real database.
+- Setup is connected to the real Store, worker, API and UI. Live fresh provisioning and browser acceptance remain unverified.
 - Protected credential input, credential lifetime and guest transfer are not implemented. Do not collect values in ordinary chat or journal them in command arguments.
 - CAPTCHA and phone wait types exist. No supported challenge-completion interaction has been verified.
-- Setup lacks the spending ceiling in its reviewed draft, a production worker, a completion outbox and runtime registration.
+- Setup includes the reviewed ceiling, a serial driver and runtime registration. Its start claim and initial task commit together. Credential transfer and live acceptance remain open.
 - The harness uses fixed CPU and memory settings. Resource recommendations need actual support before the UI claims to apply them.
-- The setup start claim currently prevents duplicates but can lose work if a crash occurs between saving the claim and creating the task. Integration needs an atomic task/outbox operation.
+- Resource changes beyond the current image and selection of an unpriced model are rejected. The configured managed-bot count is not awake-capacity scheduling.
 - Budget period rollover, spike thresholds and no-progress policy remain unimplemented. Do not invent a monetary default.
 - Request reservation depends on configured provider bounds and pricing. It is not a universal invoice or external-purchase cap.
 - Multi-connection races, production database migration, bare UI behavior and live recovery need targeted validation.
 
 ## Next delivery gate
 
-Integrate durable setup next. Ceiling control and authority refresh have deterministic integration coverage, with the HTTP and browser limits stated above. Run the combined Rust and web gates. Use synthetic fixtures and a scripted model. Serialize any later VM checks and retain evidence. Use only bare for browser acceptance.
+Review this integrated checkpoint. Implement protected input next, then validate one fresh VM and the bare UI. Setup authentication now has HTTP tests. Full live ceiling-form acceptance remains unverified. Run the combined Rust and web gates. Use synthetic fixtures and a scripted model. Serialize any later VM checks and retain evidence. Use only bare for browser acceptance.
 
 Keep this handoff current after each integration milestone. Record test results, unresolved gaps and exact commits. Do not label disconnected modules as finished product behavior.
