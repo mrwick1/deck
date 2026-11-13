@@ -207,3 +207,9 @@ Live acceptance remains pending. The capture-privacy review remains active. The 
 ## Capture review checkpoint
 
 The capture review fixed publication after an open gate and stale-cache reuse after an observed gate transition. One gap remains: a gate can open and close during a capture. A follow-up implementation must preserve a transition generation and discard that capture. The combined live UI/VM run remains pending this fix. This review does not prove raster secrecy.
+
+## Privacy generation and live-run stop
+
+The parent integrated the durable privacy generation and reproduced 313 Rust tests. Formatting, clippy and the rebuilt binary passed. The generation prevents reuse of a capture that spans an open-and-close transition. The held-capture tests do not prove real-pixel secrecy.
+
+The combined UI/VM controller preparation check passed. Its live start exited 3 before starting any process. Host load was 8.99, above the configured 8.0 limit. No VM or browser started. The parent did not override the limit. The combined browser run remains pending normal host capacity.

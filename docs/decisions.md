@@ -688,3 +688,9 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Run setup acceptance against a local synthetic login first. Use generated credentials, a scripted model and one private guest computer. Exercise phone approval and CAPTCHA-style owner waits without a real account. Verify the service state separately from the owner answer. Keep live VM checks serial.
 
 **Reason:** The owner explicitly selected local synthetic login first. This permits delivery, restart and duplication checks without Gmail or private account state. A fixture pass does not establish real-service CAPTCHA support or universal screenshot secrecy.
+
+## D66. Preserve privacy transitions during capture (2026-11-13)
+
+**Decision:** Store a per-bot privacy generation with the gate-open transaction. Keep it after the gate closes. Sample the gate and generation together before and after capture. Discard a frame if the gate is open or the generation changed. Refuse a cached frame from an older generation.
+
+**Reason:** A gate can open and close during one capture. A boolean check cannot detect that transition. This refines D63. It adds no routine approval and does not establish universal redaction or real-pixel secrecy.
