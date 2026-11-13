@@ -456,6 +456,7 @@ class ModelServer(unittest.TestCase):
         self.assertTrue(self.model.wait_held(5))
         self.assertNotIn("r", got)
         self.model.release_wake()
+        self.assertFalse(self.model.wait_held(0))
         t.join(5)
         self.assertIn("owner_help_status", got["r"][1])
         # The hold applies once.
@@ -475,6 +476,7 @@ class ModelServer(unittest.TestCase):
             c = http.client.HTTPConnection("127.0.0.1", m.port, timeout=5)
             c.request("POST", "/v1/chat/completions", body=json.dumps({"messages": msgs(("user", s.TASK), wake("a:1"))}))
             self.assertIn("owner_help_status", c.getresponse().read().decode())
+            self.assertFalse(m.wait_held(0))
         finally:
             m.stop()
 

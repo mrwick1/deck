@@ -54,7 +54,7 @@ All routes are JSON. Header: `X-Control-Token: <control_token>`. The `Host` head
 
 | Route | Purpose |
 | --- | --- |
-| `GET /plan` | The job text, the task text, the credential label, the task id pattern, the closing text, the UI URL, the page script template and the worker's gate names. |
+| `GET /plan` | The job text, the task text, the credential label, expected length and hash prefix, the task id pattern, the closing text, the UI URL, the page script template and the worker's gate names. |
 | `GET /state` | `stage`, `setup_id`, `task_id`, `phase`, the open `wait` (kind, `request_id`, answered), counts, model hold state, service step names, gate statuses. No password, no match number, no check id. |
 | `POST /owner/phone` and `/owner/captcha` | Body `{"request_id": "<id>"}`. Completes the local service's step. It touches only the fixture. It needs the current unanswered wait of that kind. |
 | `POST /model/hold` | Hold the model's next reply to an owner-answer wake. It needs an open phone or CAPTCHA wait. |
@@ -79,7 +79,7 @@ The setup id and the request ids are random. The worker never needs the password
 
 1. Poll `GET /state` until `stage` is `credential_wait`. Read `wait.request_id`.
 2. In the page, run the script from `fill_js(request_id)` (template in `GET /plan`) with the bare eval tool.
-3. The script fetches `/__e2e/secret` on the UI origin. It sets the real password input of the Deck form. It returns `filled`, `length` and a 12-character hash prefix.
+3. The script fetches `/__e2e/secret` on the UI origin. It sets the real password input of the Deck form. It returns `filled`, `length`, a 12-character hash prefix and `visible_text_contains_value`. Compare length and hash with `/plan`. Require the text-leak flag to be false. Return no value.
 4. The worker clicks the form's real submit button. The form posts the existing `POST /api/setups/{id}/secret` through the proxy. The controller sees the 204 in its proxy log.
 
 The route `/__e2e/secret` is test-only. It lives in the controller, not in Deck. Its rules:
@@ -126,7 +126,7 @@ Not repeated here: the API refusal gates (`refuses_stale_version`, `refuses_wron
 
 ## Checks the worker reports
 
-The worker calls `POST /gate` with `pass` or `fail`. All four are required for acceptance.
+The worker calls `POST /gate` with `pass` or `fail`. All four are required for acceptance. `/finish` lists missing or failed UI gates in `pending_ui_gates` and returns `ok: false` until they pass.
 
 - `ui_review_screen_seen`: the review screen showed the job, task and label before approval.
 - `ui_secret_input_check`: the fill script returned `filled: true`, a length equal to the expected length and a hash prefix. Nothing else.

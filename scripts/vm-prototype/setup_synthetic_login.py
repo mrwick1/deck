@@ -407,9 +407,11 @@ class Model:
             self.held_count += 1
         self._held.set()
         self._release.wait(self.hold_timeout)
+        self._held.clear()
 
     def wait_held(self, timeout):
         return self._held.wait(timeout)
 
     def release_wake(self):
+        self._held.clear()
         self._release.set()

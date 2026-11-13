@@ -15,6 +15,7 @@ All pure logic is reused from setup_e2e.py and setup_synthetic_login.py. Only sy
 """
 import argparse
 import hmac
+import hashlib
 import http.client
 import json
 import re
@@ -51,7 +52,7 @@ const v=(await r.json()).value;
 Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,v);
 el.dispatchEvent(new Event("input",{bubbles:true}));
 const h=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)))].map(b=>b.toString(16).padStart(2,"0")).join("");
-return{filled:el.value===v,length:el.value.length,sha256:h.slice(0,12)}})()"""
+return{filled:el.value===v,length:el.value.length,sha256:h.slice(0,12),visible_text_contains_value:(document.body.innerText||"").includes(v)}})()"""
 
 
 def fill_js(request_id):
@@ -384,7 +385,7 @@ class Controller:
 
     # --- routes (each returns (code, object)) ---
     def plan(self, _=None):
-        return 200, {"job": JOB, "task": sl.TASK, "credential_label": LABEL, "task_id_pattern": "setup-<setup_id>", "done_text": sl.DONE_TEXT,
+        return 200, {"job": JOB, "task": sl.TASK, "credential_label": LABEL, "credential_length": len(self.value), "credential_sha256_prefix": hashlib.sha256(self.value.encode()).hexdigest()[:12], "task_id_pattern": "setup-<setup_id>", "done_text": sl.DONE_TEXT,
                      "ui_url": f"http://127.0.0.1:{self.proxy.port}/", "fill_js_template": FILL_JS, "worker_gates": UI_GATES}
 
     def state_view(self, _=None):
@@ -521,7 +522,9 @@ class Controller:
                 except BaseException as e:  # keep the evidence, then report
                     self.m.gate("finish_completed", se.FAIL, f"{type(e).__name__}: {self.m.scrub(str(e))[:200]}")
                 self._done = {"ok": self.m.ok(), "gates": {n: g["status"] for n, g in self.m.data["gates"].items()}}
-            return self._done
+            gates = {n: g["status"] for n, g in self.m.data["gates"].items()}
+            pending = [n for n in UI_GATES if gates.get(n) != se.PASS]
+            return {**self._done, "ok": self.m.ok() and not pending, "gates": gates, "pending_ui_gates": pending}
 
     def _evaluate(self):
         stack, m, svc, model = self.stack, self.m, self.stack.service, self.stack.model

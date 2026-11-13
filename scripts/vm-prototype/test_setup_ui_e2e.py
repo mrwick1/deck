@@ -4,6 +4,7 @@ A fake Deck (a loopback HTTP server) stands in for the product. The real local s
 scripted model run. The test plays the owner's browser by calling the proxy the way the page would.
 Values here are synthetic."""
 import http.client
+import hashlib
 import json
 import socket
 import subprocess
@@ -364,6 +365,8 @@ class ControlTest(Rig):
         st, plan = self.control("GET", "/plan")
         self.assertEqual((st, plan["task"], plan["credential_label"]), (200, sl.TASK, "FIXTURE_PASS"))
         self.assertIn("job", plan)
+        self.assertEqual(plan["credential_length"], len(VALUE))
+        self.assertEqual(plan["credential_sha256_prefix"], hashlib.sha256(VALUE.encode()).hexdigest()[:12])
         self.assertNotIn(VALUE, json.dumps(plan))
 
     def test_state_stages_follow_the_deck_rows(self):
@@ -523,9 +526,13 @@ class NoAutomaticActions(Rig):
         self.ctl.guest = type("G", (), {"check_secret_file": lambda s, n, v: {"value_matches": v == VALUE, "mode": "0o600", "exists": True, "name_present": True, "owner": 1000}})()
         (self.stack.out / "data" / "bots" / SID).mkdir(parents=True)
         (self.stack.out / "private" / "x.log").write_text("clean")
-        for name in ("ui_privacy_viewer", "ui_screenshot_privacy", "ui_secret_input_check"):
+        _, incomplete = self.control("POST", "/finish")
+        self.assertFalse(incomplete["ok"])
+        self.assertEqual(set(incomplete["pending_ui_gates"]), set(ui.UI_GATES))
+        for name in ui.UI_GATES:
             self.control("POST", "/gate", {"name": name, "status": "pass", "detail": "ok"})
         st_, body = self.control("POST", "/finish")
+        self.assertEqual(body["pending_ui_gates"], [])
         gates = self.ctl.m.data["gates"]
         bad = {n: g for n, g in gates.items() if g["status"] != "pass" and n not in ("secret_never_in_argv", "logs_accounted_for_each_start")}
         self.assertEqual(st_, 200)

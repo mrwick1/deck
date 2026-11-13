@@ -231,3 +231,9 @@ The actual UI approved setup and the real VM reached the credential wait. The on
 The owner approved the bare header design and its complete-suffix amendment. Draft bare PR 479 contains the fix. Five new regressions pass. A candidate bare MCP binary receives 200 from a local endpoint that requires same-origin metadata. The shared browser installation is unchanged. The bare library run has one reproduced baseline timer failure, with 1417 passes and six ignored tests. Strict baseline formatting and lint failures are documented in that PR.
 
 A fresh combined UI/VM run now uses the isolated candidate. The owner-authorized load bypass remains in effect for this functional run. The parent set its load threshold to 100; memory checks and exclusive VM ownership remain active. A browser worker drives the real forms. The result is pending. No merge or deployment ran.
+
+## Candidate flow and evidence follow-up
+
+The parent integrated the candidate-browser report. The actual UI and VM completed protected delivery, both verified owner-help rounds, and one final action. Restarts added no work. The run recorded 43 passes and failed aggregate acceptance because two UI evidence gates were absent. The parent confirmed cleanup and retained the failed manifest unchanged.
+
+The follow-up clears the model fixture's held flag on release and timeout. The controller now returns expected credential length and hash prefix. Its finish response explicitly lists missing UI gates. The fill script returns a visible-text leak boolean without returning the value. Focused regressions reproduced the defects and now pass. A complete focused-suite run and fresh live evidence run remain pending.
