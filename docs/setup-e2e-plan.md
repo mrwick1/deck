@@ -107,3 +107,9 @@ Parent verification now passes 288 Rust unit tests and four integration tests. T
 Two isolated checks started from `c9153e2`. The browser check uses the running throwaway Deck stack, scripted model and fake guest. It checks desktop and phone review, protected entry and challenge presentation in bare. It owns cleanup of that stack and its isolated screen. The runtime check uses the real Python executor and scripted model to exercise the production targeted sender, holds and restart. It owns tests only.
 
 Neither check may launch a live VM. The original fresh-VM worker retains exclusive ownership of that gate. Browser privacy, task resumption and real guest transport remain unverified until evidence returns. No merge or deployment is authorized.
+
+## Browser result and remaining owner-flow checks
+
+Report `3b615d4` is integrated as `9fe5b80`. The browser run checked the real page with a fake guest. Setup protected entry, field clearing on submit, delivery, restart persistence and scanned surfaces passed. Password pixels showed dots. The phone check covered label persistence through DOM metrics; a full phone visual review remains open. Challenges, active-task input, keyboard controls and first-task completion did not run. Its stack and browser sessions are closed.
+
+A new browser check now owns three explicitly seeded ready bots: phone approval, CAPTCHA-style help and active-task protected input. Automation is paused. This fixture tests owner presentation, response routing and durable answers. It cannot prove a genuine service login or a real guest first task. The recheck also covers Clear/Escape, phone rendering and the reported two-click review behavior. The worker owns fixture and screen cleanup. The actual-runtime and original live-VM checks remain active.
