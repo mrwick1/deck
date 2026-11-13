@@ -10,8 +10,11 @@ pub mod authority;
 pub mod db;
 pub mod events;
 pub mod hub;
+pub mod provisioning;
 pub mod screen;
 pub mod setup;
+pub mod setup_api;
+pub mod setup_store;
 pub mod state;
 pub mod vm;
 
@@ -1072,6 +1075,46 @@ impl Bot {
             "screen": self.screen.view(),
         }))
     }
+}
+
+/// Construct one isolated configured runtime. All model calls use its own accounting profile.
+pub async fn runtime(
+    config: Arc<Config>,
+    store: Store,
+    model: crate::model::ModelClient,
+) -> anyhow::Result<(Arc<Agent>, Arc<Bot>)> {
+    let v = config
+        .vm
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("a computer configuration is required"))?;
+    let accounting = accounting::install(&config, &store).await?;
+    let vm: Arc<dyn vm::Vm> = Arc::new(vm::Harness::new(v));
+    let hub = hub::Hub::new(
+        store.clone(),
+        &v.bot_id,
+        config.data_dir.clone(),
+        vm.clone(),
+        v.command_secs,
+    );
+    let tools = crate::tools::Tools::new(
+        Arc::new(hub::GuestHost(hub.clone())),
+        store.clone(),
+        config.workspace(),
+        &config.data_dir,
+    )
+    .with_guest(hub.clone());
+    let mut agent = Agent::with_tools(config.clone(), store.clone(), model, tools);
+    if let Some(accounting) = accounting {
+        agent = agent.with_accounting(accounting);
+    }
+    let agent = Arc::new(agent);
+    let capture = Arc::new(screen::QmpCapture {
+        socket: vm.qmp(),
+        dir: config.data_dir.join("screen"),
+    });
+    let bot = Bot::new(&config, store, agent.clone(), vm, hub, capture).await?;
+    bot.start().await?;
+    Ok((agent, bot))
 }
 
 #[cfg(test)]

@@ -24,6 +24,20 @@ pub struct Config {
     pub events: Option<Events>,
     /// Explicit model accounting for the configured bot. Missing leaves legacy mode unchanged.
     pub accounting: Option<Accounting>,
+    pub provisioning: Option<Provisioning>,
+}
+
+/// Host-owned provisioning defaults. The owner reviews each bot's budget before creation.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Provisioning {
+    pub base: PathBuf,
+    pub runtime_root: PathBuf,
+    pub template: Vm,
+    pub resources: crate::bot::setup::Resources,
+    pub limits: crate::bot::setup::Limits,
+    pub accounting: Accounting,
+    pub max_bots: usize,
 }
 
 /// Owner-supplied accounting. Monetary values use integer units of currency/exponent.
@@ -48,6 +62,39 @@ pub struct Accounting {
     pub max_response_bytes: usize,
     pub completion_token_field: bool,
     pub request_usage: bool,
+}
+
+impl Accounting {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        let a = self;
+        crate::accounting::Unit::new(&a.currency, a.exponent)?;
+        anyhow::ensure!(
+            a.exponent <= 9
+                && !a.period.trim().is_empty()
+                && !a.policy_version.trim().is_empty()
+                && !a.price_version.trim().is_empty(),
+            "accounting unit, period and versions must be explicit"
+        );
+        anyhow::ensure!(
+            a.ceiling >= 0
+                && a.allowance >= 0
+                && a.allowance <= a.ceiling
+                && a.increase_increment > 0,
+            "accounting allowance must fit the ceiling and increase_increment must be positive"
+        );
+        anyhow::ensure!(
+            a.input_per_million >= 0 && a.output_per_million >= 0 && a.extra_per_call >= 0,
+            "accounting prices must be non-negative"
+        );
+        anyhow::ensure!(
+            a.max_input_tokens > 0
+                && a.max_input_bytes > 0
+                && a.max_output_tokens > 0
+                && a.max_response_bytes > 0,
+            "accounting request bounds must be positive"
+        );
+        Ok(())
+    }
 }
 
 pub const VM_CONFIG_VERSION: u32 = 1;
@@ -199,31 +246,31 @@ impl Config {
         }
         if let Some(a) = &c.accounting {
             anyhow::ensure!(c.vm.is_some(), "[accounting] needs [vm]");
-            crate::accounting::Unit::new(&a.currency, a.exponent)?;
+            a.validate()?;
+        }
+        if let Some(p) = &c.provisioning {
+            p.accounting.validate()?;
+            anyhow::ensure!(p.max_bots > 0, "provisioning.max_bots must be positive");
             anyhow::ensure!(
-                a.exponent <= 9
-                    && !a.period.trim().is_empty()
-                    && !a.policy_version.trim().is_empty()
-                    && !a.price_version.trim().is_empty(),
-                "accounting unit, period and versions must be explicit"
+                p.template.version == VM_CONFIG_VERSION,
+                "provisioning VM template version is unsupported"
             );
             anyhow::ensure!(
-                a.ceiling >= 0
-                    && a.allowance >= 0
-                    && a.allowance <= a.ceiling
-                    && a.increase_increment > 0,
-                "accounting allowance must fit the ceiling and increase_increment must be positive"
+                p.resources.cpus == 2 && p.resources.memory_mib == 2048 && p.resources.disk_gib > 0,
+                "the current harness supports 2 CPUs and 2048 MiB; disk size must match the frozen base"
             );
             anyhow::ensure!(
-                a.input_per_million >= 0 && a.output_per_million >= 0 && a.extra_per_call >= 0,
-                "accounting prices must be non-negative"
+                p.resources.cpus <= p.limits.max_cpus
+                    && p.resources.memory_mib <= p.limits.max_memory_mib
+                    && p.resources.disk_gib <= p.limits.max_disk_gib,
+                "provisioning defaults exceed configured capacity"
             );
             anyhow::ensure!(
-                a.max_input_tokens > 0
-                    && a.max_input_bytes > 0
-                    && a.max_output_tokens > 0
-                    && a.max_response_bytes > 0,
-                "accounting request bounds must be positive"
+                p.template.lifecycle_secs > 0
+                    && p.template.command_secs > 0
+                    && p.template.idle_secs > 0
+                    && p.template.screen_interval_ms >= 100,
+                "provisioning lifecycle limits are invalid"
             );
         }
         if let Some(e) = &c.events {

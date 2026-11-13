@@ -658,3 +658,13 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Reason:** The owner permits reasonable automatic budget increases but reserves changes to the absolute spending ceiling.
 
 **Implementation proposal:** See [unattended-implementation-plan.md](unattended-implementation-plan.md) for delivery stages, dependencies and verification gates. The proposal does not approve unresolved accounting defaults.
+
+## D62. Commit reviewed setup progress and initial work durably (2026-11-13)
+
+**Decision:** Store setup snapshots in the existing SQLite store. Use separate snapshot and reviewed-draft revisions. Approve instructions and spending configuration atomically. Save the ready marker and initial task in one transaction. Register ready bots with independent runtime paths and control routes.
+
+**Host binding:** Pin the approved image, runtime, resource, model and pricing profile. Stop on a changed binding or a mismatched image or executor identity. Preserve existing files. Paused or budget-held ready bots must retain access to owner controls without an automatic wake.
+
+**Boundary:** These are implementation choices for D57–D61. They do not approve numeric budget defaults, capacity claims or protected credential storage. Current resource and model support remains limited by the configured harness and priced profile. Protected input and live acceptance remain open.
+
+**Reason:** Unattended setup must survive restarts without losing its initial work, repeating approval or attaching another bot's computer.

@@ -11,8 +11,10 @@ import {
   SquareIcon,
   SunIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
+
+export const BotScope = createContext<string | undefined>(undefined);
 
 const fail = (e: unknown) => toast.error((e as Error).message);
 
@@ -28,9 +30,9 @@ export function StatusDot({ tone }: { tone: Tone }) {
   return <span className={cn("inline-block size-2 rounded-full", TONE[tone])} aria-hidden />;
 }
 
-async function stop() {
+async function stop(id?: string) {
   try {
-    const r = await api.botStop();
+    const r = await api.botStop(id);
     if (r.unconfirmed.length > 0)
       toast.warning(
         `Stopped, but ${r.unconfirmed.length} command(s) are not confirmed ended. See the inbox.`,
@@ -56,6 +58,7 @@ export function BotBar({
   onInbox: () => void;
   onHome: () => void;
 }) {
+  const botId = useContext(BotScope);
   const d = describeBot(status);
   const awake = status.computer === "awake";
   const working = !!status.working;
@@ -81,14 +84,14 @@ export function BotBar({
       )}
       <span className="flex-1" />
       {working && (
-        <Button size="sm" variant="destructive" onClick={stop}>
+        <Button size="sm" variant="destructive" onClick={() => stop(botId)}>
           <SquareIcon className="size-3" /> Stop
         </Button>
       )}
       <Button
         size="sm"
         variant="outline"
-        onClick={() => api.botPause(!status.automation_paused).catch(fail)}
+        onClick={() => api.botPause(!status.automation_paused,botId).catch(fail)}
         title="Pause automation: no new task starts. The computer keeps its state."
       >
         {status.automation_paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
@@ -98,7 +101,7 @@ export function BotBar({
         size="sm"
         variant="outline"
         disabled={status.computer === "waking" || status.computer === "saving"}
-        onClick={() => (awake ? api.botSleep() : api.botWake()).catch(fail)}
+        onClick={() => (awake ? api.botSleep(botId) : api.botWake(botId)).catch(fail)}
         title={awake ? "Save the computer to disk. It wakes on the next task." : "Wake the computer"}
       >
         {awake ? <MoonIcon className="size-3" /> : <SunIcon className="size-3" />}
@@ -122,19 +125,20 @@ export function BotBar({
  * costs nothing. The stream carries the frame number. The browser fetches the image.
  */
 export function BotScreen() {
+  const botId=useContext(BotScope);
   const [seq, setSeq] = useState(0);
   useEffect(() => {
-    const es = new EventSource(api.botScreenUrl);
+    const es = new EventSource(api.botScreenUrl(botId));
     es.addEventListener("frame", (e) =>
       setSeq(JSON.parse((e as MessageEvent).data).seq),
     );
     return () => es.close();
-  }, []);
+  }, [botId]);
   return (
     <div className="bg-muted/40 mx-2 my-2 aspect-[16/10] max-h-[45dvh] overflow-hidden rounded-xl border md:mx-4">
       {seq > 0 ? (
         <img
-          src={api.botFrameUrl(seq)}
+          src={api.botFrameUrl(seq,botId)}
           alt="Screen of the bot computer"
           className="size-full object-contain"
         />
@@ -196,11 +200,12 @@ export function SendOptions({
 
 /** The owner's answer to a request to raise the spending ceiling. */
 function CeilingForm({ r, done }: { r: api.CeilingRequest; done: () => void }) {
+  const botId=useContext(BotScope);
   const [amount, setAmount] = useState("");
   const send = (decision: "approve" | "deny") => {
     const a = ceilingAnswer(r, decision, amount, crypto.randomUUID());
     if (!a) return toast.error("Enter an amount above the current ceiling.");
-    api.botAnswerCeiling(a).then(done, fail);
+    api.botAnswerCeiling(a,botId).then(done, fail);
   };
   const shown = (r.current_ceiling_minor / 10 ** r.precision).toFixed(r.precision);
   return (
@@ -226,8 +231,8 @@ function CeilingForm({ r, done }: { r: api.CeilingRequest; done: () => void }) {
   );
 }
 
-const ACTIONS: Record<string, (i: api.InboxItem, done: () => void) => React.ReactNode> = {
-  unknown_outcome: (i, done) => (
+const ACTIONS: Record<string, (i: api.InboxItem, done: () => void, botId?:string) => React.ReactNode> = {
+  unknown_outcome: (i, done, botId) => (
     <div className="flex flex-wrap gap-2">
       {[
         ["ran", "It ran"],
@@ -238,36 +243,36 @@ const ACTIONS: Record<string, (i: api.InboxItem, done: () => void) => React.Reac
           key={d}
           size="sm"
           variant="outline"
-          onClick={() => api.botDecide(i.id, d).then(done, fail)}
+          onClick={() => api.botDecide(i.id, d,"",botId).then(done, fail)}
         >
           {label}
         </Button>
       ))}
     </div>
   ),
-  budget_hold: (_i, done) => (
+  budget_hold: (_i, done, botId) => (
     <Button
       size="sm"
       variant="outline"
       title="Releases this hold only. It does not change the spending ceiling."
-      onClick={() => api.botApprove().then(done, fail)}
+      onClick={() => api.botApprove(botId).then(done, fail)}
     >
       Release the hold
     </Button>
   ),
   ceiling_request: (i, done) => (i.ceiling ? <CeilingForm r={i.ceiling} done={done} /> : null),
-  held_task: (i, done) => (
+  held_task: (i, done, botId) => (
     <div className="flex gap-2">
-      <Button size="sm" variant="outline" onClick={() => api.botRetryTask(i.id).then(done, fail)}>
+      <Button size="sm" variant="outline" onClick={() => api.botRetryTask(i.id,botId).then(done, fail)}>
         Retry
       </Button>
-      <Button size="sm" variant="outline" onClick={() => api.botCancelTask(i.id).then(done, fail)}>
+      <Button size="sm" variant="outline" onClick={() => api.botCancelTask(i.id,botId).then(done, fail)}>
         Cancel
       </Button>
     </div>
   ),
-  waiting_task: (i, done) => (
-    <Button size="sm" variant="outline" onClick={() => api.botCancelTask(i.id).then(done, fail)}>
+  waiting_task: (i, done, botId) => (
+    <Button size="sm" variant="outline" onClick={() => api.botCancelTask(i.id,botId).then(done, fail)}>
       Cancel the task
     </Button>
   ),
@@ -283,6 +288,7 @@ export function InboxPanel({
   refresh: () => void;
   onClose: () => void;
 }) {
+  const botId=useContext(BotScope);
   return (
     <section aria-label="Inbox" className="border-b px-3 py-2 md:px-4">
       <div className="mb-2 flex items-center justify-between text-sm font-medium">
@@ -301,7 +307,7 @@ export function InboxPanel({
               {i.detail && (
                 <span className="text-muted-foreground break-words text-xs">{i.detail}</span>
               )}
-              {ACTIONS[i.kind]?.(i, refresh)}
+              {ACTIONS[i.kind]?.(i, refresh, botId)}
             </li>
           ))}
         </ul>

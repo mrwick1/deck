@@ -1,42 +1,75 @@
-# Bot setup module: integration seam
+# Reviewed bot setup
 
-Status: implementation slice. Nothing calls `src/bot/setup.rs` yet. It does not create a bot end to end.
+Updated: 2026-11-13.
+Status: Store, authenticated API, driver, runtime registration and review UI are connected. Deterministic tests pass. Fresh real-VM provisioning and the UI in bare remain unverified.
 
-## What exists
+## Flow
 
-`Setup` is a serializable value. It owns no database. The caller loads it, calls one method and saves it.
+Describe the job on the overview. Deck proposes a draft from the job and the configured defaults. The suggested name uses the first words of the job. The model comes from the configured priced profile. These recommendations do not call a model. Job-specific model selection and conversational follow-up generation remain future work.
 
-| Method | Caller | Effect |
-| --- | --- | --- |
-| `Setup::new(id, draft)` | owner chat | Starts a draft at revision 1. |
-| `edit(expected, f)` | owner chat | Changes a draft. Fails on a stale revision or after approval. |
-| `approve(rev, by, limits)` | authenticated owner route only | Approves one revision. Checks `Limits` from reviewed config. Builds the steps. A repeat does nothing. |
-| `advance(provisioner, persist, now)` | background driver | Runs steps in order. Calls `persist` before and after each side effect. Fails before approval. |
-| `complete_wait(request_id, now)` | owner route, after the protected store accepted the value | Closes one owner request. An expired request opens a new one. A stale or repeated identity fails. |
-| `resolve_unknown(step, done)` | owner route | Resolves an unknown outcome (D34). |
-| `set_max_attempts(n)` | owner route | Changes the three-attempt default. |
-| `claim_start()` | driver | Returns the supplied task or "announce ready", once. |
+Review the name, instructions, model, authority, resources, budget, credential labels and optional first task. Save the draft or approve its current revision. A draft allocates a chat and metadata, but no computer. Setup approval records the active instructions and spending ceiling in the same transaction.
 
-Step order: allocate disk, boot, install executor, then one credential wait per label. Owner waits use no attempt. A crash during a step costs one attempt on resume.
+The driver allocates a private overlay, starts or restores the computer and installs its executor. It saves each step before and after its side effect. Safe failures get three total attempts by default. Waiting for the owner consumes no attempt. An unknown outcome stops retries.
 
-`HarnessProvisioner` maps the steps to `vmproto.py` (`status`, `overlay`, `start`, `restore`, `kill`, `install-executor`). It checks `status` first, because `overlay` and `install-executor` refuse to run twice.
+When setup becomes ready, one transaction saves its start claim, checklist message and first task. Restart cannot lose the first task between a claim and queue insertion. A general role produces a ready message and no invented task.
 
-## What Stage 1 must provide
+The server registers each ready bot with its own runtime, workspace, model accounting and computer path. Its chat uses that runtime's queue and event stream. Controls and ceiling responses use the selected bot's route. A held ready bot still registers, so the owner can answer its ceiling request without waking the computer.
 
-- A table or column that stores the `Setup` JSON per setup id, with compare-and-swap on a version, so two writers cannot both advance one setup.
-- A `persist` closure that writes that row durably before it returns.
-- Owner-only API routes for the methods above. The bot tool set must not reach them. Page and event content must not call them.
-- Save the setup before acting on `claim_start`. Then create the task. A crash between the two loses the start. It never repeats it.
-- Reload non-final setups at startup and call `advance`.
+## Storage and ownership
 
-## Gaps
+Schema v7 marks lifecycle rows in the existing `bot_setup_drafts` table. The body holds the serialized setup. The database revision is the snapshot version. `draft.revision` is the revision that the owner reviews. These numbers have different roles.
 
-- Protected credential entry has no store, lifetime or UI. `Wait` carries a request identity and a label only. Nothing in this module reads a value.
-- No CAPTCHA or phone-approval path exists. No provisioner step returns those waits yet. The type and persistence are ready.
-- The harness fixes 2 CPUs and 2048 MiB. `HarnessProvisioner` fails a draft that asks for other values. Per-bot resources need a harness change.
-- `config.rs` has no frozen-base path, runtime root or setup `Limits`. The caller must read them from reviewed configuration.
-- The spending ceiling is not part of the draft. Stage 2 owns its type. Approval must record it when that type exists.
-- No React component. The chat needs the request identity, label, expiry and checklist from `Setup`.
-- No retry delay between attempts. The driver can add one.
-- A disk that exists without an overlay record gives an unknown outcome. The owner must clean it.
-- Only serial setup is supported. Independent setup beside a blocked session is not built.
+Every snapshot write checks the database version. A stale writer fails. Approved drafts cannot change through snapshot writes. Approval creates the definition and accounting record atomically. Completion creates its task atomically. The driver does not use a separate database or task journal.
+
+The existing generic draft helpers remain available for their original storage tests. Lifecycle queries read only rows marked for the setup driver. Do not parse older free-text draft bodies as setup snapshots.
+
+A host profile digest binds approved setup to its image path, runtime root, VM template, resource profile, model and prices. A changed binding stops provisioning for review. Capacity limits and defaults for future drafts do not change that binding. The configured image's sidecar must describe the reviewed disk size. Existing disks and executor identities must match the approved image and bot. Mismatches retain their files and stop setup.
+
+## Configuration
+
+Provisioning is opt-in. Add a `[provisioning]` section to the private config. Do not put private paths, model endpoints or credentials in Git.
+
+| Section | Required fields |
+| --- | --- |
+| `provisioning` | `base`, `runtime_root`, `max_bots` |
+| `provisioning.template` | The existing VM configuration fields. `bot_id` and `runtime_dir` are template placeholders. The server replaces them per bot. |
+| `provisioning.resources` | `cpus`, `memory_mib`, `disk_gib` |
+| `provisioning.limits` | `max_cpus`, `max_memory_mib`, `max_disk_gib` |
+| `provisioning.accounting` | `currency`, `exponent`, `period`, `policy_version`, `ceiling`, `allowance`, `increase_increment`, `price_version`, `input_per_million`, `output_per_million`, `extra_per_call`, `max_input_tokens`, `max_input_bytes`, `max_output_tokens`, `max_response_bytes`, `completion_token_field`, `request_usage` |
+
+Supply a frozen base produced by the existing `vmproto.py freeze-base` workflow. Keep its sidecar beside it. Set `disk_gib` from the sidecar's `virtual_size`, in GiB. The current harness uses 2 CPUs and 2048 MiB. It cannot apply other CPU or memory recommendations. The model must match the configured agent model and price profile. Unsupported changes fail before provisioning.
+
+Amounts use integer units at the configured decimal exponent. Supply real prices and request bounds for the provider. No monetary default is selected by this document. The owner reviews the proposed allowance, ceiling and period per bot. Period rollover is not automatic.
+
+`max_bots` limits registered managed computers. It does not count sessions or implement awake-computer scheduling. A separately configured legacy bot is outside this count. Capacity expansion and concurrent VM behavior need separate validation. The driver runs provisioning steps serially.
+
+## Authenticated API
+
+All routes below use the existing trusted-proxy owner authentication. Machine event intake exposes none of them.
+
+| Route | Operation |
+| --- | --- |
+| `GET /api/setup-options` | Reports availability and configured recommendation defaults. |
+| `GET /api/setups` | Returns snapshots, checklist, phase and runtime availability. |
+| `POST /api/setups` | Accepts `{"job":"Read and summarize supplied documents"}`. Returns a draft and its chat. |
+| `POST /api/setups/{id}` | Accepts the current snapshot `version` and edited `draft`. |
+| `POST /api/setups/{id}/approve` | Accepts snapshot `version` and reviewed draft `revision`. A repeat changes nothing. |
+| `POST /api/setups/{id}/control` | Accepts snapshot `version` and a `command`. Supports pause, retry, attempt limits and explicit unknown-outcome resolution. |
+| `GET /api/bots/{id}` | Returns a registered bot's status. |
+| `/api/bots/{id}/...` | Uses the existing bot control routes for that bot. |
+
+For example, a pause command is `{"version":3,"command":{"action":"pause","value":true}}`. The command preserves other holds. Requests for an unready bot cannot fall through to the shared chat agent and start work before approval.
+
+## Credential and challenge boundary
+
+Protected credential storage and guest transfer are not implemented. The server advertises `protected_input: false`. The UI accepts labels only. Do not put passwords or codes in job text or labels.
+
+After the system steps, a required credential becomes a durable wait. Its value is never accepted by the ordinary wait-completion route. That route returns an unavailable response for credential waits. This preserves progress without pretending sign-in succeeded.
+
+Phone and CAPTCHA wait states persist. Their real service interaction is not integrated or verified. Completing supported non-credential waits requires the current request identity. Expired answers create a replacement request. Before implementing protected input, follow D29 and inspect the referenced T3 Code mechanism.
+
+## Verification and limits
+
+Tests use real SQLite storage, a scripted model and fake harness operations. They cover restart, stale writes, approval idempotency, an atomic first task, a paused owner wait, held-runtime registration, authentication and image/executor mismatches. These tests do not prove fresh VM provisioning, desktop operation, model recommendation quality or real sign-in.
+
+The web passes type checking, tests and the production build. The existing bundle warning remains. No browser acceptance or accessibility interaction test ran for this screen. See [unattended-progress.md](unattended-progress.md) for exact checks and remaining work.

@@ -48,6 +48,32 @@ pub enum Authority {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Budget {
+    pub currency: String,
+    pub exponent: u8,
+    pub period: String,
+    pub allowance: i64,
+    pub ceiling: i64,
+}
+
+impl Budget {
+    pub fn validate(&self) -> Result<(), SetupError> {
+        if crate::accounting::Unit::new(&self.currency, self.exponent).is_err()
+            || self.exponent > 9
+            || self.period.trim().is_empty()
+            || self.allowance < 0
+            || self.ceiling < self.allowance
+        {
+            return Err(SetupError::Invalid(
+                "the reviewed spending unit, period and ceiling are invalid".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Draft {
     pub revision: u64,
     pub name: String,
@@ -55,6 +81,8 @@ pub struct Draft {
     pub model: String,
     pub authority: Authority,
     pub resources: Resources,
+    #[serde(default)]
+    pub budget: Option<Budget>,
     /// Labels of the credentials the job needs. Labels only, never values.
     pub credentials: Vec<String>,
     /// Specific work to start once ready. `None` means a general role.
@@ -186,6 +214,8 @@ pub struct StepRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StepOutcome {
     Done,
+    /// A host pause or capacity gate delays work without consuming an attempt.
+    Deferred,
     Wait {
         kind: WaitKind,
         ttl_secs: Option<u64>,
@@ -400,6 +430,11 @@ impl Setup {
             let st = &mut self.steps[i];
             st.last_error = None;
             match outcome {
+                StepOutcome::Deferred => {
+                    st.status = Status::Pending;
+                    self.save(persist)?;
+                    return Ok(self.phase());
+                }
                 StepOutcome::Done => st.status = Status::Done,
                 StepOutcome::Wait { kind, ttl_secs } => {
                     st.status = Status::Waiting;
@@ -577,9 +612,35 @@ impl HarnessProvisioner {
                         "the harness cannot apply these resources".into(),
                     ));
                 }
+                let metadata = std::fs::read(self.base.with_extension("json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+                let Some(metadata) = metadata.filter(|m| m["kind"] == "base") else {
+                    return Ok(StepOutcome::Fatal(
+                        "the frozen image metadata is missing or invalid".into(),
+                    ));
+                };
+                let Some(expected_base) = metadata["id"].as_str() else {
+                    return Ok(StepOutcome::Fatal(
+                        "the frozen image has no identity".into(),
+                    ));
+                };
+                if metadata["virtual_size"].as_u64()
+                    != Some(u64::from(req.resources.disk_gib) << 30)
+                {
+                    return Ok(StepOutcome::Fatal(
+                        "the frozen image cannot provide the reviewed disk size".into(),
+                    ));
+                }
                 let st = self.status(id).await?;
-                if !st["base"].is_null() {
-                    return Ok(StepOutcome::Done);
+                if let Some(base) = st["base"].as_str() {
+                    return Ok(if base == expected_base {
+                        StepOutcome::Done
+                    } else {
+                        StepOutcome::Unknown(
+                            "the existing disk belongs to another image; it was not changed".into(),
+                        )
+                    });
                 }
                 if st.get("disk_allocated_bytes").is_some() {
                     return Ok(StepOutcome::Unknown(
@@ -612,8 +673,21 @@ impl HarnessProvisioner {
                 }
             }
             Step::InstallExecutor => {
-                if self.runtime_root.join(id).join("executor.json").exists() {
-                    return Ok(StepOutcome::Done);
+                let binding = self.runtime_root.join(id).join("executor.json");
+                if binding.exists() {
+                    let info = std::fs::read(binding)
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+                    return Ok(
+                        if info.as_ref().is_some_and(|i| {
+                            i["bot_id"] == id
+                                && i["guest_id"].as_str().is_some_and(|g| !g.is_empty())
+                        }) {
+                            StepOutcome::Done
+                        } else {
+                            StepOutcome::Unknown("the executor identity is invalid or belongs to another bot; it was not changed".into())
+                        },
+                    );
                 }
                 if !self.status(id).await?["running"].as_bool().unwrap_or(false) {
                     return Ok(StepOutcome::Retry("the computer is not running".into()));
@@ -661,6 +735,7 @@ mod tests {
                 memory_mib: 2048,
                 disk_gib: 10,
             },
+            budget: None,
             credentials: vec!["mail".into()],
             task: Some("Sort the inbox".into()),
         }
@@ -1045,11 +1120,16 @@ elif sub == "overlay":
 elif sub == "start":
     open(d + "/running", "w").write("")
 elif sub == "install-executor":
-    open(d + "/executor.json", "w").write("{}")
+    open(d + "/executor.json", "w").write(json.dumps({"bot_id":"bot-1","guest_id":"fixture"}))
 "#;
 
     fn harness(dir: &std::path::Path) -> HarnessProvisioner {
         std::fs::write(dir.join("fake.py"), FAKE).unwrap();
+        std::fs::write(
+            dir.join("base.json"),
+            serde_json::json!({"kind":"base","id":"b","virtual_size":10_u64 << 30}).to_string(),
+        )
+        .unwrap();
         HarnessProvisioner {
             python: "python3".into(),
             script: dir.join("fake.py"),
@@ -1108,6 +1188,56 @@ elif sub == "install-executor":
             ]
         );
         assert!(d.join("rt/bot-1/executor.json").exists());
+    }
+
+    #[tokio::test]
+    async fn harness_rejects_an_executor_bound_to_another_bot() {
+        let d = crate::testutil::temp_dir();
+        let h = harness(&d);
+        std::fs::create_dir_all(d.join("rt/bot-1")).unwrap();
+        std::fs::write(
+            d.join("rt/bot-1/executor.json"),
+            serde_json::json!({"bot_id":"other","guest_id":"fixture"}).to_string(),
+        )
+        .unwrap();
+        assert!(matches!(
+            h.run(&req(Step::InstallExecutor, draft().resources)).await,
+            StepOutcome::Unknown(_)
+        ));
+        assert!(log(&d).is_empty());
+    }
+
+    #[tokio::test]
+    async fn harness_rejects_a_runtime_from_another_base() {
+        let d = crate::testutil::temp_dir();
+        let h = harness(&d);
+        std::fs::create_dir_all(d.join("rt/bot-1")).unwrap();
+        std::fs::write(d.join("rt/bot-1/disk.qcow2.json"), "{}").unwrap();
+        std::fs::write(
+            d.join("base.json"),
+            serde_json::json!({"kind":"base","id":"other","virtual_size":10_u64 << 30}).to_string(),
+        )
+        .unwrap();
+        assert!(matches!(
+            h.run(&req(Step::Allocate, draft().resources)).await,
+            StepOutcome::Unknown(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn harness_rejects_a_disk_size_it_cannot_provide() {
+        let d = crate::testutil::temp_dir();
+        let h = harness(&d);
+        std::fs::write(
+            d.join("base.json"),
+            serde_json::json!({"kind":"base","id":"b","virtual_size":20_u64 << 30}).to_string(),
+        )
+        .unwrap();
+        assert!(matches!(
+            h.run(&req(Step::Allocate, draft().resources)).await,
+            StepOutcome::Fatal(_)
+        ));
+        assert!(!d.join("rt/bot-1").exists());
     }
 
     #[tokio::test]

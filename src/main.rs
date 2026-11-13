@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     let model = model::ModelClient::new(&config.model.base_url, key, &config.model.api_key_env);
-    let accounting = bot::accounting::install(&config, &store).await?;
+    let setup_model = model.clone();
     // Without [vm], bare-mcp starts on the first browser tool call. With [vm], the guest runs bare.
     let (agent, bot) = match config.vm.as_ref() {
         None => {
@@ -57,37 +57,19 @@ async fn main() -> anyhow::Result<()> {
                 None,
             )
         }
-        Some(v) => {
-            let vm: Arc<dyn bot::vm::Vm> = Arc::new(bot::vm::Harness::new(v));
-            let hub = bot::hub::Hub::new(
-                store.clone(),
-                &v.bot_id,
-                config.data_dir.clone(),
-                vm.clone(),
-                v.command_secs,
-            );
-            let tools = tools::Tools::new(
-                Arc::new(bot::hub::GuestHost(hub.clone())),
-                store.clone(),
-                config.workspace(),
-                &config.data_dir,
-            )
-            .with_guest(hub.clone());
-            let mut agent = agent::Agent::with_tools(config.clone(), store.clone(), model, tools);
-            if let Some(accounting) = accounting {
-                agent = agent.with_accounting(accounting);
-            }
-            let agent = Arc::new(agent);
-            let cap = Arc::new(bot::screen::QmpCapture {
-                socket: vm.qmp(),
-                dir: config.data_dir.join("screen"),
-            });
-            let bot = bot::Bot::new(&config, store.clone(), agent.clone(), vm, hub, cap).await?;
-            bot.start().await?;
+        Some(_) => {
+            let (agent, bot) = bot::runtime(config.clone(), store.clone(), model).await?;
             (agent, Some(bot))
         }
     };
-    let app = api::router_with(config.clone(), store, agent, bot.clone());
+    let setups = config
+        .provisioning
+        .as_ref()
+        .map(|_| bot::provisioning::Service::new(config.clone(), store.clone(), setup_model));
+    if let Some(s) = &setups {
+        s.start();
+    }
+    let app = api::router_with_setups(config.clone(), store, agent, bot.clone(), setups);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!("listening on {}", listener.local_addr()?);
     axum::serve(

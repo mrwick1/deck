@@ -24,6 +24,7 @@ pub struct AppState {
     pub store: Store,
     pub agent: Arc<Agent>,
     pub bot: Option<Arc<Bot>>,
+    pub setups: Option<Arc<crate::bot::provisioning::Service>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -65,14 +66,26 @@ pub fn router(config: Arc<Config>, store: Store, agent: Arc<Agent>) -> Router {
 }
 
 /// Same as `router`, with the bot runtime when `[vm]` is configured.
+#[cfg(test)]
 pub fn router_with(
     config: Arc<Config>,
     store: Store,
     agent: Arc<Agent>,
     bot: Option<Arc<Bot>>,
 ) -> Router {
+    router_with_setups(config, store, agent, bot, None)
+}
+
+pub fn router_with_setups(
+    config: Arc<Config>,
+    store: Store,
+    agent: Arc<Agent>,
+    bot: Option<Arc<Bot>>,
+    setups: Option<Arc<crate::bot::provisioning::Service>>,
+) -> Router {
     let cfg2 = config.clone();
     let mut r = Router::new()
+        .merge(crate::bot::setup_api::routes())
         .route("/api/me", get(me))
         .route("/api/chats", get(list_chats).post(create_chat))
         .route(
@@ -87,6 +100,7 @@ pub fn router_with(
             store,
             agent,
             bot: bot.clone(),
+            setups,
         })
         .layer(middleware::from_fn_with_state(config, require_user));
     if let Some(b) = bot {
@@ -153,8 +167,14 @@ async fn post_message(
     if !(1..=20_000).contains(&text.chars().count()) {
         return Err(ApiError::BadRequest("text must be 1 to 20000 characters"));
     }
-    // The bot's chat goes through the durable queue, so a message cannot start a second run.
-    if let Some(b) = st.bot.as_ref().filter(|b| b.chat_id() == id) {
+    // Managed and configured bot chats use their own durable queues.
+    let managed = st.setups.as_ref().and_then(|s| s.for_chat(id));
+    if let Some(b) = st
+        .bot
+        .as_ref()
+        .filter(|b| b.chat_id() == id)
+        .or_else(|| managed.as_ref().map(|r| &r.bot))
+    {
         let mode = crate::bot::api::parse_mode(body.mode.as_deref())
             .map_err(|_| ApiError::BadRequest("mode must be steer or queue"))?;
         let r = b
@@ -166,6 +186,17 @@ async fn post_message(
                 crate::bot::BotError::Conflict(_) => ApiError::Conflict,
             })?;
         return Ok((StatusCode::ACCEPTED, Json(serde_json::to_value(r).unwrap())));
+    }
+    if st
+        .store
+        .setup_records()
+        .await?
+        .iter()
+        .any(|r| r.chat_id == id)
+    {
+        return Err(ApiError::BadRequest(
+            "Setup is not ready. Use its setup review and progress controls.",
+        ));
     }
     match st.agent.start(id, text).await? {
         Ok((run_id, _)) => Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id })))),
@@ -190,7 +221,9 @@ async fn events(
         return Err(ApiError::NotFound);
     }
     // Subscribe before the replay so no event falls in the gap.
-    let mut rx = st.agent.subscribe(id);
+    let managed = st.setups.as_ref().and_then(|s| s.for_chat(id));
+    let agent = managed.as_ref().map(|r| &r.agent).unwrap_or(&st.agent);
+    let mut rx = agent.subscribe(id);
     let stored = st.store.list_events(id, q.after).await?;
     let stream = async_stream::stream! {
         let mut last = q.after;
@@ -217,6 +250,13 @@ async fn events(
 
 async fn cancel_run(State(st): State<AppState>, Path(id): Path<i64>) -> StatusCode {
     st.agent.cancel(id);
+    if let Some(s) = &st.setups {
+        for row in s.store.setup_records().await.unwrap_or_default() {
+            if let Some(r) = s.runtime(&row.setup.id) {
+                r.agent.cancel(id);
+            }
+        }
+    }
     StatusCode::NO_CONTENT
 }
 

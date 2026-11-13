@@ -54,28 +54,32 @@ export const PRIORITIES = [
 ];
 
 /** The bot status, pushed by the server. It is null when the server has no bot. */
-export function useBot() {
+export function useBot(id?: string) {
+  const [loadedId,setLoadedId] = useState<string | undefined>(id);
   const [status, setStatus] = useState<api.BotStatus | null>(null);
   const [inbox, setInbox] = useState<api.InboxItem[]>([]);
 
   const refreshInbox = useCallback(
-    () => api.getInbox().then(setInbox).catch(() => {}),
-    [],
+    () => api.getInbox(id).then(setInbox).catch(() => {}),
+    [id],
   );
 
   useEffect(() => {
+    setStatus(null);
+    setInbox([]);
     let es: EventSource | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
     let delay = 500;
     // A 404 means the server runs without a bot. Then nothing else is asked.
     api
-      .getBot()
+      .getBot(id)
       .then((s) => {
         if (closed) return;
+        setLoadedId(id);
         setStatus(s);
         const open = () => {
-          es = new EventSource(api.botStatusUrl);
+          es = new EventSource(api.botStatusUrl(id));
           es.addEventListener("status", (e) => {
             delay = 500;
             setStatus(JSON.parse((e as MessageEvent).data));
@@ -95,15 +99,15 @@ export function useBot() {
       clearTimeout(timer);
       es?.close();
     };
-  }, []);
+  }, [id]);
 
   // The inbox follows the parts of the status that change it.
   const key = status
-    ? [status.unresolved, status.budget_hold, status.ceiling_request?.version, status.waiting?.id, status.queued, status.working?.id].join()
+    ? [status.bot_id, status.unresolved, status.budget_hold, status.ceiling_request?.version, status.waiting?.id, status.queued, status.working?.id].join()
     : "";
   useEffect(() => {
     if (key) refreshInbox();
   }, [key, refreshInbox]);
 
-  return { status, inbox, refreshInbox };
+  return { status: loadedId === id ? status : null, inbox: loadedId === id ? inbox : [], refreshInbox };
 }

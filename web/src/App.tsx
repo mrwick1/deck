@@ -1,12 +1,14 @@
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
 import {
+  BotScope,
   BotBar,
   BotHome,
   BotScreen,
   InboxPanel,
   SendOptions,
 } from "@/components/BotBar";
+import { BotSetups } from "@/components/BotSetups";
 import { ComposerDock, DockContext } from "@/components/ComposerDock";
 import { LivePanel, LivePill } from "@/components/LiveView";
 import { StepGroup, StepRow } from "@/components/StepRow";
@@ -30,7 +32,8 @@ const THREAD = {
 };
 
 export default function App() {
-  const { status: bot, inbox, refreshInbox } = useBot();
+  const [selectedBot,setSelectedBot] = useState<string | undefined>();
+  const { status: bot, inbox, refreshInbox } = useBot(selectedBot);
   const [mode, setMode] = useState<"steer" | "queue">("steer");
   const [priority, setPriority] = useState(1);
   const {
@@ -59,6 +62,7 @@ export default function App() {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <BotScope value={selectedBot}>
       <DockContext value={dock}>
         <TooltipProvider>
           <div className="bg-background text-foreground flex h-dvh">
@@ -127,7 +131,7 @@ export default function App() {
                   )}
                 </AnimatePresence>
               </header>
-              {bot && chatId !== null && (
+              {bot && inChat && (
                 <BotBar
                   status={bot}
                   inboxCount={inbox.length}
@@ -145,6 +149,7 @@ export default function App() {
                 />
               )}
               {showScreen && <BotScreen />}
+              {chatId === null && <div className="overflow-y-auto"><BotSetups onOpen={(id,chat)=>{setSelectedBot(id);openChat(chat);}} /></div>}
               {bot && chatId === null && (
                 <BotHome
                   status={bot}
@@ -173,6 +178,7 @@ export default function App() {
           <Toaster position="top-center" richColors closeButton />
         </TooltipProvider>
       </DockContext>
+      </BotScope>
     </AssistantRuntimeProvider>
   );
 }
