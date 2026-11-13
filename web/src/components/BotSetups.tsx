@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
 import { parseMinor } from "@/lib/bot";
+import { WaitPanel } from "@/components/SetupWait";
 
 const fail = (e: unknown) => toast.error((e as Error).message);
 const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
@@ -43,7 +44,7 @@ function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise
       <label className="col-span-2 text-xs">Accounting period<input className={field} value={budget.period} onChange={e => setDraft({ ...draft, budget: { ...budget, period: e.target.value } })} /></label>
     </fieldset>}
     <label className="text-sm">Credential labels, one per line<textarea className={field} placeholder="Labels only. Never enter passwords here." value={draft.credentials.join("\n")} onChange={e => setDraft({ ...draft, credentials: e.target.value.split("\n").map(s => s.trim()).filter(Boolean) })} /></label>
-    <p className="text-muted-foreground text-xs">Protected sign-in input is not available yet. A bot that needs credentials will preserve setup progress and wait.</p>
+    <p className="text-muted-foreground text-xs">A bot that needs credentials asks for them through protected input after setup. It preserves progress and waits. If protected input is unavailable, it stays blocked.</p>
     <label className="text-sm">First task, if you have one<textarea className={field} value={draft.task ?? ""} onChange={e => setDraft({ ...draft, task: e.target.value.trim() ? e.target.value : null })} /></label>
     <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !budget} onClick={() => save(true)}>Approve setup and create computer</Button></div>
   </div>;
@@ -56,10 +57,11 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const refresh = async () => { setRows(await api.listSetups()); setError(null); };
-  useEffect(() => { let closed = false; Promise.all([api.setupOptions(), api.listSetups()]).then(([o, r]) => { if (!closed) { setEnabled(o.enabled); setRows(r); } }, e => { if (!closed) setError((e as Error).message); }); return () => { closed = true; }; }, []);
+  const [protectedInput, setProtectedInput] = useState(false);
+  const refresh = async () => { const [r, o] = await Promise.all([api.listSetups(), api.setupOptions()]); setRows(r); setProtectedInput(o.protected_input === true); setError(null); };
+  useEffect(() => { let closed = false; Promise.all([api.setupOptions(), api.listSetups()]).then(([o, r]) => { if (!closed) { setEnabled(o.enabled); setProtectedInput(o.protected_input === true); setRows(r); } }, e => { if (!closed) setError((e as Error).message); }); return () => { closed = true; }; }, []);
   useEffect(() => {
-    if (!rows.some(r => r.phase === "Provisioning" || (r.phase === "Ready" && !r.runtime_ready))) return;
+    if (!rows.some(r => r.phase === "Provisioning" || r.phase === "Waiting" || (r.phase === "Ready" && !r.runtime_ready))) return;
     const timer = setTimeout(() => refresh().catch(e => setError((e as Error).message)), 2000);
     return () => clearTimeout(timer);
   }, [rows]);
@@ -75,7 +77,7 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
       {r.phase === "Draft" ? <><Button size="sm" variant="outline" onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>Review setup</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
         <ul className="text-sm">{r.checklist.map(i => <li key={i.label}>{i.done ? "✓" : "·"} {i.label}</li>)}</ul>
         {r.error && <p role="alert" className="text-sm text-red-500">{r.error}</p>}
-        {r.setup.wait && <p role="status" className="text-sm">{typeof r.setup.wait.kind === "object" ? `Waiting for protected input: ${r.setup.wait.kind.Credential.label}. Do not send credentials in chat.` : `Waiting for you: ${r.setup.wait.kind}`}</p>}
+        {r.setup.wait && <WaitPanel row={r} protectedInput={protectedInput} refresh={refresh} />}
         {r.phase === "Investigate" && <p className="text-sm">A setup step has an unknown outcome. Investigate before retrying.</p>}
         {r.phase === "Exhausted" && <label className="text-sm">Attempts exhausted. New total attempt limit<input type="number" min={1} defaultValue={r.setup.max_attempts} className={field} onBlur={e => { const value = Number(e.target.value); if (Number.isInteger(value) && value > r.setup.max_attempts) control(r, { action: "attempts", value }); }} /></label>}
         {r.runtime_ready ? <Button onClick={() => onOpen(r.setup.id, r.chat_id)}>Open bot chat</Button> : <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => control(r, { action: "retry" })}>Refresh setup progress</Button><Button size="sm" variant="outline" onClick={() => control(r, { action: "pause", value: true })}>Pause setup</Button><Button size="sm" variant="outline" onClick={() => control(r, { action: "pause", value: false })}>Resume setup</Button></div>}

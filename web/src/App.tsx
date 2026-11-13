@@ -9,6 +9,7 @@ import {
   SendOptions,
 } from "@/components/BotBar";
 import { BotSetups } from "@/components/BotSetups";
+import { ChatSetupWait } from "@/components/SetupWait";
 import { ComposerDock, DockContext } from "@/components/ComposerDock";
 import { LivePanel, LivePill } from "@/components/LiveView";
 import { StepGroup, StepRow } from "@/components/StepRow";
@@ -148,6 +149,7 @@ export default function App() {
                   onClose={() => setInboxOpen(false)}
                 />
               )}
+              {inChat && <ChatSetupWait botId={selectedBot} />}
               {showScreen && <BotScreen />}
               {chatId === null && <div className="overflow-y-auto"><BotSetups onOpen={(id,chat)=>{setSelectedBot(id);openChat(chat);}} /></div>}
               {bot && chatId === null && (

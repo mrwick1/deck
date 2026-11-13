@@ -157,10 +157,21 @@ export interface SetupDraft {
   authority:"Full" | {Restricted:string[]}; resources:{cpus:number; memory_mib:number; disk_gib:number};
   budget:SetupBudget | null; credentials:string[]; task:string | null;
 }
+/** A durable owner wait. Optional fields default to absent on older servers. */
+export type WaitKind = "PhoneApproval" | "Captcha" | {Credential:{label:string}} | {Unsupported:{reason?:string | null}};
+export interface SetupWait {
+  request_id:string; kind:WaitKind;
+  /** Unix seconds. Null or absent never expires. */
+  expires_at?:number | null;
+  /** Service-specific owner instructions, such as a number to match. */
+  instruction?:string | null;
+  /** The owner said done. The server has not yet verified the service. */
+  verification_pending?:boolean;
+}
 export interface SetupRecord {
   version:number; chat_id:number; phase:"Draft" | "Provisioning" | "Waiting" | "Investigate" | "Exhausted" | "Ready";
   runtime_ready:boolean; error:string | null; checklist:{label:string;done:boolean}[];
-  setup:{id:string;draft:SetupDraft;max_attempts:number;wait:{request_id:string;kind:string | {Credential:{label:string}}} | null;steps:{step:unknown;status:string;last_error:string | null}[]};
+  setup:{id:string;draft:SetupDraft;max_attempts:number;wait:SetupWait | null;steps:{step:unknown;status:string;last_error:string | null}[]};
 }
 export const setupOptions = () => call<{enabled:boolean;model?:string;protected_input?:boolean}>("/api/setup-options");
 export const listSetups = () => call<SetupRecord[]>("/api/setups");
@@ -168,3 +179,20 @@ export const createSetup = (job:string) => call<SetupRecord>("/api/setups",post(
 export const editSetup = (id:string,version:number,draft:SetupDraft) => call<void>(`/api/setups/${id}`,post({version,draft}));
 export const approveSetup = (id:string,version:number,revision:number) => call<void>(`/api/setups/${id}/approve`,post({version,revision}));
 export const controlSetup = (id:string,version:number,command:unknown) => call<void>(`/api/setups/${id}/control`,post({version,command}));
+
+/** Protected input. The value goes only in this body. It never goes in a URL, a message or an error. */
+export const submitSecret = async (id:string,version:number,request_id:string,value:string):Promise<void> => {
+  let res: Response;
+  try { res = await fetch(`/api/setups/${encodeURIComponent(id)}/secret`, post({version,request_id,value})); }
+  catch { throw new ApiError(0,"Cannot reach the server. Enter the value again."); }
+  // Only 204 proves verified delivery. The server text is never shown, because it could echo input.
+  if (res.status !== 204) throw new ApiError(res.status, secretFailure(res.status));
+};
+export const secretFailure = (status:number) =>
+  status === 409 || status === 410 ? "This request changed or expired. Review the current request and enter the value again."
+  : status === 401 || status === 403 ? "Sign in again, then enter the value again."
+  : status === 501 || status === 503 ? "Protected input is not available. Nothing was delivered."
+  : "Delivery was not confirmed. Enter the value again.";
+export type ChallengeDecision = "completed" | "cancel";
+export const respondChallenge = (id:string,version:number,request_id:string,decision:ChallengeDecision) =>
+  call<void>(`/api/setups/${encodeURIComponent(id)}/challenge/respond`,post({version,request_id,decision}));
