@@ -101,3 +101,9 @@ Verification: the combined Rust run passes 271 unit tests and four integration t
 Runtime commit `1e0e93f` is integrated as `7ced5ae`. It accepts only the real guest's exact absent-receipt response, rechecks existing guest receipts, installs capture privacy in `Bot::new` and adds task help/status/verification tools. Parent alignment changes the wake instruction to the real `owner_help_status` tool and corrects the remaining API test fixture's exit status. The fixture regression failed before that correction.
 
 Parent verification now passes 288 Rust unit tests and four integration tests. Two live tests remain ignored. The real HTTP/SQLite synthetic failure suite passes 30 tests with one explicitly skipped screenshot gate. Formatting and clippy pass. These tests use a scripted model and fake guest. They do not prove real VM transport, bare rendering, active-task runtime resumption or raster secrecy. The final runtime and browser acceptance checks remain open. The original live VM worker has not reported completion.
+
+## Final acceptance assignments
+
+Two isolated checks started from `c9153e2`. The browser check uses the running throwaway Deck stack, scripted model and fake guest. It checks desktop and phone review, protected entry and challenge presentation in bare. It owns cleanup of that stack and its isolated screen. The runtime check uses the real Python executor and scripted model to exercise the production targeted sender, holds and restart. It owns tests only.
+
+Neither check may launch a live VM. The original fresh-VM worker retains exclusive ownership of that gate. Browser privacy, task resumption and real guest transport remain unverified until evidence returns. No merge or deployment is authorized.
