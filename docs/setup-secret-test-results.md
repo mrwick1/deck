@@ -89,3 +89,7 @@ No safety assertion was removed to make a test pass.
 ## Parent fixture correction
 
 The results above describe the child's run at `da249a4`. Parent review found that the fake guest restored an overwritten value on replay of a completed request. The production guest refuses that replay. A new fixture-only regression failed before the correction and passes after it. The HTTP overwrite case now requires rejection, an open wait and preservation of the newer value. This adds one test; the combined HTTP suite has not yet been rerun with the pending host fix.
+
+## Combined host rerun
+
+After integrating `7ced5ae` and aligning the API fixture with the real absent-receipt exit code, the parent ran the suite against the built Deck binary. All 31 tests ran: 30 pass and the screenshot gate remains skipped. The corrected overwrite case refuses a completed-identity replay and preserves the newer value. The Rust run passes 288 unit tests and four integration tests; two live tests remain ignored. This is HTTP/SQLite acceptance with a fake guest, not real VM or browser evidence.

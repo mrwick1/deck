@@ -700,8 +700,11 @@ bot = a[a.index('--bot') + 1]
 req = a[a.index('--request-id') + 1]
 rf = d / ('receipt-' + req.replace(':', '_'))
 if 'secret-receipt' in a:
-    print(rf.read_text() if rf.exists() else json.dumps({'ok': False}))
-    sys.exit(0)
+    if rf.exists():
+        print(rf.read_text())
+        sys.exit(0)
+    print(json.dumps({'ok': False, 'error': 'not_delivered'}))
+    sys.exit(1)
 body = json.load(sys.stdin)
 if (d / 'fail').exists():
     sys.stderr.write('boom ' + body['value'])

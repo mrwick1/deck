@@ -71,7 +71,7 @@ pub fn challenge_text(request: &str, d: Decision) -> String {
     let marker = challenge_marker(request, d);
     match d {
         Decision::Completed => format!(
-            "The owner marked {marker}. This does not prove the sign-in worked. Call challenge_state for request {request} and verify the service before you continue."
+            "The owner marked {marker}. This does not prove the sign-in worked. Call owner_help_status for request {request}, check the service with a read-only tool, then call report_help_verification before you continue."
         ),
         Decision::Cancel => format!(
             "The owner cancelled {marker}. Do not retry this sign-in. Report what is blocked."
@@ -945,7 +945,7 @@ mod tests {
             Woke::Sent
         );
         let sent = f.sent.lock().unwrap().clone();
-        assert!(sent[0].contains("challenge_state") && sent[0].contains("b:1"));
+        assert!(sent[0].contains("owner_help_status") && sent[0].contains("b:1"));
         assert!(sent[1].contains("cancelled"));
         // A wake that lands on a different task is an error, not a success.
         let g = waiting_task().await;

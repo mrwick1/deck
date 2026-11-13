@@ -66,7 +66,7 @@ class Base(unittest.TestCase):
 
     def assert_no_delivery(self, sid):
         self.assertEqual(len(self.s.calls(sid, "deliver-secret")), 0, "no guest delivery may happen")
-        self.assertEqual(self.s.guest_secrets(sid), [])
+        self.assertEqual(len(self.s.guest_secrets(sid)), 0)
 
     def assert_clean(self):
         counts = self.s.leak_counts()
@@ -108,7 +108,7 @@ class Harness(Base):
         other = json.dumps({"label": "FIXTURE_PASS", "value": "synthetic-other"}).encode()
         self.assertEqual(json.loads(run("deliver-secret", "--bot", sid, "--request-id", "r1", stdin=other).stdout)["error"], "request_mismatch")
         self.assertEqual(run("deliver-secret", "--bot", sid, "--request-id", "r4", stdin=other).returncode, 0)
-        self.assertEqual(self.s.guest_secrets(sid), ["FIXTURE_PASS=synthetic-other"], "one line per name")
+        self.assertTrue(self.s.guest_secrets(sid) == ["FIXTURE_PASS=synthetic-other"], "one line per name")
         gone = run("secret-receipt", "--bot", sid, "--request-id", "r1")
         self.assertEqual((gone.returncode, json.loads(gone.stdout)["error"]), (1, "not_delivered"))
         self.assertEqual(run("secret-receipt", "--bot", sid, "--request-id", "r4").returncode, 0)
@@ -202,7 +202,7 @@ class ProtectedSecret(Base):
         self.assertEqual(stat.S_IMODE(os.stat(sink).st_mode), 0o600)
         self.assertEqual(self.s.sentinel.count_file(sink), 1, "the private sink holds the value once")
         for argv in (c["argv"] for c in self.s.journal(sid)):
-            self.assertNotIn(self.s.sentinel.value, argv)
+            self.assertTrue(self.s.sentinel.value not in argv, "protected value escaped into arguments")
         cur = self.s.setup(sid)
         self.assertEqual(cur["setup"]["wait"]["kind"], {"Credential": {"label": "HOLD_OPEN"}})
         # the same request, even with the new version, must not deliver again
@@ -217,7 +217,7 @@ class ProtectedSecret(Base):
         v, rid = self.req(sid)
         self.s.fault(sid, "fail")
         self.assertGreaterEqual(self.s.secret(sid, v, rid)[0], 400)
-        self.assertEqual(self.s.guest_secrets(sid), [])
+        self.assertEqual(len(self.s.guest_secrets(sid)), 0)
         self.assertEqual(self.s.receipts(sid), [])
         self.assert_open_credential_wait(sid)
         v, rid2 = self.req(sid)
@@ -320,7 +320,7 @@ class ProtectedSecret(Base):
         v = self.s.setup(sid)["version"]
         self.assertGreaterEqual(self.s.secret(sid, v, rid)[0], 400, "an overwritten completed identity cannot be replayed")
         self.assert_open_credential_wait(sid, rid)
-        self.assertEqual(self.s.guest_secrets(sid), ["FIXTURE_PASS=synthetic-overwrite"], "failed replay preserves the newer value")
+        self.assertTrue(self.s.guest_secrets(sid) == ["FIXTURE_PASS=synthetic-overwrite"], "failed replay preserves the newer value")
         self.assert_clean()
 
     def test_the_task_secret_route_needs_auth_and_an_open_request(self):

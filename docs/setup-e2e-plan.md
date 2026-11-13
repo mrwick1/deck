@@ -95,3 +95,9 @@ Parent review removed generic steering from owner-answer delivery. The targeted 
 Cancellation now retains its task binding in the resolved snapshot. A failed cancellation wake can be reconciled after reload. The optional field preserves old snapshot decoding. A regression for the missing binding failed before implementation. The storage and recovery tests pass after the fixes. Cancellation metadata can be saved under spending holds; dispatch still obeys the holds.
 
 Verification: the combined Rust run passes 271 unit tests and four integration tests. A subsequently added cancellation reconciliation test also passes. Two live tests remain ignored. Formatting, clippy, web type checking, all 49 web tests and the production build pass. The existing bundle-size warning remains. The HTTP failure harness must run again after the pending receipt-contract fix. Runtime/tool integration and the original live VM worker have not reported completion.
+
+## Combined runtime checkpoint: 2026-11-13
+
+Runtime commit `1e0e93f` is integrated as `7ced5ae`. It accepts only the real guest's exact absent-receipt response, rechecks existing guest receipts, installs capture privacy in `Bot::new` and adds task help/status/verification tools. Parent alignment changes the wake instruction to the real `owner_help_status` tool and corrects the remaining API test fixture's exit status. The fixture regression failed before that correction.
+
+Parent verification now passes 288 Rust unit tests and four integration tests. Two live tests remain ignored. The real HTTP/SQLite synthetic failure suite passes 30 tests with one explicitly skipped screenshot gate. Formatting and clippy pass. These tests use a scripted model and fake guest. They do not prove real VM transport, bare rendering, active-task runtime resumption or raster secrecy. The final runtime and browser acceptance checks remain open. The original live VM worker has not reported completion.
