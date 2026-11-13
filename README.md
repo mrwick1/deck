@@ -4,7 +4,7 @@
 
 ## Status
 
-M1 and the three-stage one-bot desktop prototype are complete. Performance work follows. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
+M1 and the three-stage one-bot desktop prototype are merged. The measured save optimization and benchmark reports are in PR #23, pending merge. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 
@@ -21,6 +21,7 @@ Without `web/dist`, `cargo build` embeds a placeholder page.
 Run `cargo test -- --ignored` to run the live tests. They start the real `bare-mcp`, so it must be on `PATH`.
 `tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
 A `[vm]` section in `deck.toml` gives the bot its own guest computer. See [docs/stage3-results.md](docs/stage3-results.md).
+The one-bot save command caps migration at 512 MiB/s. The CLI accepts `stop --bandwidth-mib 128` for the original cap. Concurrent saves and slow storage remain untested. See [docs/migration-bandwidth-results.md](docs/migration-bandwidth-results.md).
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
 Run `python3 evals/run.py` to score the agent on a fixed task set with the real model. See [evals/README.md](evals/README.md).
 
@@ -33,6 +34,7 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 
 | File | Contents |
 | --- | --- |
+| [docs/progress.md](docs/progress.md) | Current status, verification and historical checkpoints |
 | [docs/vision.md](docs/vision.md) | Goal, user, scope and quality bar |
 | [docs/architecture.md](docs/architecture.md) | Parts of the system and how they talk |
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |
@@ -41,4 +43,8 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 | [docs/inspiration.md](docs/inspiration.md) | What we take from other open-source agents |
 | [docs/bare-gaps.md](docs/bare-gaps.md) | What `bare-mcp` must add for `deck` |
 | [docs/stage3-results.md](docs/stage3-results.md) | The lean bot on its own computer: gates, measures and gaps |
+| [docs/optimization-plan.md](docs/optimization-plan.md) | Experiment order, current status and remaining work |
+| [docs/migration-bandwidth-results.md](docs/migration-bandwidth-results.md) | Controlled save-rate comparison and integrated validation |
+| [docs/memory-benchmark-results.md](docs/memory-benchmark-results.md) | Memory growth, incomplete repetitions and retained failures |
+| [docs/idle-benchmark-results.md](docs/idle-benchmark-results.md) | Connected idle observations and attribution limits |
 | [docs/open-questions.md](docs/open-questions.md) | Design questions and their answers |

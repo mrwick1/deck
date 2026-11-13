@@ -4,7 +4,7 @@ This file separates three states. Keep them apart.
 
 - **Shipped:** what the code on this branch does now.
 - **Measured:** prototype results. They show feasibility. They are not product behavior.
-- **Target:** the approved design in D23–D48. Most of it is not built.
+- **Target:** the full multi-bot design, including capabilities beyond the implemented one-bot prototype.
 
 The decisions are in [decisions.md](decisions.md). The latest decision wins. Where D13, D14 or D25 conflicts with a later decision, the later decision applies.
 
@@ -29,7 +29,7 @@ user (web app) ──HTTPS + SSE──> deck service (Rust, one process)
 - Model access uses an OpenAI-compatible endpoint only. The endpoint, model names and key are configuration. The key comes from the environment, never from a file.
 - The design expects Authelia behind Caddy. deck trusts `Remote-User` only from `trusted_proxies`. Source: `src/auth.rs`.
 - Cancel works with `POST /api/runs/{id}/cancel`. It returns `204`.
-- Not shipped: a shell tool, a memory store, routines, event subscriptions, an approval flow, a live page view, and a per-bot model setting.
+- This local-browser path has no guest shell or desktop. The optional VM path below adds them. Memory, routines, service-specific event sources, protected sign-in and per-bot model selection remain deferred. Generic approvals remain placeholders; the VM inbox has owner-question, recovery and budget-hold controls.
 
 ### Live events
 
@@ -67,6 +67,10 @@ With a `[vm]` section, the server owns one configured bot and its Arch desktop V
 
 The integrated path has a persistent task queue, steering, stop, pause and budget-hold gates, an inbox for unresolved outcomes, generic event batching and on-demand screen capture. An idle computer saves when no task or unresolved command owns it. Eligible queued work wakes it. The overview is the landing view; opening a bot shows its chat.
 
+The host executor journal and task state live outside the VM. Commands use bot/task/command identity, host epochs, deadlines, cancellation acknowledgement and artifact integrity checks. The server holds a persistent guest connection. The guest executes as the desktop user; cgroup containment is used when delegation is available.
+
+The viewer uses QMP desktop captures with demand-driven subscriptions and unchanged-frame delivery suppression. Bare has its own page captures; these differ from the full desktop view. The CLI/server save path on this branch sets and verifies the D55 cap of 512 MiB/s; `stop --bandwidth-mib 128` selects the original CLI cap. This optimization is in PR #23, pending merge. The codec remains unchanged.
+
 Automatic spending accounting, real account integrations, conversational provisioning and memory retrieval are not implemented. Fresh provisioning and real halfway-save failure remain untested. See [Stage 3 results](stage3-results.md) for the parent verification and limits.
 
 ## Measured evidence
@@ -76,8 +80,9 @@ This section records prototype results. It does not show that the target exists.
 - **Stage 1 VM feasibility:** Five saved-state cycles ran on a copy of the disk. The unsaved editor buffer, the open bare page, a fixture login and files survived every cycle. Save and restore times stayed within the initial targets. A kill and cold boot kept files but lost the volatile editor and browser state. Login persistence after a crash is not proven. The experiment used a root guest agent. Stage 2 defines the product executor. Source: `docs/vm-stage1-results.md` on the implementation branch.
 - **Stage 1 scope not tested:** authenticated executor readiness, cancellation, host action records, restore fencing, Deck UI, two-bot isolation, repeated boot and idle memory samples, and end-to-end display latency.
 - **Optimization harness:** The implementation branch contains shared base images with private overlays, guest service trimming, optional saved-state codecs and capture benchmarks. The codec experiment ran 20 successful restore cycles across four codecs. Capture suppression reduces transmitted data in the fixture. It does not reduce capture work.
-- **Timing caveat:** Some optimization runs overlapped. Timing comparisons are provisional. No uncontended speedup is established. Source: `docs/optimization-plan.md` and `docs/vm-optimization-results.md` on the implementation branch.
-- **Not integrated:** idle sleep, event batching and live-view capture subscriptions wait for the executor, the task queue and the UI. The saved-state codec default stays `none`.
+- **Original optimization timing caveat:** Some early optimization runs overlapped. Their timing comparisons are provisional. The later controlled migration comparison is separate evidence; do not apply its result to the earlier runs. Source: `docs/optimization-plan.md` and `docs/vm-optimization-results.md` on the implementation branch.
+- **Integrated lifecycle:** idle sleep, generic event batching and live-view capture subscriptions have Stage 3 callers and tests. The saved-state codec default stays `none`.
+- **Controlled follow-up:** the cycle, memory, idle and migration reports record later evidence. Memory repetition remains incomplete. The migration comparison supports the one-bot save cap; it does not establish disk-cold or concurrent performance.
 
 ## Target architecture (D23–D48)
 
@@ -87,7 +92,7 @@ This section records prototype results. It does not show that the target exists.
 - Each bot has its own accounts, files, memory, instructions and model configuration (D23).
 - Deck creates and manages each computer and its lifecycle (D23, D37).
 - Bots are independent workers. Bot-to-bot delegation is not part of this design (D23).
-- The VM backend is not selected. QEMU/KVM is the first candidate, to be measured (D37, D46).
+- The one-bot implementation uses QEMU/KVM through the Python harness. Other hosts/backends and general multi-bot resource management remain deferred (D37, D46).
 - Creating a bot through conversation is a later stage (D28).
 
 ### Host and guest split
@@ -95,21 +100,21 @@ This section records prototype results. It does not show that the target exists.
 - **Host (Deck):** the agent loop, model calls, tasks, memory, permissions, action records and VM lifecycle. Host state stays outside the VM (D37).
 - **Guest:** the desktop, bare, a shell, files, applications, signed-in sessions and a small executor (D37).
 - The executor runs commands as the guest desktop user. Privileged lifecycle commands use a separate path (Stage 2 plan).
-- Executor rules (verified developer path in Stage 2; server integration is pending):
+- Executor rules (Stage 2 implementation, integrated with the server in Stage 3):
   - The protocol is versioned. A connection binds to one configured bot.
   - Each command carries a task ID, a command ID, a host-owned epoch and a deadline.
   - A repeated command with the same ID returns the known state. Reuse of an ID with other arguments is rejected.
   - Cancel returns a request. Termination needs its own confirmation.
   - Artifacts move by handle, with size and integrity checks. Paths stay inside the guest workspace and the host bot store.
 - The host advances restore epochs. It rejects stale replies. A restored guest identifier does not prove a fresh identity (review recommendations).
-- Guest transport authentication and connection recovery are open.
+- The current private serial/socket transport checks configured bot/guest identity, host epochs and peer boundaries. Reconnect and stale replies have tests. Provisioning identity and transport hardening for other host placements remain open.
 
 ### Browser
 
 - `bare` is the only browser (D2, D23). Do not add Chrome, Chromium, Playwright, Xvfb or VNC. Do not add them as fallbacks.
-- The prototype runs bare inside the guest. The target connects its tools to the executor in a later step.
-- The display path for the desktop view is not selected (D23). Verify it against the browser and display rules before choosing it.
-- The relation between bare's captures and the desktop view is open (D38, review item 4).
+- The integrated prototype runs bare inside the guest and relays its tools and artifacts through the executor.
+- The one-bot desktop view uses QMP captures and an on-demand web stream. Other transports and future takeover remain deferred (D23).
+- Bare page captures and full desktop frames are distinct. Both paths have prototype evidence; broader service and phone behavior need further validation (D38).
 
 ### Actions and permissions
 
@@ -146,7 +151,7 @@ This section records prototype results. It does not show that the target exists.
 - The owner sets the priority of each message. Priority does not interrupt a running task (D31).
 - Stop, steer and queue are separate controls (D39).
   - Stop ends the current action. It cannot undo an external action that was already submitted (D39).
-  - Steer changes the current work. The target applies steering at the next model-call boundary; this is not implemented in the prototype. Steering does not change a command that is already running (vm-prototype).
+  - Steer changes the current work. The integrated path applies steering at the next model-call boundary. Steering does not change a command that is already running (vm-prototype).
   - Queue holds a message for later work. It keeps the priority that the owner chose (D39, D31).
 
 ### Uncertain outcomes
@@ -155,7 +160,7 @@ This section records prototype results. It does not show that the target exists.
 - A timeout or crash can leave a send or submission uncertain. The bot checks the service for evidence before it retries (D34).
 - Do not repeat an uncertain external action until its outcome is resolved, or the owner directs it (D34).
 - Deck stores task progress and action records outside the VM. Restoring the computer does not erase them (D34, D37).
-- Retry limits, the evidence that resolves an outcome, and the action record format are open (D34).
+- A durable command journal and uncertainty states are implemented. Service-specific investigation evidence, retry policy and automatic resolution remain open (D34).
 
 ### Sign-in and credentials
 
@@ -197,7 +202,7 @@ This section records prototype results. It does not show that the target exists.
 
 ## Data
 
-- SQLite holds chats, runs, memory and routines (D12). The shipped store holds chats, messages, runs, events and files. Memory and routines are not shipped.
+- SQLite holds chats, runs, memory and routines (D12). The base store holds chats, messages, runs, events and files. VM migrations add bot/task/event state, command records, epochs and hold flags. Memory and routines are not shipped.
 - Target host state lives outside the VM: tasks, action records, restore epochs, permissions and budgets (D34, D37).
 - Files live in the bot's workspace folder.
 - Credentials live in the protected store. They never appear in the database in plain text (D29, D35).
@@ -205,7 +210,7 @@ This section records prototype results. It does not show that the target exists.
 ## Stage status
 
 - **Stage 1:** VM feasibility reproduced. Only feasibility is accepted (see Measured evidence).
-- **Stage 2:** the developer executor and host journal are implemented on the implementation branch. The parent reproduced a serial VM smoke test. The long-running service, agent tools and UI are not connected to this path. Fresh setup and multi-bot behavior remain untested.
-- **Stage 3:** one configured bot is integrated on the implementation branch. Parent verification covered the real-server UI in bare, guest tools, queue controls, idle save/wake and capture shutdown. Generic event batching is integrated.
+- **Stage 2:** the executor and host journal are implemented and were merged with Stage 3 in PR #22. The parent reproduced the serial VM smoke. Fresh setup and multi-bot behavior remain untested.
+- **Stage 3:** one configured bot is integrated and merged in PR #22. Parent verification covered the real-server UI in bare, guest tools, queue controls, idle save/wake and capture shutdown. Generic event batching is integrated.
 - **Further product work:** automatic spending accounting, real accounts, MFA, service event integrations, memory integration, conversational creation and visual redesign.
 - **Optimization status:** idle sleep, generic event batching, live-view subscriptions and unchanged-frame delivery suppression have Stage 3 callers and verification. Optional codecs retain the uncompressed default. See the carryover checklist for remaining robustness and performance work.

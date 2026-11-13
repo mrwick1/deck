@@ -2,9 +2,35 @@
 
 Update this file when a stage or verification step ends.
 
+## Current status: 2026-11-13
+
+Stages 1–3 are merged in PR #22. PR #23 contains the measurement harnesses, evidence fixes and one-bot save optimization. It is open and is not deployed. CI passed on implementation head `081ddeb`; later documentation edits need their own CI result.
+
+| Work | Current result | Evidence |
+| --- | --- | --- |
+| One-bot desktop/runtime | Merged; synthetic task, control, queue and sleep/wake scope verified | [Stage 3](stage3-results.md) |
+| Lifecycle baseline | Three accepted release runs; overlapping diagnostic excluded | [Baseline](single-bot-benchmark.md) |
+| Saved-state cost | Fifteen cycles across three fresh boots passed | [Cycle report](cycle-benchmark-results.md) |
+| Memory growth | Two full 30-minute boots passed recovery; third stopped on CPU pressure. Planned repetition incomplete; no host plateau established | [Memory report](memory-benchmark-results.md) |
+| Connected idle attribution | Three boots and six valid windows; no causal tuning candidate established | [Idle report](idle-benchmark-results.md) |
+| Save cap | Twelve controlled cycles passed; corrected integrated smoke verified the 512 MiB/s CLI/server path | [Migration report](migration-bandwidth-results.md) |
+| Local verification | 197 Python tests pass; sampler-race suite passed six repeat runs; direct VM suite runs all 35 tests | [Migration validation](migration-bandwidth-results.md) |
+
+The save result is a warm-cache, one-bot improvement. Concurrent saves, slow storage, disk-cold restore and peak CPU remain untested. No user service was restarted. The next integration step is PR #23 merge. Deferred product work includes spending accounting, real account/event sources, protected credential prompts, memory integration and conversational bot creation. Fresh provisioning and real halfway-save failure remain unverified.
+
+## PR #23 integration check: 2026-11-13
+
+Merged the current main branch into the performance branch. Preserved published decisions D52 and D53. Renumbered the performance decisions to D54 and D55 and updated their references. The conflict affected documentation only.
+
+All 197 prototype Python tests, 28 eval tests and 22 web tests pass. All 135 Rust unit tests and three non-live integration tests pass. Rust formatting and clippy pass. Web type checking and the production build pass. The build retains its bundle-size warning. Live VM, browser and performance experiments were not repeated for this documentation conflict resolution.
+
+## Historical checkpoints
+
+The sections below preserve what was known at each step. Their earlier next actions and test counts are historical. Use the current status above for the latest state.
+
 ## One-bot runtime: 2026-11-12
 
-Stages 1–3 are complete for one configured bot with synthetic tasks. The integration branch contains the code and evidence. Upstream merge is pending. No deployment is required for local use.
+Stages 1–3 are complete for one configured bot with synthetic tasks. PR #22 merged the code and evidence. The merged revision is `1085df9`. No deployment is required for local use.
 
 | Stage | Verified result | Evidence |
 | --- | --- | --- |
@@ -12,11 +38,11 @@ Stages 1–3 are complete for one configured bot with synthetic tasks. The integ
 | 2 | Guest executor, durable command records, cancellation, artifacts and restore fencing | [Stage 2 results](stage2-results.md) |
 | 3 | Server integration, queue, controls, idle save, wake, event batching and subscribed screen capture | [Stage 3 results](stage3-results.md) |
 
-CI exposed a pause race during task selection. Dispatch now rechecks holds when it claims work. A regression failed before the fix. The updated branch must pass CI before merge.
+CI exposed a pause race during task selection. Dispatch now rechecks holds when it claims work. A regression failed before the fix. Both CI runs passed on the corrected branch before merge.
 
 The parent checked the UI in bare. The strict real-VM run used the real server and a scripted model. It completed browser, shell and file work, saved the idle computer and restored it for the next task. Deterministic tests cover stop, steer, holds and uncertain outcomes.
 
-### Current resource baseline
+### Initial Stage 3 resource sample
 
 These are single-run observations, not capacity estimates or before/after performance claims. CPU is a percentage of one core. The server memory is shared Deck overhead.
 
@@ -28,7 +54,11 @@ These are single-run observations, not capacity estimates or before/after perfor
 
 No model calls or captures occurred in the idle and saved windows. Capture stopped after the viewer disconnected. A restored task completed in about 3 seconds. The workload was small and synthetic.
 
-### Next: optimize one integrated bot
+### Initial release benchmark checkpoint
+
+A release-binary lifecycle series completed four runs. Three form the baseline; one overlapped local tests and remains diagnostic evidence. Each round used a new private overlay. Timestamped API traces, one-second process counters and scenario results stay outside Git. See [the benchmark report](single-bot-benchmark.md). All lifecycle checks passed. No performance change or speedup is claimed. Sustained active-load tests remain pending.
+
+### Initial optimization work list
 
 1. Measure one owned workload at a time. Keep working, awake-idle and saved results separate.
 2. Profile residual guest CPU while awake and idle. Identify the process and timer before changing the desktop.
@@ -122,3 +152,55 @@ The browser-tools checkpoint reported merged branches and bare main `052736a7`. 
 - A test agent runs all suites of the integration branch in a new, empty build folder before the merge.
 - After each merge, `bare-mcp` is repinned from that clean build. The old binary stays as a backup.
 - The eval set measures each change with the real model.
+
+## Evidence and attribution follow-up
+
+The evidence-gap fixes have three passing regressions. All 65 Python tests pass. Repeated guest idle snapshots, a separate host-thread sample and a software CPU profile point toward VM event-loop overhead, but do not prove a specific timer or device cause. Closing the editor did not eliminate variation. Two marker-aligned synthetic tool tests passed with complete retained evidence. See [the investigation report](benchmark-investigation.md). No production tuning or capacity claim follows from these data.
+
+## Saved-state cost pass
+
+The runtime-only saved-state experiment completed three fresh boots and five cycles per boot. All 15 cycles passed desktop, browser, file and transfer checks. The parent reproduced the raw summary and all 87 Python tests. No sampler or retention error was recorded. The base digest stayed unchanged and no QEMU process remained. See [cycle-benchmark-results.md](cycle-benchmark-results.md).
+
+No server-path speedup is claimed. Restores were warm in the host page cache. The sampler has material CPU overhead. Migration bandwidth and the post-agent restore gap are hypotheses for controlled follow-up. The next live experiment is sustained memory growth; idle attribution follows it.
+
+## Memory pass: incomplete first run
+
+The first memory experiment stopped on the existing host-wide swap guard after 1,551 of 1,800 planned workload seconds in boot 1. Boots 2 and 3 did not start. The raw summary correctly reports failure, with no sampler or retention error and an unchanged base. Parent checks reproduce all 126 Python tests. See [memory-benchmark-results.md](memory-benchmark-results.md).
+
+This partial run shows stable bare process memory after warm-up, continued host VM/cache growth and reply-file growth. It does not establish a host-memory plateau or a leak. The Deck reply spool requires bounded-transport investigation, not an engine-leak claim. Save/restore after the memory workload remains untested. Run one short smoke before a fresh full attempt. Keep the original guard and incomplete evidence; do not relax the threshold to obtain a pass.
+
+## Memory smoke: desktop comparison unresolved
+
+Two fresh one-minute smoke attempts passed workload bounds but stopped at the pre-save terminal-pixel check. Refocusing did not resolve the mismatch. Save/restore after this workload is still unvalidated; the long experiment remains incomplete. All 128 Python tests pass in the implementation report. The next diagnostic must retain pre/post workload screenshots and compositor trees, determine whether layout, focus, cursor or content changed, and test a correction without dropping the volatile-state gate.
+
+## Memory smoke: parent validation passed
+
+Screenshots and compositor trees identified tiling geometry as the earlier pixel mismatch. The parent inspected those images, reproduced all 131 Python tests, then ran one fresh smoke with the fixed terminal. Workload bounds, save/restore, unsaved terminal pixels and process, browser session, file/download hashes, base integrity and cleanup all passed. No sampler, retention or stop error was recorded.
+
+This closes the short smoke gap. It does not complete the three independent 30-minute memory runs. The fixed terminal changes browser geometry, so future memory curves need a separate baseline. The next action is one fresh full attempt under unchanged resource guards.
+
+## Second full memory attempt and revised observation policy
+
+The second full attempt stopped in boot 1 after 497.6 seconds on host-wide paging. It remains incomplete; boots 2 and 3 did not run. The parent verified its failed summary and retained evidence.
+
+D54 versions future memory runs separately: host-wide paging is context, while VM, OOM, limit, pressure and low-memory guards remain safety stops. Paging windows are explicit and cannot support clean latency comparisons. All 132 Python tests pass. The next attempt uses this revised method, not a retroactive pass for earlier data.
+
+## Memory v2 observation complete; planned repetition incomplete
+
+The parent verified the failed raw summary: boots 1 and 2 completed 30-minute workloads and passed save/restore, desktop, session and file gates. Boot 3 stopped at 1,057.8 seconds on CPU pressure and did not reach save. The three-boot completion claim does not hold. No sampler or retention error was recorded; the base stayed unchanged and no QEMU remained.
+
+Bare process memory showed no significant late trend in the two complete boots. Host VM memory and guest cache kept growing; no host plateau or leak cause was established. Paging context prevents clean latency comparisons. The report retains the failed run and layout-specific data. No further long memory rerun is scheduled on this host. The shorter idle attribution experiment is next; the missing third full repetition remains explicit.
+
+## Idle attribution verified
+
+The connected-executor Stage 3 experiment completed three boots and six valid 60-second idle windows. The parent reproduced all 168 Python tests and recalculated the window gates and host deltas from raw records. Model and capture counters stayed flat. No observer or retention error was recorded, the base stayed unchanged and no QEMU remained. See [idle-benchmark-results.md](idle-benchmark-results.md).
+
+The executor timeout is a small switch-rate source, not an explanation for most host work. QEMU main-thread switches and guest local timers recur, but no causal timer/device change is justified. This closes the planned idle attribution pass with a negative tuning finding. Memory still lacks its third full repetition and a host plateau. The next bounded candidate is a controlled migration-bandwidth comparison, not generic idle tuning. No production performance gain is claimed.
+
+## First measured optimization applied: one-bot save rate
+
+The controlled migration comparison passed 12 cycles across three boots. Raising the cap from 128 to 512 MiB/s reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. The parent reproduced the raw medians. D55 applies the selected cap to the one-bot CLI/server save path with read-back verification and an original-cap CLI override.
+
+An initial integration smoke caught a QMP argument-shape error. Its evidence is retained. After a strict regression and correction, a fresh integrated smoke passed save/restore and chat/file/browser gates and recorded the requested 512 MiB/s cap. All 197 Python tests pass; the previously flaky cycle suite passed six repeat runs. Parallel code and evidence reviews were incorporated. See [migration-bandwidth-results.md](migration-bandwidth-results.md).
+
+This is a warm-cache single-bot save improvement. Peak CPU and physical-disk bandwidth are unmeasured, concurrent saves and slow storage remain untested, and memory still lacks its third full repetition and a host plateau. No running local service was restarted or deployed.

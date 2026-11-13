@@ -6,6 +6,9 @@ With --secret-port it also serves a host-only marker on a second port,
 which the guest must not reach.
 """
 import argparse
+import functools
+import hashlib
+import re
 import secrets
 import threading
 from http.cookies import SimpleCookie
@@ -17,6 +20,32 @@ USER, PASSWORD = "demo", "demo-pass"  # synthetic
 SESSIONS = set()
 
 PAGE = "<!doctype html><title>{t}</title><h1>{t}</h1>{b}"
+
+# Bounded synthetic routes for the memory benchmark. Fixed sizes; nothing grows with requests.
+MEM_PAGES, MEM_PAGE_BYTES = 40, 32 * 1024
+MEM_DOWNLOADS, MEM_DOWNLOAD_BYTES = 8, 2 << 20
+MEM_END_MARKER = "MEM-END-MARKER-5b1e"
+_MEM_ROUTE = re.compile(r"/mem/(page|dl)/(\d{1,2})")
+
+
+def mem_page(n):
+    """Page n as bytes of exactly MEM_PAGE_BYTES. Text only: a target=_blank link to the end page and a download link."""
+    head = f'<!doctype html><title>Mem {n}</title><h1>Mem page {n}</h1><a href="/mem/end" target="_blank">Open end page</a> <a href="/mem/dl/{n % MEM_DOWNLOADS}">Download file</a><pre>'
+    tail = "</pre>"
+    line = f"page {n:02d} synthetic filler line for the memory benchmark\n".encode()
+    fill = (line * (MEM_PAGE_BYTES // len(line) + 1))[:MEM_PAGE_BYTES - len(head) - len(tail)]
+    return head.encode() + fill + tail.encode()
+
+
+@functools.lru_cache(maxsize=MEM_DOWNLOADS)
+def mem_download(k):
+    """Download k as exactly MEM_DOWNLOAD_BYTES of deterministic bytes."""
+    block = b"".join(hashlib.sha256(f"deck-mem-{k}-{i}".encode()).digest() for i in range(128))
+    return block * (MEM_DOWNLOAD_BYTES // len(block))
+
+
+def mem_download_sha(k):
+    return hashlib.sha256(mem_download(k)).hexdigest()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -45,6 +74,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, PAGE.format(t="Account", b=b))
         elif path == "/files/report.csv":
             self.send(200, CSV, "text/csv", [("Content-Disposition", 'attachment; filename="report.csv"')])
+        elif path == "/mem/end":
+            self.send(200, PAGE.format(t=MEM_END_MARKER, b=f"<p id=state>{MEM_END_MARKER}</p>"))
+        elif path == "/mem/":
+            links = " ".join(f'<a href="/mem/page/{n}">p{n}</a>' for n in range(MEM_PAGES))
+            self.send(200, PAGE.format(t="Mem index", b=links))
+        elif (m := _MEM_ROUTE.fullmatch(path)) and int(m[2]) < (MEM_PAGES if m[1] == "page" else MEM_DOWNLOADS):
+            n = int(m[2])
+            if m[1] == "page":
+                self.send(200, mem_page(n))
+            else:
+                self.send(200, mem_download(n), "application/octet-stream", [("Content-Disposition", f'attachment; filename="mem-{n}.bin"')])
         elif path == "/health":
             self.send(200, "ok", "text/plain")
         else:

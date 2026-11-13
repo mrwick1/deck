@@ -37,6 +37,7 @@ def sse(chunk):
 class Model(BaseHTTPRequestHandler):
     """Scripted by what the last message is. Counts its requests."""
     calls = 0
+    benchmark_work = None
     lock = threading.Lock()
 
     def log_message(self, *a):
@@ -64,7 +65,12 @@ class Model(BaseHTTPRequestHandler):
         else:
             prev = names.get(last.get("tool_call_id"), "")
             if prev == "browser_open":
-                out = call("shell", {"script": "sleep 14; echo 'report for the fixture' > $DECK_OUT/report.txt; id -un; uname -n"})
+                work = "sleep 14"
+                if Model.benchmark_work == "cpu":
+                    work = 'python3 -c \'import time,hashlib; end=time.monotonic()+14; data=b"x"*65536; exec("while time.monotonic()<end: hashlib.sha256(data).digest()")\''
+                if Model.benchmark_work:
+                    work = "echo ready > $DECK_WORKSPACE/benchmark-ready; " + work + "; echo done > $DECK_WORKSPACE/benchmark-finished"
+                out = call("shell", {"script": work + "; echo 'report for the fixture' > $DECK_OUT/report.txt; id -un; uname -n"})
             elif prev == "shell":
                 m = re.search(r'(/[^"\\\\]*report\.txt)', last["content"])
                 out = call("send_file", {"path": m.group(1) if m else "missing", "caption": "report"})
@@ -152,7 +158,9 @@ def main():
     ap.add_argument("--server-port", type=int, default=28942)
     ap.add_argument("--model-port", type=int, default=28943)
     ap.add_argument("--idle-secs", type=int, default=25)
+    ap.add_argument("--benchmark-work", choices=["wait", "cpu"])
     a = ap.parse_args()
+    Model.benchmark_work = a.benchmark_work
     p = v.Paths(a.dir)
     p.mk()
     work = Path(tempfile.mkdtemp(prefix="deck-stage3-"))
@@ -211,7 +219,16 @@ screen_interval_ms = 1000
         task1 = r["task_id"]
         api.wait("the computer to wake", lambda s: s["computer"] == "awake", 180)
         woke = time.monotonic() - t0
+        if a.benchmark_work:
+            deadline = time.monotonic() + 30
+            while v.Qga(p.qga).sh("test -f /home/deck/workspace/benchmark-ready")[0]:
+                if time.monotonic() > deadline:
+                    raise RuntimeError("workload start marker not observed")
+                time.sleep(0.1)
         results["windows"].append(window("working (no viewer)", 5, server.pid, p, api))
+        if a.benchmark_work:
+            assert v.Qga(p.qga).sh("test ! -f /home/deck/workspace/benchmark-finished")[0] == 0, "workload ended during sample"
+            results["benchmark_work"] = a.benchmark_work
         # A viewer for a few seconds: capture runs only now.
         before = api.call("GET", "/api/bot")["screen"]
         viewer = urllib.request.urlopen(urllib.request.Request(api.base + "/api/bot/screen", headers={"Remote-User": "e2e"}))

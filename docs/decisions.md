@@ -555,3 +555,19 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Reason:** A real mail task must attach files and prove that the same bytes came back. The files must be new for each run, so an old message cannot pass the check. Private tasks and logins stay outside the repository.
 
 **Boundary:** Other secret lines, such as an email address, are not leak-checked, because a correct answer can show them. Private task files live outside the repository.
+
+## D54. Separate memory safety stops from host paging context (2026-11-12)
+
+**Decision:** For future sustained memory experiments, record host-wide swap-out above the existing threshold as a contended window. Do not stop only for that signal. Keep VM swap, guest swap, OOM, cgroup limit, host CPU/memory pressure and low available-memory stops. Do not change the cycle benchmark policy.
+
+**Reason:** Two incomplete attempts crossed the host-wide paging threshold while the VM reported zero swap, no limit event and substantial host memory remained available. That counter does not identify which process caused paging. Memory-workload completion and clean latency comparisons need separate labels.
+
+**Evidence rule:** Preserve both failed attempts under their original method. Version the revised method and retain paging windows in the trace, summary and status. A completed workload under paging is observational evidence, not proof of uncontended performance or a leak. No production setting changes.
+
+## D55. Bound the one-bot save stream at 512 MiB/s (2026-11-12)
+
+**Decision:** The `vmproto.py stop` command used by the configured one-bot server sets and verifies a 512 MiB/s migration cap before starting a save. An explicit `--bandwidth-mib 128` preserves the original CLI cap. Direct Python benchmark callers preserve the current QEMU limit unless they request one. The codec remains unchanged.
+
+**Reason:** A controlled 12-cycle comparison across three boots reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. All recovery gates passed. Shorter saves release the bot computer sooner.
+
+**Limits:** This is a warm-cache, one-bot result. It concentrates work into a shorter burst. Physical disk bandwidth and peak CPU were not established. Concurrent saves, slow storage and cold-cache performance remain untested. Query/read-back failure stops the save instead of silently using another cap. No general concurrency or capacity claim follows.

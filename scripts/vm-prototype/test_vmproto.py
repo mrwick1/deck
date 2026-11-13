@@ -421,5 +421,40 @@ class CaptureAndCli(unittest.TestCase):
             self.assertEqual(os.listdir(d), [])
 
 
+
+class SaveBandwidth(unittest.TestCase):
+    def test_save_limit_is_applied_and_verified_before_migration(self):
+        class Q:
+            def __init__(self): self.calls = []
+            def cmd(self, name, **args):
+                self.calls.append((name, args))
+                if name == 'migrate-set-parameters' and set(args) != {'max-bandwidth'}:
+                    raise RuntimeError('QMP rejects unexpected arguments')
+                return {'max-bandwidth': 512 << 20} if name == 'query-migrate-parameters' else {}
+        q = Q()
+        v.start_save_migration(q, 'file:state', 512)
+        self.assertEqual([x[0] for x in q.calls], ['migrate-set-parameters', 'query-migrate-parameters', 'migrate'])
+        self.assertEqual(q.calls[0][1]['max-bandwidth'], 512 << 20)
+
+    def test_refused_limit_never_starts_migration(self):
+        class Q:
+            def __init__(self): self.calls = []
+            def cmd(self, name, **args):
+                self.calls.append(name)
+                return {'max-bandwidth': 128 << 20}
+        q = Q()
+        with self.assertRaisesRegex(RuntimeError, 'bandwidth'):
+            v.start_save_migration(q, 'file:state', 512)
+        self.assertNotIn('migrate', q.calls)
+
+    def test_reference_call_preserves_the_current_qemu_limit(self):
+        class Q:
+            def __init__(self): self.calls = []
+            def cmd(self, name, **args): self.calls.append(name)
+        q = Q()
+        v.start_save_migration(q, 'file:state', None)
+        self.assertEqual(q.calls, ['migrate'])
+
+
 if __name__ == "__main__":
     unittest.main()
