@@ -74,4 +74,4 @@ The configured-bot adapter uses the absolute ceiling as the default monetary bou
 
 Model accounting is opt-in for existing configured bots. The owner supplies currency, precision, period, allowance, ceiling, increment, prices and request bounds. Restart does not overwrite owner ceiling changes from the stored record. Missing usage retains the reservation as unresolved exposure. Provider bounds require verification before claiming an invoice cap. External purchases remain outside model-call accounting.
 
-Owner controls, setup provisioning and spike/no-progress policy are not complete at this checkpoint. No period rollover runs automatically.
+Owner ceiling responses now use durable request and response records. They preserve independent holds. Setup provisioning and spike/no-progress policy are not complete at this checkpoint. No period rollover runs automatically.

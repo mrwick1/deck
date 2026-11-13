@@ -2,7 +2,7 @@
 
 Update this file when a stage or verification step ends.
 
-For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current failing check and remaining work.
+For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
 
 ## Current status: 2026-11-13
 

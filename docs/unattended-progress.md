@@ -8,7 +8,7 @@ Status: implementation and integration in progress. Nothing is pushed or deploye
 1. Read [decisions.md](decisions.md), especially D57–D61.
 2. Read [unattended-implementation-plan.md](unattended-implementation-plan.md).
 3. Read this handoff before continuing work.
-4. Read the current diff. This checkpoint can include a failing regression under active implementation.
+4. Read the current diff and verify the checkpoint before continuing.
 
 The owner authorized six implementation agents. Each worked in a separate prepared worktree. All six have returned. The parent owns integration on branch `document-bot-setup`. Do not edit that branch from another session while its writer is active. Use a separate worktree for independent work. Coordinate before taking over integration.
 
@@ -53,21 +53,31 @@ The parent resolved the setup cherry-pick conflict by retaining both `setup` and
 - Runtime and tool-boundary hold checks read typed holds. Dispatch stays blocked by ceiling, investigation, pause and legacy budget holds.
 - A failing parent regression showed malformed stored restrictions became an empty list. The read now fails instead of weakening the instructions.
 
-## Current active edit
+## Latest integration checkpoint
 
-The parent is connecting the owner ceiling control to durable requests.
+Commit `439ab6e` connects the owner ceiling control to the ledger. Schema v6 stores durable requests and response receipts. Admission or a reported overrun creates an owner request. Authenticated responses apply once. Stale or changed responses fail. A denial keeps the ceiling and hold. Approval clears only the ceiling hold and makes accounting-held tasks eligible for the remaining gates.
 
-A new regression, `ceiling_response_is_durable_idempotent_and_preserves_other_holds`, is present in `src/bot/state.rs`. Its first run failed to compile because `Store::pending_ceiling` and `Store::answer_ceiling` do not exist yet. This is the current red test, not a passing checkpoint. Finish this implementation before claiming the latest tree builds.
+Status and inbox now expose the ceiling request. The web form calls the authenticated handler. The parent has not exercised that form in bare or tested the complete HTTP authentication path for this new operation.
 
-Planned next edits:
+The agent refreshes the approved job and restrictions before each model call. A definition change invalidates pending tool calls and causes replanning. Revocation and holds are checked before tool dispatch, including direct chats using a configured bot.
 
-1. Add durable ceiling request and response records through the existing Store migrations.
-2. Create one request when admission reaches the ceiling. Preserve its identity across restart.
-3. Apply authenticated owner answers once. Reject stale, changed or mismatched responses. A denial keeps the ceiling and hold.
-4. Replace the unavailable handler. Emit the request in status and inbox.
-5. Requeue only accounting-held work after an effective owner increase. Re-evaluate pause, investigation and unknown outcomes independently.
-6. Refresh the active definition and restrictions between model steps. Guard tool dispatch after a late hold or revocation too.
-7. Persist setup state with version checks. Connect setup approval and provisioning without duplicating the task journal.
+Two parent regressions exposed integration defects:
+
+- A late hold stopped the next model call but still allowed a tool returned by an in-flight request. The regression failed on the browser call, then passed after adding the dispatch check.
+- A provider charge above the reserved bound created a ceiling hold without an owner request. The regression failed, then passed after making the request durable with the hold.
+
+## Current work and next edits
+
+Durable setup integration is next. There is no current red test or uncommitted code at this checkpoint. All six children have returned. No delegate remains active.
+
+1. Persist setup state with compare-and-swap versions in the existing Store.
+2. Include the working budget and absolute ceiling in the reviewed draft. Reconcile the setup and runtime authority representations.
+3. Connect authenticated setup editing and approval. Keep drafts separate from active authority.
+4. Add a durable provisioning driver and an atomic completion outbox. A ready task must neither disappear nor run twice after restart.
+5. Register the ready bot with its private runtime. Keep bot files, accounts and journals isolated.
+6. Specify and implement protected credential storage and guest transfer before accepting any real values. Connect phone and CAPTCHA waits only to a supported owner interaction path.
+7. Add UI setup progress and review. Verify resource recommendations against real harness support.
+8. Test the integrated flow before claiming end-to-end creation or unattended provisioning.
 
 ## Verification ledger
 
@@ -79,16 +89,18 @@ These results apply to the revisions stated. Do not transfer them to later edits
 | Parent accounting module (`62ea43e`) | All 14 pure accounting tests pass. |
 | Parent restriction fix | Regression failed before the fix and passed after it. |
 | Parent atomic admission | New test initially failed to compile without the method. It passes after implementation. Tests include competing reservations and the ceiling boundary. |
-| Stage 3 child only (`4fced56`) | Child reports 147 Rust tests, web type checking, 26 web tests and production build pass. Parent has not reproduced the integrated web checks yet. |
-| Stage 4 child only (`8fb865d`) | Child reports 22 setup tests and full Rust gates pass. Parent has not reproduced them in the combined tree yet. |
-| Latest active edit | Ceiling-response regression is red because its Store methods are not implemented. |
+| Stage 3 child only (`4fced56`) | Child reports 147 Rust tests and web checks pass. The parent later reproduced the integrated Rust and web gates below. |
+| Stage 4 child only (`8fb865d`) | Child reports 22 setup tests. The parent reproduced them as part of the combined suite below. This does not prove Store-backed setup. |
+| Latest parent checkpoint (`439ab6e`) | 221 Rust unit tests and four non-live integration tests pass. Two live tests remain ignored. Formatting and clippy pass. Web type checking, 26 web tests and the production build pass. |
+
+The first integrated web check failed because dependencies were absent. `npm ci --ignore-scripts` restored the locked dependencies. The rerun passed. The existing bundle-size warning remains. The install reported ten dependency vulnerabilities; no lockfile or dependency version changed. Dependency remediation is outside this slice.
 
 No paid model calls, real account actions, live VM experiments or browser checks ran in this implementation round. Child fake-harness tests do not prove real provisioning. No deployment, service restart or merge ran.
 
 ## Known gaps and limits
 
-- The latest ceiling approval route is still unavailable until the active edit finishes. The legacy hold-release route remains separate from ceiling mutation.
-- The static authority prompt does not yet load the active job and restrictions before every model step.
+- The ceiling approval route is connected and covered by Store and handler checks. Complete HTTP authentication and browser acceptance for this operation remain untested. The legacy hold-release route remains separate from ceiling mutation.
+- Current authority loads between model steps. The trusted-instruction boundary still applies. Broader behavioral tests of instruction changes and restrictions remain useful.
 - Setup is a state machine, not an integrated bot-creation flow. Its state is not yet stored in the real database.
 - Protected credential input, credential lifetime and guest transfer are not implemented. Do not collect values in ordinary chat or journal them in command arguments.
 - CAPTCHA and phone wait types exist. No supported challenge-completion interaction has been verified.
@@ -101,6 +113,6 @@ No paid model calls, real account actions, live VM experiments or browser checks
 
 ## Next delivery gate
 
-Complete and test ceiling control and authority refresh first. Then integrate durable setup. Run the combined Rust and web gates. Use synthetic fixtures and a scripted model. Serialize any later VM checks and retain evidence. Use only bare for browser acceptance.
+Integrate durable setup next. Ceiling control and authority refresh have deterministic integration coverage, with the HTTP and browser limits stated above. Run the combined Rust and web gates. Use synthetic fixtures and a scripted model. Serialize any later VM checks and retain evidence. Use only bare for browser acceptance.
 
 Keep this handoff current after each integration milestone. Record test results, unresolved gaps and exact commits. Do not label disconnected modules as finished product behavior.
