@@ -191,3 +191,9 @@ The parent now tracks owned process identities and descendants with birth-time c
 ## Continued acceptance wave
 
 The owner asked to continue. Three prepared worktrees start from `7c2be62`: saved-state wake and a second task; a combined owner-UI/VM controller; and capture privacy during in-flight frames. The saved-state worker is the sole live VM owner. The other two tasks may not launch a VM. Exact identities and links are in the local handoff. The parent will integrate and verify each result, then run the combined UI journey serially. PR #29 remains draft. No merge or deployment is authorized.
+
+## Saved-state continuation result
+
+The real-VM saved-state run passed 32 required gates. It recorded 33 passes and one optional raster check as not tested. The second task stayed queued across a paused restart. Release restored the same boot and memory marker. Each task produced one effect. The ceiling and allowance stayed unchanged.
+
+The parent integrated the harness and reproduced its 29 unit tests. The parent checked the live manifest, its empty survivor list, the free VM lock and removal of the overlay and memory-state file. This flow uses a scripted model and the HTTP API. It does not validate the combined owner UI and VM flow. The UI-controller and capture-privacy tasks remain active. See `setup-saved-wake-results.md`.
