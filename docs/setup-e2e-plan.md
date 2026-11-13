@@ -73,3 +73,11 @@ Bare baseline report `22ed7c5` is integrated as `0aa1e33`. It checked the real b
 Parent integration found different challenge field names in the UI and backend. A new regression failed before the fix. The UI now reads `instructions`, `match_number` and `answered`. Answered task challenges remain pending after their original expiry. All 44 web tests, type checking and the production build pass. Credential labels now retain spaces and line breaks during editing; normalization occurs only on save. Browser confirmation of this edit remains open.
 
 The baseline also found invalid budget drafts accepted by the save path. The Store regression failed on the accepted invalid save: 248 other Rust tests passed. The parent now validates a supplied budget before committing a snapshot. The rerun passes: 249 Rust unit tests and four integration tests. Two live tests remain ignored. Formatting and clippy pass. The host lifecycle worker still owns `setup_api.rs`; the parent does not edit that file while the worker runs. Remaining findings include title synchronization, pause visibility and executor readiness. They require explicit verification before closure. Host lifecycle and real VM acceptance have not reported completion.
+
+## Host integration checkpoint: 2026-11-13
+
+Host commit `9378c28` is integrated as `67b0d14`. Failure harness `a262434` is integrated as `da249a4`. These changes have not passed combined acceptance. The host slice adds schema v8 metadata, protected setup and task endpoints, named secret requests and a capture gate. Its child tests use a fake guest.
+
+Parent inspection found a guest receipt mismatch. The real guest returns exit 1 with `not_delivered` for an absent receipt. The host expects a successful false reply. Active-task requests also lack a visible protected form, and owner challenge answers do not yet wake the waiting task. Capture gates need runtime wiring. These are integration blockers.
+
+Three isolated follow-up tasks started from `da249a4`: runtime/guest contract and challenge tools; active-task API/UI and owner resumption; and the HTTP failure/leakage harness. Each has separate file ownership. No new live VM experiment started. The original real VM worker remains the only live VM owner and has not reported completion. Final bare and live acceptance wait for the combined implementation.

@@ -94,7 +94,7 @@ Challenge handling is integrated as `cb38eab`. Bare baseline evidence is integra
 
 The parent reproduced the invalid-budget save in a failing Store regression. The save now validates the supplied budget before committing. The combined rerun passes 249 Rust unit tests and four integration tests. Two live tests remain ignored. Formatting and clippy pass.
 
-Two delegates have not reported completion: host lifecycle and real VM acceptance. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
+The host lifecycle returned a partial slice, integrated as `67b0d14`. The failure harness is integrated as `da249a4`. Combined acceptance is pending. Parent inspection found an absent-receipt exit-status mismatch and missing active-task presentation/resumption seams. Three isolated follow-ups now own runtime integration, task API/UI and the failure harness. The original real VM delegate has not reported completion. See the completion plan for details. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
 
 ## Current work and next edits
 
