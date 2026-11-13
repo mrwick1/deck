@@ -82,9 +82,17 @@ Parent tests exposed three provisioning defects before their fixes. The harness 
 
 The first-task integration test also caught an unsupported task source value. The task now uses the existing owner-message source. The failure rolled back the start claim with the insert; no task was silently lost.
 
+## End-to-end completion wave
+
+The owner authorized eight parallel tasks and selected a local synthetic login first. Integration now runs on `finish-bot-setup-e2e`, based on `6d5ca42`. The publisher branch remains `document-bot-setup` and PR #29 remains a draft. No real account or Gmail work is authorized for this experiment.
+
+The guest secret channel and its small parent review fixes are integrated at `1a1474c`. Its 31 focused tests and all 228 prototype Python tests pass. These use a fake QGA and a temporary guest home. Real guest delivery and bare redaction are not yet verified. See [the completion plan](setup-e2e-plan.md) for task scopes and evidence.
+
+The remaining delegates have not reported completion at this checkpoint. Their exact task identities and ownership are in the local handoff. Do not start replacement writers or competing live VM experiments while they run.
+
 ## Current work and next edits
 
-This checkpoint is ready for draft review. All six children returned. No delegate remains active. The source passes deterministic checks. Keep live acceptance and the remaining product work separate.
+The earlier reviewed-setup checkpoint is in draft review. Its original six children returned. The new end-to-end wave above has active delegates. The source passes deterministic checks. Keep live acceptance and the remaining product work separate.
 
 1. Inspect the T3 Code protected-input mechanism required by D29. Specify credential storage, lifetime, redaction and guest transfer before collecting any values.
 2. Connect protected credential input and supported phone/CAPTCHA interactions. Do not complete a credential wait through ordinary chat.

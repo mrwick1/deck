@@ -11,7 +11,7 @@ No protected value may enter model context, ordinary chat, tool arguments, comma
 
 ## Parallel work
 
-Start eight isolated tasks from the current implementation commit. These assignments are planned until the orchestrator records their task identities in the local handoff. Each task gets one writer and a narrow scope.
+Eight isolated tasks started from `6d5ca42`. Their identities and initial states are recorded in the local handoff. Each task gets one writer and a narrow scope.
 
 | Task | Ownership | First delivery |
 | --- | --- | --- |
@@ -47,3 +47,11 @@ The secret lifecycle and reference tasks must inspect the installed T3 Code impl
 ## Review and documentation
 
 The current draft is PR #29. CI passed at `490ae31`. That does not validate future commits. Update `unattended-progress.md`, `bot-setup-integration.md` and the local handoff after each integration milestone. Keep every task's ownership and terminal state. Review the full diff and reproduce the acceptance evidence before changing the draft's readiness.
+
+## Guest-channel checkpoint: 2026-11-13
+
+The guest channel returned first. Commits `7a8398b` and `8446c65` were integrated as `758f471` and `5677e33`. Parent fix `1a1474c` adds current-value validation for completed receipts, private-file mode repair and support for existing setup wait identities.
+
+All three parent regressions failed before the fixes. The secret suite now has 31 passing tests. The complete prototype Python suite has 228 passing tests. Fake QGA tests run the real guest script in a temporary home. They do not prove real QGA, `runuser`, bare parsing or redaction.
+
+The host integration must validate receipt bot, request and canonical label. The API must keep a wait pending after any failed delivery. T3 reference inspection, host delivery, challenge flow, UI and live acceptance remain outstanding. No protected-input or end-to-end completion claim follows from this checkpoint.
