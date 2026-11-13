@@ -24,6 +24,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import secretchan
+
 HERE = Path(__file__).resolve().parent
 IMAGE_URL = "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
 FIXTURE_ADDR = "10.0.2.100"  # address the guest uses for the fixture
@@ -755,6 +757,29 @@ def cmd_exec(a, p):
     sys.exit(code)
 
 
+def secret_cmd(a, p, run):
+    """Print metadata or a stable error code as one JSON line. Nothing else reaches stdout or stderr."""
+    try:
+        info = read_json(p.root / "executor.json") if (p.root / "executor.json").exists() else {}
+        if info.get("bot_id") != a.bot:
+            raise secretchan.SecretError("bot_mismatch")
+        print(json.dumps(run(Qga(p.qga))))
+    except secretchan.SecretError as e:
+        print(json.dumps({"ok": False, "error": e.code}))
+        sys.exit(1)
+
+
+def cmd_deliver_secret(a, p):
+    def run(qga):
+        label, value = secretchan.read_request(sys.stdin)
+        return secretchan.deliver(qga, a.bot, a.request_id, label, value)
+    secret_cmd(a, p, run)
+
+
+def cmd_secret_receipt(a, p):
+    secret_cmd(a, p, lambda qga: secretchan.receipt(qga, a.bot, a.request_id))
+
+
 def cmd_capture(a, p):
     """Real desktop capture two ways: QEMU screendump (host side) and grim (guest compositor)."""
     p.art.mkdir(parents=True, exist_ok=True)
@@ -825,6 +850,14 @@ def main(argv=None):
     s = sub.add_parser("install-executor", help="bootstrap the guest executor into the running VM and bind it to one bot")
     s.add_argument("--bot", required=True)
     s.set_defaults(f=cmd_install_executor)
+    s = sub.add_parser("deliver-secret", help="read JSON {label,value} on stdin and store it in the bot's guest; prints metadata only")
+    s.add_argument("--bot", required=True)
+    s.add_argument("--request-id", required=True)
+    s.set_defaults(f=cmd_deliver_secret)
+    s = sub.add_parser("secret-receipt", help="report whether a request's secret reached the guest, without its value")
+    s.add_argument("--bot", required=True)
+    s.add_argument("--request-id", required=True)
+    s.set_defaults(f=cmd_secret_receipt)
     s = sub.add_parser("capture", help="capture the desktop")
     s.add_argument("--tag")
     s.set_defaults(f=cmd_capture)
