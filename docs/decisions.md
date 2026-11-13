@@ -571,3 +571,9 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Reason:** A controlled 12-cycle comparison across three boots reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. All recovery gates passed. Shorter saves release the bot computer sooner.
 
 **Limits:** This is a warm-cache, one-bot result. It concentrates work into a shorter burst. Physical disk bandwidth and peak CPU were not established. Concurrent saves, slow storage and cold-cache performance remain untested. Query/read-back failure stops the save instead of silently using another cap. No general concurrency or capacity claim follows.
+
+## D56. Work follows owner-set success criteria (2026-11-13)
+
+**Decision:** The owner sets one success criterion at a time. Each criterion has tasks, a proof and a pass rule in `docs/success-criteria.md`. The first criterion is SC1: Gmail works end to end. Private eval tasks prove it.
+
+**Reason:** A fixed target with machine-scored checks shows when work is done. It also picks the next `bare` and `deck` fixes.
