@@ -668,3 +668,17 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Boundary:** These are implementation choices for D57–D61. They do not approve numeric budget defaults, capacity claims or protected credential storage. Current resource and model support remains limited by the configured harness and priced profile. Protected input and live acceptance remain open.
 
 **Reason:** Unattended setup must survive restarts without losing its initial work, repeating approval or attaching another bot's computer.
+
+## D63. Deliver protected input by guest reference and reconcile receipts (2026-11-13)
+
+**Decision:** Accept protected values through authenticated endpoints outside ordinary chat. Keep the host value in request memory. Send it to the bound guest through stdin. Store only request metadata and receipts on the host. Keep the guest credential file private. Complete a wait only after matching guest evidence. Recheck that evidence before recovering a delivered task request.
+
+**Privacy boundary:** Mask the entry control and clear it on submission or dismissal. Gate Deck screenshot tools and the live viewer while sign-in is sensitive. Raw guest shell, DOM and evaluation remain inside D33's trusted-instruction boundary. This is not universal value redaction. Live guest and raster acceptance must be reported separately.
+
+**Reason:** Implement D29, D57 and unattended waits without putting values into model context, chat, command arguments or durable host records. Preserve exact task ownership and independent holds when an owner responds.
+
+## D64. Prepare private storage and prove desktop readiness before initial work (2026-11-13)
+
+**Decision:** Create validated owner-only bot data and workspace folders before runtime registration. Refuse linked or foreign-owned path components. Keep configuration reads free of directory creation. Before the executor setup step completes, require the existing bare session to answer its protocol and match the bound guest identity. Use a bounded probe. A missing session cannot count as Ready.
+
+**Reason:** Live acceptance found missing host directories and a first browser task that ran before the desktop answered. These checks refine D62. They add no routine owner approval and authorize no replacement computer or browser fallback. Live confirmation remains a separate gate.

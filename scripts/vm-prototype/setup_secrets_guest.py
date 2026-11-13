@@ -106,6 +106,9 @@ def main():
     o.add_argument("--base", required=True)
     ie = sub.add_parser("install-executor")
     ie.add_argument("--bot", required=True)
+    ready = sub.add_parser("ready")
+    ready.add_argument("--bot", required=True)
+    ready.add_argument("--timeout", type=float, default=1)
     for name in ("deliver-secret", "secret-receipt"):
         s = sub.add_parser(name)
         s.add_argument("--bot", required=True)
@@ -133,6 +136,11 @@ def main():
         (root / "running").unlink(missing_ok=True)
     elif a.sub == "install-executor":
         (root / "executor.json").write_text(json.dumps({"bot_id": a.bot, "guest_id": "g" * 32}))
+    elif a.sub == "ready":
+        if bound_bot(root) != a.bot:
+            die("bot_mismatch")
+        binding = json.loads((root / "executor.json").read_text())
+        print(json.dumps({"ok": True, "bot_id": a.bot, "guest_id": binding["guest_id"], "tools": 1}))
     elif a.sub == "secret-receipt":
         if bound_bot(root) != a.bot:
             die("bot_mismatch")

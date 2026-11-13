@@ -17,6 +17,22 @@ from setup_secrets_fixture import Stack, deck_binary
 
 
 class GuestReplayContract(unittest.TestCase):
+    def test_fake_readiness_requires_the_matching_installed_identity(self):
+        import subprocess, sys, tempfile
+        from pathlib import Path
+        from setup_secrets_fixture import GUEST
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "executor.json").write_text(json.dumps({"bot_id":"fixture", "guest_id":"fixture-guest"}))
+            def probe(bot):
+                return subprocess.run([sys.executable,"-I",str(GUEST),"--dir",tmp,"ready","--bot",bot,"--timeout","1"], capture_output=True)
+            good = probe("fixture")
+            self.assertEqual(good.returncode,0)
+            self.assertEqual(json.loads(good.stdout),{"ok":True,"bot_id":"fixture","guest_id":"fixture-guest","tools":1})
+            bad = probe("other")
+            self.assertEqual(bad.returncode,1)
+            self.assertEqual(json.loads(bad.stdout),{"ok":False,"error":"bot_mismatch"})
+
     def test_completed_request_cannot_restore_an_overwritten_value(self):
         import subprocess, sys, tempfile, pathlib, secrets
         from setup_secrets_fixture import GUEST
@@ -203,7 +219,8 @@ class ProtectedSecret(Base):
         self.assertEqual(self.s.sentinel.count_file(sink), 1, "the private sink holds the value once")
         for argv in (c["argv"] for c in self.s.journal(sid)):
             self.assertTrue(self.s.sentinel.value not in argv, "protected value escaped into arguments")
-        cur = self.s.setup(sid)
+        cur = self.s.wait_for(lambda: (lambda row: row if row["setup"]["wait"] else None)(self.s.setup(sid)))
+        self.assertIsNotNone(cur, "the driver must open the next credential wait")
         self.assertEqual(cur["setup"]["wait"]["kind"], {"Credential": {"label": "HOLD_OPEN"}})
         # the same request, even with the new version, must not deliver again
         self.assertGreaterEqual(self.s.secret(sid, cur["version"], rid)[0], 400)

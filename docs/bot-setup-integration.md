@@ -73,3 +73,13 @@ Phone and CAPTCHA wait states persist. Their real service interaction is not int
 Tests use real SQLite storage, a scripted model and fake harness operations. They cover restart, stale writes, approval idempotency, an atomic first task, a paused owner wait, held-runtime registration, authentication and image/executor mismatches. These tests do not prove fresh VM provisioning, desktop operation, model recommendation quality or real sign-in.
 
 The web passes type checking, tests and the production build. The existing bundle warning remains. No browser acceptance or accessibility interaction test ran for this screen. See [unattended-progress.md](unattended-progress.md) for exact checks and remaining work.
+
+## Protected input and readiness integration
+
+Protected setup input now uses `POST /api/setups/{id}/secret`. Active-task input uses `POST /api/bots/{id}/secret`, with metadata listed by `GET /api/bots/{id}/secret-requests`. Values bypass ordinary chat. The host requires matching guest receipts before completing delivery or recovering a task response. The task resumes only if that exact task still waits.
+
+Phone and CAPTCHA-style owner responses use `POST /api/setups/{id}/challenge/respond`. An owner answer is not service verification. The task checks status through `owner_help_status` and reports its observed result through `report_help_verification`. Cancellation retains its task binding for recovery. Pause, spending and uncertain-outcome holds still gate work.
+
+Runtime registration now prepares private host directories. The executor setup step also waits for a bounded bare protocol-readiness probe. The synthetic guest fixture models this command explicitly. This is implementation, not a full live acceptance pass. See [the completion plan](setup-e2e-plan.md), [runtime evidence](setup-runtime-acceptance.md) and [owner UI evidence](setup-owner-ui-results.md).
+
+The owner UI checks used seeded waits and a fake guest. Real guest protected delivery and the full synthetic sign-in still require a fresh serial run. [Bare issue 464](https://github.com/mrwick1/bare/issues/464) tracks missing CSS color support observed in the phone view. Deck adds no browser or color fallback.

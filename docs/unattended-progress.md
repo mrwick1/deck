@@ -152,3 +152,11 @@ Keep this handoff current after each integration milestone. Record test results,
 Commit `733c5ce` adds active-task protected prompts and response reconciliation. Parent review replaces generic steering with an exact-task transactional answer. It also preserves cancelled task bindings for recovery. These changes keep pause, budget and unknown-outcome gates effective.
 
 The combined Rust run passes 271 unit tests and four integration tests. The later cancellation reconciliation test passes separately. Formatting and clippy pass. Web type checking, 49 tests and the build pass. These are deterministic checks. Live task resumption, protected browser rendering and the final HTTP failure suite remain open. The runtime/tool delegate and original live VM delegate have not reported completion.
+
+## Current integrated acceptance checkpoint
+
+The runtime and owner UI delegates are terminal. Their evidence is integrated. The parent fixed sidebar bot selection and long request wrapping. Type checking, 49 web tests and the build pass. A browser recheck remains open. The phone button-color failure is tracked in bare issue 464; Deck adds no fallback.
+
+Private folder preparation (`8d25d6a`) and protocol readiness (`aa06d84`) are integrated. The combined Rust run passes 303 unit tests and four integration tests. Formatting and clippy pass. The HTTP/fixture suite passes 31 tests with one screenshot gate skipped after correcting an asynchronous next-wait assumption. No live guest sign-in pass is claimed.
+
+The synthetic-login harness extension is the only active implementation delegate at this checkpoint. All previous live VM processes have been cleaned up. The next live run must use one fresh overlay and the shared VM lock. Keep performance claims separate. Live protected delivery, whole synthetic sign-in, raster secrecy and final browser rechecks remain open.

@@ -133,3 +133,11 @@ Report `0f90a62` is integrated as `7fa4198`. Seeded phone approval and CAPTCHA c
 The worker filed [bare issue 464](https://github.com/mrwick1/bare/issues/464) for missing CSS color support. Deck adds no color fallback. It also confirmed that a new draft already opens its review; the old button label made the first toggle look like an ignored click. The parent now labels that state Hide review and exposes its expanded state.
 
 Sidebar navigation previously changed the chat without its bot scope. The parent adds optional bot identity to chat-list responses and selects that identity with the sidebar chat. A Store regression failed before the association existed and passes after it. Plain chats retain no bot identity. Long request text now wraps within the thread and owner panels. Web type checking, 49 tests and the build pass. A browser recheck is required for navigation and phone layout. The full Rust rerun is in progress.
+
+## Private storage and protocol readiness integration
+
+Readiness commit `461fed6` is integrated as `aa06d84`. Private-folder commit `9608750` is integrated as `8d25d6a`. Both live blockers now have deterministic regressions and fixes. The parent added an explicit `ready` command to the synthetic guest fixture; its contract test failed before the command existed. Unknown fixture commands remain errors.
+
+The combined Rust run passes 303 unit tests and four integration tests. Formatting and clippy pass. The full Python run exposed one asynchronous test assumption: the response had completed before the driver opened the next credential wait. The corrected test waits for that durable transition. Its 32-test HTTP/fixture suite passes with one screenshot gate skipped. No live pass follows from these checks.
+
+A separate harness task now extends the local fixture into an actual synthetic sign-in with phone and CAPTCHA-style waits. It owns only the live acceptance script and fixture tests, and may not launch a VM. The current protected mode proves delivery but does not yet exercise that whole service flow. Fresh serial live checks and the sidebar/phone recheck remain required.
