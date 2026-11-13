@@ -571,3 +571,11 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Reason:** A controlled 12-cycle comparison across three boots reduced median save call time from 3.391 to 1.078 seconds at comparable state sizes. All recovery gates passed. Shorter saves release the bot computer sooner.
 
 **Limits:** This is a warm-cache, one-bot result. It concentrates work into a shorter burst. Physical disk bandwidth and peak CPU were not established. Concurrent saves, slow storage and cold-cache performance remain untested. Query/read-back failure stops the save instead of silently using another cap. No general concurrency or capacity claim follows.
+
+## D56. Make guest internet access explicit (2026-11-13)
+
+**Decision:** VM mode keeps fixture-only networking by default. Set `[vm] internet = true` to permit outbound access for real sites. The CLI uses `--internet`. This also permits access to reachable private services. It adds no inbound port or host mount.
+
+**Reason:** The first Gmail milestone needs a real site. Synthetic tests must keep their existing restricted network.
+
+**Recovery:** Save metadata records the network policy. Restore refuses a different policy before starting QEMU. Older saved states use the restricted default. Restore with the original setting before changing the policy for a cold boot.

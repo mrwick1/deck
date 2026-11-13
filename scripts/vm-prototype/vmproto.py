@@ -3,7 +3,7 @@
 
 One QEMU/KVM guest (Arch cloud image, sway, bare). Standard library only.
 State lives in a runtime directory outside Git: --dir or $DECK_VM_DIR.
-The guest has no host mounts and no network except one forward to a loopback fixture.
+The guest has no host mounts. Run mode restricts networking unless internet is enabled.
 Host control uses unix sockets only (QMP and the QEMU guest agent).
 """
 import argparse
@@ -68,12 +68,12 @@ class Paths:
 
 # ---------- pure helpers (unit tested) ----------
 
-def qemu_cmd(p, mode, fixture_port, incoming=False, seed_iso=None):
-    """Build the QEMU argument list. mode is 'setup' (internet, seed disk) or 'run' (restricted)."""
+def qemu_cmd(p, mode, fixture_port, incoming=False, seed_iso=None, internet=False):
+    """Build the QEMU argument list. mode is 'setup' (internet, seed disk) or 'run' (restricted by default)."""
     if mode == "setup":
         net = "user,id=n0,restrict=off"
     else:
-        net = f"user,id=n0,restrict=on,guestfwd=tcp:{FIXTURE_ADDR}:80-cmd:socat - TCP:127.0.0.1:{fixture_port}"
+        net = f"user,id=n0,restrict={'off' if internet else 'on'},guestfwd=tcp:{FIXTURE_ADDR}:80-cmd:socat - TCP:127.0.0.1:{fixture_port}"
     cmd = [
         "qemu-system-x86_64", "-name", f"{VM_NAME},debug-threads=on", "-no-user-config", "-nodefaults",
         "-machine", "q35,accel=kvm", "-cpu", "host", "-smp", "2", "-m", "2048",
@@ -478,7 +478,7 @@ class Qga:
 
 # ---------- lifecycle ----------
 
-def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
+def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None, internet=False):
     p.mk()
     vm = read_vm(p)
     if vm and proc_ok(p, vm["pid"]):
@@ -493,7 +493,7 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
         if meta.get("kind") == "standalone" and not meta.get("run_booted"):
             write_disk_meta(p, {**meta, "run_booted": True})  # from here the disk may hold sessions: it can no longer become a base
     log = open(p.run / "qemu.log", "ab")
-    proc = subprocess.Popen(scope_cmd(qemu_cmd(p, mode, fixture_port, incoming, seed_iso)), stdout=log, stderr=log,
+    proc = subprocess.Popen(scope_cmd(qemu_cmd(p, mode, fixture_port, incoming, seed_iso, internet)), stdout=log, stderr=log,
                             stdin=subprocess.DEVNULL, start_new_session=True)
     t = time.time()
     while not (p.pidfile.exists() and p.qmp.exists()):
@@ -503,7 +503,7 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
             sys.exit("qemu did not create its pidfile")
         time.sleep(0.02)
     pid = int(p.pidfile.read_text())
-    p.vm.write_text(json.dumps({"pid": pid, "launcher_pid": proc.pid, "mode": mode, "started": time.time()}))
+    p.vm.write_text(json.dumps({"pid": pid, "launcher_pid": proc.pid, "mode": mode, "internet": internet, "started": time.time()}))
     return pid
 
 
@@ -602,7 +602,7 @@ def kill_vm(p):
 
 def cmd_start(a, p):
     t0 = time.time()
-    pid = start_qemu(p, "run", a.fixture_port)
+    pid = start_qemu(p, "run", a.fixture_port, internet=a.internet)
     Qga(p.qga).ping_ready(a.timeout)
     print(json.dumps({"pid": pid, "boot_to_agent_s": round(time.time() - t0, 2)}))
 
@@ -670,7 +670,7 @@ def save_vm(p, qga=None, sync=True, codec="none", bandwidth_mib=None):
     t3 = time.time()
     if not gone:
         sys.exit("qemu did not exit after quit")
-    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size, "requested_bandwidth_mib": bandwidth_mib}
+    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size, "requested_bandwidth_mib": bandwidth_mib, "internet": vm.get("internet", False)}
     p.statemeta.write_text(json.dumps(meta))
     p.vm.unlink(missing_ok=True)
     return {"quiesce_s": round(t1 - t0, 3), "migrate_s": round(t2 - t1, 3), "exit_s": round(t3 - t2, 3),
@@ -678,18 +678,20 @@ def save_vm(p, qga=None, sync=True, codec="none", bandwidth_mib=None):
             "peak_rss_kib_sampled": peak, "cpu_s": None if None in (cpu0, cpu1) else round((cpu1 - cpu0) / 1e6, 3)}
 
 
-def restore_vm(p, fixture_port):
+def restore_vm(p, fixture_port, internet=False):
     """Start QEMU on the paired disk and load the saved state. Returns timings. Consumes the state."""
     if not p.statemeta.exists() or not p.statefile.exists():
         sys.exit("no saved state")
     meta = json.loads(p.statemeta.read_text())
+    if meta.get("internet", False) != internet:
+        sys.exit("saved state network policy differs; restore with the original internet setting")
     codec = meta.get("codec", "none")
     uri = state_uri(codec, p.statefile, "load")
     if not state_matches_disk(meta, p.disk, disk_base_id(p)):
         sys.exit("saved state does not match the disk or its base (changed after the save); refusing to restore")
     # The state file is deleted after a successful load: the disk changes from then on.
     t0 = time.time()
-    pid = start_qemu(p, "run", fixture_port, incoming=True)
+    pid = start_qemu(p, "run", fixture_port, incoming=True, internet=internet)
     q = Qmp(p.qmp)
     cg = cgroup_dir(pid)
     peak, last = tree_rss_kib(pid), 0
@@ -728,7 +730,7 @@ def cmd_stop(a, p):
 
 
 def cmd_restore(a, p):
-    print(json.dumps(restore_vm(p, a.fixture_port)))
+    print(json.dumps(restore_vm(p, a.fixture_port, internet=a.internet)))
 
 
 def cmd_kill(a, p):
@@ -804,6 +806,7 @@ def cmd_verify_base(a, p):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", default=str(default_dir()), help="runtime directory outside Git (default: $DECK_VM_DIR)")
+    ap.add_argument("--internet", action="store_true", help="allow outbound guest networking, including reachable private services (default: fixture only)")
     ap.add_argument("--fixture-port", type=int, default=int(os.environ.get("DECK_VM_FIXTURE_PORT", "18080")))
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("setup", help="download the image, provision the guest, power off")
