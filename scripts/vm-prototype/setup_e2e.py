@@ -257,6 +257,29 @@ def server_log_path(private, n):
     return Path(private) / f"server-{n}-{int(time.time())}.log"
 
 
+def processes_left(out, proc_root=Path("/proc"), pid=None):
+    """Find run-path references after cleanup, excluding this process and its launch ancestors.
+    Orphans remain visible even when reparented outside the original process tree."""
+    excluded = set()
+    parent = os.getpid() if pid is None else pid
+    while parent and parent not in excluded:
+        excluded.add(parent)
+        try:
+            status = (proc_root / str(parent) / "status").read_text()
+            parent = int(next(line.split()[1] for line in status.splitlines() if line.startswith("PPid:")))
+        except (OSError, ValueError, StopIteration):
+            break
+    left = []
+    for entry in proc_root.iterdir():
+        if entry.name.isdigit() and int(entry.name) not in excluded:
+            try:
+                if str(out).encode() in (entry / "cmdline").read_bytes():
+                    left.append(entry.name)
+            except OSError:
+                pass
+    return sorted(left, key=int)
+
+
 class Stack:
     def __init__(self, a):
         self.a = a
@@ -391,17 +414,7 @@ request_usage = true
         if getattr(self, "httpd", None):
             self.httpd.shutdown()
             self.httpd.server_close()
-        left = []
-        me = os.getpid()
-        for d in Path("/proc").iterdir():
-            if d.name.isdigit() and int(d.name) != me:
-                try:
-                    cmd = (d / "cmdline").read_bytes()
-                except OSError:
-                    continue
-                if str(self.out).encode() in cmd:
-                    left.append(d.name)
-        return left
+        return processes_left(self.out)
 
 
 # ---------- baseline gates ----------
@@ -706,9 +719,9 @@ def answer_owner_wait(c, m, svc, model, sid, task_id, kind, row, w, timeout, set
     except SystemExit as x:
         m.gate(f"{kind}_verified_only_after_service_evidence", FAIL, str(x)[:200])
         raise Stop("verification") from None
-    turns = model.ledger[start:start + 3]
-    ok = [x["name"] for x in turns] == ["owner_help_status", "browser_read", "report_help_verification"] and turns[2]["args"].get("result") == "verified" and svc.state()[kind] == "completed"
-    need(m, f"{kind}_verified_only_after_service_evidence", ok, "the task read the owner help state, then the service page, then reported; the service shows the step completed")
+    turns = model.ledger[start:start + 4]
+    ok = [x["name"] for x in turns] == ["owner_help_status", "browser_step", "browser_read", "report_help_verification"] and turns[1]["args"].get("steps") == sl.REFRESH_STEPS and turns[3]["args"].get("result") == "verified" and svc.state()[kind] == "completed"
+    need(m, f"{kind}_verified_only_after_service_evidence", ok, "the task read the owner help state, refreshed the service page, read it and then reported; the service shows the step completed")
     time.sleep(settle)
     code, _ = c.raw("POST", path, {**base, "version": c.setup(sid)["version"]})
     time.sleep(settle)
@@ -838,7 +851,7 @@ def synthetic_login_mode(stack, m, a, value):
         n1 = counters(stack, sid, chat_id)
         m.data["evidence"]["ownership_after_restart"] = after
         need(m, "restart_preserves_waiting_ownership", not ownership_diff(before, after), f"changed: {ownership_diff(before, after)}")
-        need(m, "restart_adds_no_work", not counters_changed(n0, n1), f"changed: {counters_changed(n0, n1)}")
+        need(m, "restart_adds_no_work", not counts_changed(n0, n1), f"changed: {counts_changed(n0, n1)}")
         w = login_wait(row, "PhoneApproval", task_id)
         need(m, "restart_keeps_the_phone_wait_open", bool(w) and not w.get("answered"))
         answer_owner_wait(c, m, svc, model, sid, task_id, "phone", row, w, 60, a.settle)
@@ -862,7 +875,7 @@ def synthetic_login_mode(stack, m, a, value):
         n2 = counters(stack, sid, chat_id)
         restart(stack, sid)
         n3 = counters(stack, sid, chat_id)
-        need(m, "restart_after_completion_no_duplicate", not counters_changed(n2, n3) and svc.state()["submit_success"] == 1, f"changed: {counters_changed(n2, n3)}")
+        need(m, "restart_after_completion_no_duplicate", not counts_changed(n2, n3) and svc.state()["submit_success"] == 1, f"changed: {counts_changed(n2, n3)}")
         m.gate("restart_from_saved_state", NOT_TESTED, "optional: not run in this mode")
         m.gate("second_task_after_wake", NOT_TESTED, "optional: not run in this mode")
         m.gate("raster_secrecy", NOT_TESTED, "needs real bare capture evidence; PNG byte search proves nothing")

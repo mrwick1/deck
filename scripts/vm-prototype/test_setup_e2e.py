@@ -466,7 +466,7 @@ class FakeModel:
         return self.hold_reached
 
     def release_wake(self):
-        self.ledger += [{"name": "owner_help_status", "args": {}}, {"name": "browser_read", "args": {}}, {"name": "report_help_verification", "args": {"result": "verified"}}]
+        self.ledger += [{"name": "owner_help_status", "args": {}}, {"name": "browser_step", "args": {"steps": sl.REFRESH_STEPS}}, {"name": "browser_read", "args": {}}, {"name": "report_help_verification", "args": {"result": "verified"}}]
         self.deck.verify()
 
 
@@ -630,6 +630,67 @@ class OwnerRound(unittest.TestCase):
         with self.assertRaises(e.Stop):
             e.await_owner_wait(deck, m, svc, "s1", "setup-s1", "phone", set(), 1, deck.status)
         self.assertEqual(self.statuses(m)["phone_wait_raised"], e.FAIL)
+
+
+class WholeModeRegression(unittest.TestCase):
+    """Run the orchestration past both restarts. Component protocols have separate tests."""
+    def run_mode(self, changed=False):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'data/bots/s1').mkdir(parents=True)
+            row = real_row(('r1', 'PhoneApproval', 'Approve it', '47'))
+            cap = real_row(('r2', 'Captcha', 'Complete CHK-1234', None))
+            state = ['waiting']
+            client = SimpleNamespace(setup=lambda sid: row,
+                json=lambda *args: [{'content': sl.DONE_TEXT}],
+                until=lambda what, cond, timeout: cond())
+            model = SimpleNamespace(ledger=[{'name': n, 'args': {'steps': '${FIXTURE_PASS}'} if n == 'browser_step' else {}} for n in sl.EXPECTED_NAMES], texts=[sl.DONE_TEXT])
+            service = SimpleNamespace(state=lambda: {'login_success': 1, 'login_failure': 0, 'submit_success': 1, 'submit_attempts': 1, 'phone': 'completed', 'captcha': 'completed'})
+            stack = SimpleNamespace(client=client, service=service, model=model, out=root, rt=root/'computers')
+            args = SimpleNamespace(credential_profile='special', ready_timeout=1, task_timeout=1, settle=0)
+            rounds = []
+            def answer(*a):
+                rounds.append(a[6])
+                if a[6] == 'captcha': state[0] = 'done'
+            def status(*a):
+                return {'tasks': [{'id': 'setup-s1', 'state': state[0]}], 'working': False}
+            counts = [{'calls': 4}, {'calls': 5 if changed else 4}, {'calls': 19}, {'calls': 19}]
+            manifest = e.Manifest('synthetic-login')
+            with patch.object(e, 'ArgvWatcher'), patch.object(e, 'create_and_approve', return_value='s1'), \
+                 patch.object(e, 'protected', side_effect=lambda c, m, *a: m.gate('guest_file_protected',e.PASS)), \
+                 patch.object(e, 'await_owner_wait', side_effect=[(row,row['setup']['wait']),(cap,cap['setup']['wait'])]), \
+                 patch.object(e, 'bot_status', side_effect=status), patch.object(e, 'read_executor', return_value={'bot_id':'s1','guest_id':'g1'}), \
+                 patch.object(e, 'counters', side_effect=counts), patch.object(e, 'restart') as restarts, \
+                 patch.object(e, 'answer_owner_wait', side_effect=answer), patch.object(e, 'finish_scans') as scans:
+                error = None
+                try: e.synthetic_login_mode(stack,manifest,args,e.synthetic_value('special'))
+                except e.Stop as exc: error = exc
+                scans.assert_called_once()
+                return manifest, rounds, restarts.call_count, error
+
+    def test_both_owner_rounds_and_the_completion_restart_run(self):
+        manifest, rounds, restarts, error = self.run_mode()
+        self.assertIsNone(error)
+        self.assertEqual(rounds,['phone','captcha'])
+        self.assertEqual(restarts,2)
+        self.assertEqual(manifest.data['gates']['restart_after_completion_no_duplicate']['status'],e.PASS)
+
+    def test_changed_counters_stop_before_the_owner_can_answer(self):
+        manifest, rounds, restarts, error = self.run_mode(changed=True)
+        self.assertIsNotNone(error)
+        self.assertEqual(rounds,[])
+        self.assertEqual(restarts,1)
+        self.assertEqual(manifest.data['gates']['restart_adds_no_work']['status'],e.FAIL)
+
+    def test_cleanup_excludes_launchers_but_finds_children_and_orphans(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for pid,parent,cmd in [(1,0,'init'),(50,1,'shell /owned/run'),(100,50,'harness /owned/run'),(101,100,'helper /owned/run'),(102,1,'orphan /owned/run'),(200,1,'other /different')]:
+                p=root/str(pid);p.mkdir()
+                (p/'status').write_text(f'PPid:\t{parent}\n')
+                (p/'cmdline').write_bytes(cmd.encode())
+            self.assertEqual(e.processes_left('/owned/run',root,100),['101','102'])
 
 
 if __name__ == "__main__":

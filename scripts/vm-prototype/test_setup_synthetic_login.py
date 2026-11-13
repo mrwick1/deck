@@ -235,14 +235,14 @@ class Script(unittest.TestCase):
         names = [x.name for x in seen]
         self.assertEqual(names, [
             "browser_open", "browser_step", "browser_read", "request_owner_help",
-            "owner_help_status", "browser_read", "report_help_verification", "browser_step", "browser_read", "request_owner_help",
-            "owner_help_status", "browser_read", "report_help_verification", "signin_verified", "browser_step", "browser_step", "browser_read"])
+            "owner_help_status", "browser_step", "browser_read", "report_help_verification", "browser_step", "browser_read", "request_owner_help",
+            "owner_help_status", "browser_step", "browser_read", "report_help_verification", "signin_verified", "browser_step", "browser_step", "browser_read"])
         self.assertEqual(t.text, s.DONE_TEXT)
         reports = [x.args for x in seen if x.name == "report_help_verification"]
         self.assertEqual([r["result"] for r in reports], ["verified", "verified"])
         self.assertEqual([x.args["kind"] for x in seen if x.name == "request_owner_help"], ["phone", "captcha"])
         self.assertEqual(seen[3].args["match_number"], "47")
-        self.assertIn("CHK-5821", seen[9].args["instructions"])
+        self.assertIn("CHK-5821", next(t for t in seen if t.name == "request_owner_help" and t.args["kind"] == "captcha").args["instructions"])
         self.assertNotIn("match_number", seen[9].args)
         blob = json.dumps([(x.name, x.args) for x in seen])
         self.assertIn("${FIXTURE_PASS}", blob)
@@ -267,7 +267,7 @@ class Script(unittest.TestCase):
                     ("call", "q", "request_owner_help", {"kind": kind, "instructions": "x", "match_number": "47"}), ("tool", "q", '{"ok": true, "request_id": "main:1"}'),
                     wake("main:1"),
                     ("call", "s", "owner_help_status", {"request_id": "main:1"}), ("tool", "s", json.dumps({"ok": True, "state": state, "request_id": "main:1"})),
-                    *([("call", "e", "browser_read", {}), ("tool", "e", page)] if answered else []))
+                    *([("call", "refresh", "browser_step", {"steps": s.REFRESH_STEPS}), ("tool", "refresh", "ok"), ("call", "e", "browser_read", {}), ("tool", "e", page)] if answered else []))
 
     def test_the_verdict_follows_the_service_page_not_the_owner_answer(self):
         t = self.step(self.evidence_history("Phone approval: completed"))
@@ -277,9 +277,14 @@ class Script(unittest.TestCase):
         self.assertLessEqual(len(t.args["observation"]), 200)
 
     def test_the_script_does_not_verify_before_it_reads_the_service(self):
-        h = self.evidence_history("", answered=True)[:-2]  # just after owner_help_status
+        h = self.evidence_history("", answered=True)[:-2]  # after the read-only refresh
         t = self.step(h)
         self.assertEqual((t.kind, t.name), ("tool", "browser_read"))
+
+    def test_an_owner_answer_refreshes_the_page_before_reading(self):
+        h = self.evidence_history("", answered=True)[:-4]
+        t = self.step(h)
+        self.assertEqual((t.kind,t.name,t.args),("tool","browser_step",{"steps":s.REFRESH_STEPS}))
 
     def test_an_unanswered_status_reads_nothing_and_reports_nothing(self):
         t = self.step(self.evidence_history("", answered=False))
@@ -305,6 +310,7 @@ class Emulator:
 
     def __init__(self, svc, value):
         self.svc, self.value, self.cookie, self.path = svc, value, None, "/login"
+        self.rendered = ""
 
     def http(self, method, path, form=None):
         c = http.client.HTTPConnection("127.0.0.1", self.svc.port, timeout=5)
@@ -320,18 +326,24 @@ class Emulator:
     def follow(self, st, loc, body):
         if st in (301, 302, 303) and loc:
             self.path = loc
-            return self.http("GET", loc)
+            result = self.http("GET", loc)
+            self.rendered = result[2]
+            return result
+        self.rendered = body
         return st, loc, body
 
     def run(self, name, args):
         if name == "browser_open":
             self.path = "/login"
+            self.rendered = self.http("GET",self.path)[2]
             return "ok"
         if name == "browser_read":
-            return self.http("GET", self.path)[2]
+            return self.rendered
         steps = args["steps"].splitlines()
         for line in steps:
-            if line.startswith("click role=button name=\"Sign in\""):
+            if line == "reload":
+                self.rendered = self.http("GET",self.path)[2]
+            elif line.startswith("click role=button name=\"Sign in\""):
                 self.follow(*self.http("POST", "/login", {"user": s.USER, "password": self.value}))
             elif line.startswith("click role=button"):
                 action = {"/verify/phone": "/verify/phone/continue", "/verify/captcha": "/verify/captcha/continue", "/report": "/report/submit"}[self.path]
@@ -467,8 +479,8 @@ class ModelServer(unittest.TestCase):
             m.stop()
 
     def test_ledger_problems_find_duplicates_and_gaps(self):
-        names = ["browser_open", "browser_step", "browser_read", "request_owner_help", "owner_help_status", "browser_read", "report_help_verification",
-                 "browser_step", "browser_read", "request_owner_help", "owner_help_status", "browser_read", "report_help_verification", "signin_verified", "browser_step", "browser_step", "browser_read"]
+        names = ["browser_open", "browser_step", "browser_read", "request_owner_help", "owner_help_status", "browser_step", "browser_read", "report_help_verification",
+                 "browser_step", "browser_read", "request_owner_help", "owner_help_status", "browser_step", "browser_read", "report_help_verification", "signin_verified", "browser_step", "browser_step", "browser_read"]
         ok = [{"name": n, "args": {}} for n in names]
         self.assertEqual(s.ledger_problems(ok), [])
         dup = ok[:2] + [ok[1]] + ok[2:]

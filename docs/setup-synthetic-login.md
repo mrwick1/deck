@@ -20,7 +20,7 @@ The harness runs a local login service and a scripted model in its own process. 
 5. The harness restarts Deck once. The waiting task, request, step, match number, task state and executor identity must be the same.
 6. The harness first sends refused answers (stale version, wrong request, a `value` field). It then does the owner action in the service. The service refuses a wrong match number. The action uses the match number that Deck stored.
 7. The harness holds the model's next reply. It posts the answer to `/api/setups/{id}/challenge/respond`. While the reply is held, Deck must show the request as answered and not verified.
-8. The harness releases the reply. The model calls `owner_help_status`, then `browser_read`, then `report_help_verification`. It reports `verified` only if the page shows the step completed.
+8. The harness releases the reply. The model calls `owner_help_status`, refreshes the read-only challenge page, then calls `browser_read` and `report_help_verification`. It reports `verified` only if the page shows the step completed.
 9. The same sequence runs for a CAPTCHA-style check. The owner action is a local call with the check id. It is not CAPTCHA solving.
 10. The model calls `signin_verified` and submits the report once. The service counts logins, submit attempts and submit successes.
 11. The harness restarts Deck again. No counter may change.
@@ -104,3 +104,9 @@ This mode follows the owner's choice of a local synthetic login first. The decis
 ## Parent integration corrections
 
 The live baseline exposed two inherited harness defects. The guest file check passed bytes to the text-only QGA API. The fixture access log was discarded. The parent added regressions that fail on both defects and then fixed them. The full prototype Python suite runs 363 tests with one screenshot gate skipped; the other 362 pass. A live whole-service result is still required.
+
+## Restart orchestration correction
+
+The first whole-service live run reached login and preserved the phone wait across restart. It then stopped on a misspelled counter helper. The parent added a complete orchestration test through both restarts and a changed-counter rejection test. Both failed before the name correction. A cleanup regression also showed that the launcher shell must be excluded without hiding reparented helper processes.
+
+Parent review found that the test browser fetched new HTML on every read. A real bare read returns the current rendered page. The corrected emulator keeps a rendered snapshot. Its service-flow regression failed until the script explicitly refreshed each read-only challenge page before reading service evidence. The model and gate ledger now include that refresh. No credential or submission is replayed.

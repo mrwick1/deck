@@ -172,3 +172,9 @@ Three acceptance tracks remain distinct. The sidebar/phone browser recheck owns 
 The serial live worker is terminal and cleaned up. Report `7558e42` confirms private folders, protocol readiness, one browser/shell/file task, restart counts and idle quiet. Its protected HTTP delivery passes, but two inherited harness defects prevented complete acceptance. Both now have failing regressions and fixes. The full Python suite passes 362 tests with one screenshot gate skipped. No real synthetic-login pass is claimed yet.
 
 Report `9d091f1` confirms sidebar routing and keyboard controls. Bare issues 464 and 467 retain the phone rendering and unbroken-text failures. No Deck fallback is added. Owned UI fixture directories were removed after their workers stopped. The next VM run must use the complete synthetic-login mode serially.
+
+## Whole-service restart repair
+
+The first real synthetic-login run reached successful login and preserved its phone wait across restart. It then failed on a harness name error. Report `4ccd4c2` keeps that failed run explicit. The parent fixed the name, corrected cleanup's launcher false positive and added whole-mode regressions. A faithful rendered-page emulator also required an explicit read-only refresh before checking owner actions.
+
+All 366 deterministic prototype tests pass; one screenshot gate remains skipped. Rust and frontend code are unchanged from the 303-unit/four-integration and 49-web-test checkpoint. The complete live owner rounds and final submission remain unverified until the rerun. No real account, merge or deployment was used.

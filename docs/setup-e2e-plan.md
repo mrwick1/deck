@@ -165,3 +165,13 @@ All previous delegates and VM processes are terminal at this checkpoint. The nex
 ## Whole-service live run assignment
 
 The complete synthetic-login live run started from `7ae4a72`. It is the sole VM owner. It uses the verified frozen base, one fresh overlay and default host-pressure limits. The worker must retain every failed gate and clean up before returning. All previous VM and browser workers are terminal. The optional raster, saved-state wake and second-task gates remain explicit. The draft PR will receive the final evidence after integration.
+
+## Whole-service restart regression and rerun preparation
+
+The first whole-service live report `ffd65c9` is integrated as `4ccd4c2`. It proves exact special-character guest delivery, successful service login through bare and preserved phone-wait ownership after restart. It stopped on a misspelled counter helper before the owner rounds. The failed acceptance result remains recorded.
+
+The parent added orchestration tests through both restarts and a changed-counter rejection test. Both failed on the typo. Cleanup now excludes launcher ancestors while still reporting child and reparented processes that retain the run path. Its new regression failed before the helper existed.
+
+A rendered-page emulator exposed another harness assumption: reading a page does not refresh server state. The script now reloads each read-only challenge page before reading its evidence. The corrected emulator's integration test failed before this change and passes after it. The owner sequence now contains status, refresh, read and verification.
+
+The full prototype suite runs 367 tests: 366 pass and one screenshot gate is skipped. These are deterministic checks. A new serial live rerun must use this repaired head. No other delegate or VM is active. The reported relay outside the live run has unverified ownership and was not touched.

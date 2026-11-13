@@ -198,6 +198,7 @@ def invalid_steps(text):
 
 
 LOGIN_STEPS = f'type label="Username" "{USER}"\ntype label="Password" "${{{REF}}}"\nclick role=button name="Sign in"\nexpect url~"/verify/phone"'
+REFRESH_STEPS = "reload"
 CONTINUE_PHONE_STEPS = 'click role=button name="Continue"\nexpect url~"/verify/captcha"'
 CONTINUE_CAPTCHA_STEPS = 'click role=button name="Continue"\nexpect url~"/report"'
 SUBMIT_STEPS = 'click role=button name="Submit report"\nexpect url~"/report/done"'
@@ -215,9 +216,9 @@ TOOL_SCHEMAS = {
 
 EXPECTED_NAMES = [
     "browser_open", "browser_step", "browser_read", "request_owner_help",
-    "owner_help_status", "browser_read", "report_help_verification",
+    "owner_help_status", "browser_step", "browser_read", "report_help_verification",
     "browser_step", "browser_read", "request_owner_help",
-    "owner_help_status", "browser_read", "report_help_verification",
+    "owner_help_status", "browser_step", "browser_read", "report_help_verification",
     "signin_verified", "browser_step", "browser_step", "browser_read"]
 
 
@@ -278,6 +279,8 @@ def decide(history):
     if name == "browser_open":
         return tool_turn("browser_step", {"steps": LOGIN_STEPS})
     if name == "browser_step":
+        if args.get("steps") == REFRESH_STEPS:
+            return tool_turn("browser_read", {})
         s = args.get("steps")
         if s == LOGIN_STEPS or s == CONTINUE_PHONE_STEPS:
             return tool_turn("browser_read", {})
@@ -296,11 +299,11 @@ def decide(history):
             if not m:
                 return text_turn("blocked: the page showed no check id")
             return tool_turn("request_owner_help", {"kind": "captcha", "instructions": f"Complete the synthetic CAPTCHA-style check {m[1]} on the local service."})
-        if prev[0] == "owner_help_status":
+        if prev[0] == "browser_step" and prev[1].get("steps") == REFRESH_STEPS:
             kind = next((a.get("kind") for n, a in reversed(seq) if n == "request_owner_help"), None)
             done = {"phone": "Phone approval: completed", "captcha": "CAPTCHA-style check: completed"}.get(kind)
             ok = bool(done) and done in out
-            return tool_turn("report_help_verification", {"request_id": prev[1].get("request_id", ""), "result": "verified" if ok else "not_verified",
+            return tool_turn("report_help_verification", {"request_id": next((a.get("request_id", "") for n, a in reversed(seq) if n == "owner_help_status"), ""), "result": "verified" if ok else "not_verified",
                                                            "observation": f"The service page shows the {kind} step as {'completed' if ok else 'still pending'}."})
         if prev[0] == "browser_step" and prev[1].get("steps") == SUBMIT_STEPS:
             return text_turn(DONE_TEXT) if "Report submitted" in out else text_turn("blocked: the report page did not confirm")
@@ -309,7 +312,7 @@ def decide(history):
             state = json.loads(out).get("state")
         except ValueError:
             state = None
-        return tool_turn("browser_read", {}) if state == "answered" else text_turn("blocked: the owner step is not answered")
+        return tool_turn("browser_step", {"steps": REFRESH_STEPS}) if state == "answered" else text_turn("blocked: the owner step is not answered")
     if name == "report_help_verification":
         return {1: tool_turn("browser_step", {"steps": CONTINUE_PHONE_STEPS}), 2: tool_turn("signin_verified", {})}.get(verified, text_turn("blocked: unexpected verification state"))
     if name == "signin_verified":
