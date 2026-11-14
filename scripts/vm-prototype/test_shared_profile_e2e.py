@@ -6,6 +6,7 @@ HTTP to the real `Fixture` (the multi-account service of test_multi_account.py),
 restarts its MCP process and saves or wakes. It is a MOCK of the guest: it shows that the harness fails each
 fault, not that the real guest behaves this way. Each fault below must give a nonzero exit and no green
 `acceptance_complete`."""
+import hashlib
 import json
 import os
 import re
@@ -84,6 +85,15 @@ class FakeEnv:
     def new_pid(self):
         self.pid_seq += 1
         return self.pid_seq
+
+    def install_candidate(self, pinned, sha256):
+        self.installs = getattr(self, "installs", []) + [(str(pinned), sha256)]
+        if "install_fail" in self.faults:
+            raise RuntimeError("guest install failed")
+        if "not_ready" in self.faults:
+            raise TimeoutError("guest bare-mcp not ready after install")
+        self.mcp = [self.new_pid()]
+        return {"installed_sha256": "f" * 64 if "installed_other" in self.faults else sha256}
 
     # ---- guest tools through the entrypoint ----
     def fetch(self, url):
@@ -182,6 +192,7 @@ class FakeEnv:
         return {"load_s": 1.0}
 
     def cleanup(self):
+        self.cleaned = True
         if self.fixture:
             self.fixture.stop()
         return ["4242"] if "survivor" in self.faults else []
@@ -189,7 +200,7 @@ class FakeEnv:
 
 def args(tmp, **kw):
     d = dict(base=str(Path(tmp) / "base.qcow2"), out=str(Path(tmp) / "out"), fixture_port=28961, min_avail_mib=6144, max_load=8.0,
-             lock=str(Path(tmp) / "lock"), expect_bare_sha256=None, keep_disk=False, timeout=240)
+             lock=str(Path(tmp) / "lock"), expect_bare_sha256=None, bare_candidate=None, keep_disk=False, timeout=240)
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -310,6 +321,237 @@ class Flow(unittest.TestCase):
         for g in ("restore_from_disk_and_switch_both", "vm_wake_same_boot_and_profile"):
             self.assertNotEqual(m["gates"].get(g, {}).get("status"), "pass")
         self.assertEqual(m["gates"]["acceptance_complete"]["status"], "fail")
+
+
+class Candidate(unittest.TestCase):
+    """The pinned browser candidate: validated and copied to a private artifact before anything starts."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.src = Path(self.tmp.name, "bare-mcp")
+        self.src.write_bytes(b"\x7fELF candidate bytes")
+        self.src.chmod(0o755)
+        self.sha = hashlib.sha256(self.src.read_bytes()).hexdigest()
+        self.dest = Path(self.tmp.name, "pinned")
+
+    def go(self, **kw):
+        a = args(self.tmp.name, bare_candidate=str(self.src), expect_bare_sha256=self.sha, **kw)
+        self.env = FakeEnv(self.tmp.name, kw.pop("faults", ()))
+        self.a = a
+        self.rc = s.run(a, self.env)
+        try:
+            self.m = json.loads((Path(a.out) / "manifest.json").read_text())
+        except (OSError, ValueError):
+            self.m = None
+        return self.rc
+
+    def test_pin_copies_to_private_read_only_artifact_and_never_writes_the_source(self):
+        before = self.src.stat()
+        info = s.pin_candidate(self.src, self.sha, self.dest)
+        self.assertEqual(info["sha256"], self.sha)
+        self.assertEqual(hashlib.sha256(self.dest.read_bytes()).hexdigest(), self.sha)
+        self.assertEqual(self.dest.stat().st_mode & 0o777, 0o500)
+        self.assertEqual((self.src.stat().st_mtime_ns, self.src.stat().st_size), (before.st_mtime_ns, before.st_size))
+
+    def test_pin_rejects_bad_candidates_and_creates_no_artifact(self):
+        d = Path(self.tmp.name, "dir")
+        d.mkdir()
+        plain = Path(self.tmp.name, "plain")
+        plain.write_bytes(b"x")
+        plain.chmod(0o644)
+        locked = Path(self.tmp.name, "locked")
+        locked.write_bytes(b"x")
+        locked.chmod(0)
+        link = Path(self.tmp.name, "link")
+        link.symlink_to(self.src)
+        for bad in (Path(self.tmp.name, "missing"), d, plain, locked):
+            with self.assertRaises(s.CandidateError, msg=str(bad)):
+                s.pin_candidate(bad, self.sha, self.dest)
+        for bad_sha in ("0" * 64, "xyz", self.sha.upper()[:-1]):
+            with self.assertRaises(s.CandidateError, msg=bad_sha):
+                s.pin_candidate(self.src, bad_sha, self.dest)
+        self.assertFalse(self.dest.exists())
+
+    def test_pin_rejects_a_copy_that_differs_and_removes_it(self):
+        import shutil
+        real = shutil.copyfile
+        def corrupt(a, b, **kw):
+            real(a, b, **kw)
+            with open(b, "ab") as f:
+                f.write(b"!")
+            return b
+        s.shutil.copyfile, saved = corrupt, s.shutil.copyfile
+        try:
+            with self.assertRaises(s.CandidateError):
+                s.pin_candidate(self.src, self.sha, self.dest)
+        finally:
+            s.shutil.copyfile = saved
+        self.assertFalse(self.dest.exists())
+
+    def test_pin_rejects_a_source_that_changes_while_it_is_copied(self):
+        real = s.shutil.copyfile
+        def change_then_copy(a, b, **kw):
+            Path(a).write_bytes(b"replaced by a concurrent install")
+            return real(a, b, **kw)
+        s.shutil.copyfile, saved = change_then_copy, s.shutil.copyfile
+        try:
+            with self.assertRaises(s.CandidateError):
+                s.pin_candidate(self.src, self.sha, self.dest)
+        finally:
+            s.shutil.copyfile = saved
+        self.assertFalse(self.dest.exists())
+
+    def test_candidate_needs_an_expected_digest(self):
+        with self.assertRaises(SystemExit):
+            s.parse(["--base", "b", "--out", "o", "--bare-candidate", "c"])
+        a = s.parse(["--base", "b", "--out", "o", "--bare-candidate", "c", "--expect-bare-sha256", "a" * 64])
+        self.assertEqual(a.bare_candidate, "c")
+
+    def test_invalid_candidate_starts_nothing_and_creates_no_output(self):
+        self.src.chmod(0o644)
+        self.assertNotEqual(self.go(), 0)
+        self.assertEqual(self.rc, 2)
+        self.assertEqual(self.env.launches, 0)
+        self.assertFalse(Path(self.a.out).exists())
+
+    def test_hash_mismatch_starts_nothing(self):
+        a = args(self.tmp.name, bare_candidate=str(self.src), expect_bare_sha256="0" * 64)
+        env = FakeEnv(self.tmp.name)
+        self.assertEqual(s.run(a, env), 2)
+        self.assertEqual(env.launches, 0)
+        self.assertFalse(Path(a.out).exists())
+
+    def test_copy_mismatch_starts_nothing(self):
+        real = s.shutil.copyfile
+        def corrupt(a_, b, **kw):
+            real(a_, b, **kw)
+            Path(b).write_bytes(b"other")
+            return b
+        s.shutil.copyfile, saved = corrupt, s.shutil.copyfile
+        try:
+            self.assertEqual(self.go(), 2)
+        finally:
+            s.shutil.copyfile = saved
+        self.assertEqual(self.env.launches, 0)
+
+    def test_success_installs_the_pinned_copy_and_records_both_hashes(self):
+        self.assertEqual(self.go(), 0, self.m and self.m["gates"])
+        pinned, sha = self.env.installs[0]
+        self.assertEqual(sha, self.sha)
+        self.assertEqual(hashlib.sha256(Path(pinned).read_bytes()).hexdigest(), self.sha)
+        self.assertNotEqual(pinned, str(self.src))
+        self.assertEqual(self.status("bare_candidate_installed_and_ready"), "pass")
+        self.assertEqual(self.status("bare_mcp_sha256_equals_expected"), "pass")
+        ident = self.m["identity"]
+        self.assertEqual(ident["original_guest_bare_mcp_sha256"], "b" * 64)
+        self.assertEqual(ident["bare_mcp_sha256"], self.sha)
+        self.assertEqual(ident["bare_candidate"]["sha256"], self.sha)
+        self.assertTrue(ident["bare_candidate"]["override"])
+        self.assertIn("pinned candidate", ident["fidelity"])
+        self.assertNotIn(self.tmp.name, json.dumps(self.m))
+
+    def status(self, gate):
+        return self.m["gates"].get(gate, {}).get("status", "absent")
+
+    def test_install_failure_readiness_failure_and_wrong_installed_hash_fail_and_clean_up(self):
+        for fault in ("install_fail", "not_ready", "installed_other"):
+            with self.subTest(fault):
+                shutil_out = Path(self.tmp.name, "out")
+                if shutil_out.exists():
+                    import shutil
+                    shutil.rmtree(shutil_out)
+                a = args(self.tmp.name, bare_candidate=str(self.src), expect_bare_sha256=self.sha)
+                env = FakeEnv(self.tmp.name, (fault,))
+                self.assertEqual(s.run(a, env), 1)
+                m = json.loads((shutil_out / "manifest.json").read_text())
+                self.assertEqual(m["gates"]["acceptance_complete"]["status"], "fail")
+                self.assertNotEqual(m["gates"].get("bare_candidate_installed_and_ready", {}).get("status"), "pass")
+                self.assertTrue(env.cleaned)
+                for g in ("restore_from_disk_and_switch_both", "vm_wake_same_boot_and_profile"):
+                    self.assertNotEqual(m["gates"].get(g, {}).get("status"), "pass")
+
+    def test_required_gates_include_install_only_with_a_candidate(self):
+        self.assertNotIn("bare_candidate_installed_and_ready", s.required_gates(SimpleNamespace(expect_bare_sha256=None, bare_candidate=None)))
+        self.assertIn("bare_candidate_installed_and_ready", s.required_gates(SimpleNamespace(expect_bare_sha256="a" * 64, bare_candidate="c")))
+
+
+class GuestInstall(unittest.TestCase):
+    """Live.install_candidate against a recording guest. It shows the order and the safety checks, not real guest behavior."""
+
+    def live(self, pids="77\n", exe="/usr/local/bin/bare-mcp", sha_after=None, ldd="libc.so.6 => /usr/lib/libc.so.6", ready=True):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        live = s.Live(args(tmp.name, out=str(Path(tmp.name, "out"))))
+        self.pinned = Path(tmp.name, "pinned")
+        self.pinned.write_bytes(b"candidate")
+        self.sha = hashlib.sha256(b"candidate").hexdigest()
+        self.log, state = [], {"running": True, "files": {}}
+        live.sh = lambda script, timeout=30: self.log.append(("sh", script)) or (0, "", "")
+        live.push = lambda path, data: self.log.append(("push", path)) or state["files"].update({path: data})
+
+        def run(argv, timeout=30):
+            self.log.append(("run", argv))
+            if argv[0].endswith("pgrep"):
+                return (0, pids, "") if state["running"] else (1, "", "")
+            if argv[0].endswith("readlink"):
+                return 0, exe + "\n", ""
+            if argv[0].endswith("sha256sum"):
+                data = state["files"].get(argv[1])
+                return (0, hashlib.sha256(data).hexdigest() + "  " + argv[1] + "\n", "") if data is not None else (1, "", "")
+            if argv[0].endswith("ldd"):
+                return 0, ldd, ""
+            if argv[0].endswith("mv"):
+                state["files"][argv[-1]] = state["files"].pop(argv[-2])
+            return 0, "", ""
+        live.run = run
+        def sh(script, timeout=30):
+            self.log.append(("sh", script))
+            if script.startswith("kids="):
+                state["running"] = False
+            return 0, "", ""
+        live.sh = sh
+        def ready(*a_, **k):
+            self.log.append(("ready", None))
+            if not ready:
+                raise s.v.NotReady("not_ready")
+        saved = s.v.ready
+        s.v.ready = ready
+        self.addCleanup(setattr, s.v, "ready", saved)
+        return live, state
+
+    def test_order_is_stop_stage_verify_ldd_rename_verify_start_ready(self):
+        live, state = self.live()
+        out = live.install_candidate(self.pinned, self.sha)
+        self.assertEqual(out["installed_sha256"], self.sha)
+        order = []
+        for entry in self.log:
+            k, x = entry
+            order.append(x if k == "sh" else "push" if k == "push" else "ready" if k == "ready" else x[0].rsplit("/", 1)[-1])
+        self.assertLess(order.index("readlink"), next(i for i, x in enumerate(order) if str(x).startswith("kids=")))
+        self.assertLess(order.index("push"), order.index("ldd"))
+        self.assertLess(order.index("ldd"), order.index("mv"))
+        self.assertLess(order.index("mv"), len(order) - 1 - order[::-1].index("sha256sum"))
+        self.assertEqual(order[-1], "ready")
+        pushes = [x for k, x in self.log if k == "push"]
+        self.assertEqual(len(pushes), 1)
+        self.assertNotEqual(pushes[0], s.BARE_MCP)  # staged under another name, then renamed
+        self.assertEqual(state["files"][s.BARE_MCP], b"candidate")
+        self.assertTrue(any(k == "run" and x[:3] == ["/usr/local/bin/as-deck", "setsid", "-f"] for k, x in self.log))
+
+    def test_refuses_to_stop_an_unknown_or_ambiguous_process(self):
+        for kw in ({"pids": "77\n78\n"}, {"pids": ""}, {"exe": "/tmp/other"}):
+            live, _ = self.live(**kw)
+            with self.assertRaises(RuntimeError):
+                live.install_candidate(self.pinned, self.sha)
+            self.assertFalse(any(isinstance(x, str) and x.startswith("kids=") for _, x in self.log), kw)
+            self.assertFalse([1 for k, _ in self.log if k == "push"], kw)
+
+    def test_missing_library_stops_before_the_rename(self):
+        live, state = self.live(ldd="libxkbcommon.so.0 => not found")
+        with self.assertRaises(RuntimeError):
+            live.install_candidate(self.pinned, self.sha)
+        self.assertNotIn(s.BARE_MCP, state["files"])
 
 
 class Pure(unittest.TestCase):
