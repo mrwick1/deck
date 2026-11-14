@@ -16,10 +16,12 @@ export function useWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [hasData, setHasData] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const mounted = useRef(false);
   const pending = useRef<Promise<void> | null>(null);
   const refresh = useCallback(() => {
     if (pending.current) return pending.current;
+    setRefreshing(true);
     const request = (async () => {
       try {
         const [options, rows, chats, legacy] = await Promise.all([
@@ -31,7 +33,7 @@ export function useWorkspace() {
         if (mounted.current) { setData({ rows, chats, bots, enabled: options.enabled, protectedInput: options.protected_input === true }); setError(null); setHasData(true); }
       } catch (e) {
         if (mounted.current) setError(e instanceof api.ApiError && (e.status === 401 || e.status === 403) ? "Sign in to Deck to continue." : "Cannot refresh Deck. Check your connection and try again.");
-      } finally { if (mounted.current) setLoaded(true); pending.current = null; }
+      } finally { if (mounted.current) { setLoaded(true); setRefreshing(false); } pending.current = null; }
     })();
     pending.current = request;
     return request;
@@ -44,5 +46,5 @@ export function useWorkspace() {
     void run();
     return () => { mounted.current = false; closed = true; clearTimeout(timer); };
   }, [refresh]);
-  return { ...data, loaded, hasData, error, refresh };
+  return { ...data, loaded, hasData, refreshing, error, refresh };
 }

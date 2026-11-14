@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useRef, useState } from "react";
+import { StrictMode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { motion, MotionConfig } from "motion/react";
 import { ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, House, Mail, MessageCircle, Monitor, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
@@ -38,6 +38,11 @@ function App() {
   const [busy, setBusy] = useState(false);
   const guard = useRef(false);
   const [error, setError] = useState("");
+  const [manualRefresh, setManualRefresh] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState("");
+  const [uncertainCreate, setUncertainCreate] = useState(false);
+  const refreshWorkspace = () => { setManualRefresh(true); setRefreshMessage("Refreshing…"); void data.refresh(); };
+  useEffect(() => { if (manualRefresh && !data.refreshing) { setManualRefresh(false); setRefreshMessage(data.error ? "" : "Workspace is up to date"); } }, [manualRefresh, data.refreshing, data.error]);
   useEffect(() => { const changed = () => { navigationEpoch.current++; setRoute(readRoute()); setError(""); }; window.addEventListener("hashchange", changed); return () => window.removeEventListener("hashchange", changed); }, []);
   const navigate = (value: string) => { navigationEpoch.current++; location.hash = value; setRoute(value); setError(""); };
   useEffect(() => {
@@ -55,7 +60,10 @@ function App() {
     if (guard.current || !fresh) return;
     guard.current = true; setBusy(true); setError("");
     try { await action(); }
-    catch (e) { setError(e instanceof Error ? e.message : "The action was not confirmed. Refresh before trying again."); }
+    catch (e) {
+      setError(e instanceof Error ? e.message : "The action was not confirmed. Refresh before trying again.");
+      if (["home", "new"].includes(readRoute())) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".app textarea")?.focus());
+    }
     finally { guard.current = false; setBusy(false); }
   };
   const propose = (targetDestination = destination) => run(async () => {
@@ -68,7 +76,13 @@ function App() {
       else toast.success(message, { action: { label: "Open", onClick: () => navigate(path) } });
     };
     if (targetDestination === "new") {
-      const row = await api.createSetup(job);
+      if (uncertainCreate) return;
+      let row: api.SetupRecord;
+      try { row = await api.createSetup(job); }
+      catch (e) {
+        if (!(e instanceof api.ApiError) || e.status === 0 || e.status >= 500) { setUncertainCreate(true); void data.refresh(); }
+        throw e;
+      }
       setAcceptedSetups(previous => [...previous.filter(item => item.setup.id !== row.setup.id), row]);
       complete(`setup/${encodeURIComponent(row.setup.id)}`, "Setup draft created. Ready for review.");
       void data.refresh();
@@ -86,6 +100,8 @@ function App() {
   const page = split < 0 ? route : route.slice(0, split);
   let id = "";
   try { id = split < 0 ? "" : decodeURIComponent(route.slice(split + 1)); } catch { id = ""; }
+  const homeContent = useRef<HTMLElement>(null);
+  useLayoutEffect(() => { if (homeContent.current) homeContent.current.scrollTop = scrolls.current.get(page) ?? 0; }, [page]);
   const row = rows.find(item => item.setup.id === id);
   const status = data.bots.find(item => item.bot_id === id);
   const names = new Map(rows.map(item => [item.setup.id, item.setup.draft.name]));
@@ -95,16 +111,17 @@ function App() {
   const openBot = (botId: string) => navigate(`bot/${encodeURIComponent(botId)}`);
   const openSetup = (item: api.SetupRecord) => navigate(`${item.runtime_ready ? "bot" : "setup"}/${encodeURIComponent(item.setup.id)}`);
   const bots = [...rows.map(item => ({ id: item.setup.id, name: item.setup.draft.name, row: item, status: data.bots.find(bot => bot.bot_id === item.setup.id) })), ...data.bots.filter(bot => !names.has(bot.bot_id)).map(bot => ({ id: bot.bot_id, name: "Default bot", row: undefined, status: bot }))];
+  const homeFeedback = error || data.error || refreshMessage;
   const firstHome = page === "home" && data.hasData && data.enabled && !bots.length;
   return <MotionConfig reducedMotion="user" transition={{ duration: .18, ease: [0.22, 1, 0.36, 1] }}><TooltipProvider><div className="shell compact experience">
     <aside className="rail"><button className="brand" onClick={() => navigate("home")}>deck</button><button aria-label="Home" onClick={() => navigate("home")}><House size={18}/></button><button aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button></aside>
     <div className="app">
-      {page !== "bot" && !firstHome && data.hasData && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back to home" onClick={() => navigate("home")}><ArrowLeft size={18}/></button><h1>{page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : "Chat with Deck"}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={() => { void data.refresh(); }}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
-      {(data.hasData && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
+      {page !== "bot" && !firstHome && data.hasData && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back to home" onClick={() => navigate("home")}><ArrowLeft size={18}/></button><h1>{page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : "Chat with Deck"}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
+      {(data.hasData && !["home", "new"].includes(page) && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
       {!data.hasData ? <HomeLoading error={data.error} retry={() => { void data.refresh(); }}/> : <>
-        {firstHome && <HomeStart draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh} busy={busy} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: () => { void data.refresh(); } }]} />}
+        {firstHome && <HomeStart draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh || uncertainCreate} busy={busy} notice={homeFeedback} noticeIsError={!!error} retry={refreshWorkspace} retryBusy={data.refreshing} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: refreshWorkspace }]} />}
         {(page === "home" || page === "new") && !firstHome && <>
-          <main className="content" key={page} ref={element => { if (element) element.scrollTop = scrolls.current.get(page) ?? 0; }} onScroll={event => scrolls.current.set(page, event.currentTarget.scrollTop)}>
+          <main className="content" key={page} ref={homeContent} onScroll={event => scrolls.current.set(page, event.currentTarget.scrollTop)}>
             {page === "new" ? <section className="new-job"><h2>What should this bot do?</h2><p>Describe the job below. You’ll review the setup before a computer is created.</p><p className="fine-print">Do not put credentials in this description.</p></section> : <>
               <div className="section-heading"><h2>Your workspace</h2><Button className="text-button" disabled={!data.enabled || !fresh} onClick={() => { setDestination("new"); navigate("new"); }}><Plus size={18}/> New bot</Button></div>
               {(waiting.length > 0 || attention.length > 0) && <section aria-label="Needs you" className="attention-list"><h2>Needs you</h2>{waiting.map(item => <Button className="attention" key={item.setup.id} onClick={() => openSetup(item)}><span><strong>{item.setup.draft.name}</strong><small>{item.setup.wait ? "Sign-in needs your help" : item.phase === "Investigate" ? "An outcome needs investigation" : "Setup attempts exhausted"}</small></span><ChevronRight size={18}/></Button>)}{attention.filter(bot => !waiting.some(item => item.setup.id === bot.bot_id)).map(bot => <Button className="attention" key={bot.bot_id} onClick={() => navigate(`bot/${encodeURIComponent(bot.bot_id)}?requests`)}><span><strong>{names.get(bot.bot_id) ?? "Default bot"}</strong><small>{describeBot(bot).label}</small></span><ChevronRight size={18}/></Button>)}</section>}
@@ -112,8 +129,9 @@ function App() {
               {results.length > 0 && <section className="results"><div className="section-heading"><h2>Recent results</h2></div>{results.map(({ bot, task }) => <Button className="result-row" key={task.id} onClick={() => openBot(bot.bot_id)}><Check size={18}/><span><strong>{task.title}</strong><small>{names.get(bot.bot_id) ?? "Default bot"} · Open conversation</small></span><ChevronRight size={18}/></Button>)}{!results.length && <p className="empty-result">Completed work will appear here</p>}</section>}
             </>}
           </main>
-          <form className="compact-composer" onSubmit={event => { event.preventDefault(); void propose(); }}><div className="composer-context"><span>To Deck</span><ChoiceSheet label="Task destination" value={destination} disabled={busy || !fresh} onChange={setDestination} options={[{ value: "new", label: "Create a bot", disabled: !data.enabled }, { value: "chat", label: "Chat with Deck" }, ...bots.filter(item => item.status).map(item => ({ value: item.id, label: item.name }))]}/></div><div className="composer-input"><Textarea maxLength={20000} rows={1} aria-label="Describe a job" placeholder={destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft("home")} onChange={event => put("home", event.target.value)}/><Button className="send" aria-label="Continue" disabled={busy || !fresh || !draft("home").trim() || (destination === "new" && !data.enabled)}><ArrowUp size={18}/></Button></div><p className="home-send-status" role="status">{busy ? destination === "new" ? "Preparing your setup…" : "Sending your task…" : ""}</p></form>
+          <form className="compact-composer" onSubmit={event => { event.preventDefault(); void propose(); }}><div className="composer-context"><span>To Deck</span><ChoiceSheet label="Task destination" value={destination} disabled={busy || !fresh} onChange={setDestination} options={[{ value: "new", label: "Create a bot", disabled: !data.enabled }, { value: "chat", label: "Chat with Deck" }, ...bots.filter(item => item.status).map(item => ({ value: item.id, label: item.name }))]}/></div><div className="composer-input"><Textarea maxLength={20000} rows={1} aria-label="Describe a job" placeholder={destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft("home")} onChange={event => put("home", event.target.value)}/><Button className="send" aria-label="Continue" disabled={busy || !fresh || !draft("home").trim() || (destination === "new" && (!data.enabled || uncertainCreate))}><ArrowUp size={18}/></Button></div><div className="home-send-status"><span role={error ? "alert" : "status"}>{busy ? destination === "new" ? "Preparing your setup…" : "Sending your task…" : homeFeedback}</span>{(data.error || error) && <Button type="button" variant="ghost" disabled={data.refreshing} onClick={refreshWorkspace}>Refresh</Button>}</div></form>
         </>}
+        {uncertainCreate && ["home", "new"].includes(page) && <section className="uncertain-create" aria-label="Check the previous setup"><p>The last request may have created a setup. Check your workspace before starting another.</p><Button variant="outline" disabled={!fresh || data.refreshing} onClick={() => navigate("home")}>Check workspace</Button><Button variant="outline" disabled={!fresh || data.refreshing} onClick={() => { setUncertainCreate(false); setError(""); }}>I checked — allow a new setup</Button></section>}
         {page === "history" && <main className="content"><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button><div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" onClick={() => chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`)}><MessageCircle size={18}/><span>{chat.title || "Untitled conversation"}</span><ChevronRight size={18}/></button>)}</div></main>}
         {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <Chat key={route} id={id === "new" ? null : Number(id)} bot={false} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={chatId => { navigate(`chat/${chatId}`); }} refresh={data.refresh} scrolls={scrolls.current} scope={route}/>}
         {page === "setup" && (row ? <Setup key={`${row.setup.id}-${row.version}`} row={row} data={data} openBot={openBot} disabled={!fresh}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}

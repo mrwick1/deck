@@ -29,3 +29,15 @@ At commit f8f4d99, an initial failed read showed both “No bots yet” and “B
 ## Limits
 
 These checks use the actual React interface with in-memory responses in the shared preview browser. They do not prove real backend acceptance, a physical Vivo keyboard, touch gestures, frame pacing or full accessibility. Reduced-motion rules require a separate browser check. The public sample remains on its previous published version until the review gate passes.
+
+## Additional first-round fixes and checks
+
+The first-load retry state now handles 401 responses without configuration claims. Connection and submission feedback use a reserved footer region on first-time Home. A failed poll changes neither the heading top nor the composer top in the 412 × 450 fixture check. A manual refresh displays its pending state and then its confirmed result.
+
+The Home content ref is stable. Scroll restoration runs on page changes, not on every poll. A confirmed create retains its returned record even when a read started before the create later returns an empty list. That race was checked in the fixture.
+
+A server rejection keeps the draft, reports the error beside the composer and focuses the textarea. A lost confirmation blocks another create until the owner checks the workspace and explicitly permits a new setup. The fixture returned a created row after a lost reply; Home showed it and kept the send action disabled. This is a client recovery guard, not server idempotency.
+
+The owner can keep editing during a request. The completion clears only the submitted text when it is unchanged. This preserves newer edits instead of locking the textarea. Suggestion replacement requires a choice. Ctrl+Enter and Cmd+Enter use the same guarded submission path. Enter alone keeps multiline input.
+
+At 412 × 820, 360 × 740, 320 × 640 and 412 × 450, measured Home controls remained at least 44px, input text remained 16px and the footer stayed inside the viewport. The heading used two lines without horizontal overflow. The viewport meta requests layout resize for mobile keyboards. A real phone keyboard remains untested. A fallback sizes the textarea where CSS field sizing is unsupported.

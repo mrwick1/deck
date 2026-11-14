@@ -13,14 +13,17 @@ window.fetch = async (input, init={}) => {
   state.calls.push({path,method:init.method||'GET',body:init.body});
   if(path==='/api/setups' && init.method==='POST'){
     await new Promise(resolve=>{state.pending=resolve;});
+    if(mode==='create-reject') return Response.json({error:'Please revise the job description'},{status:400});
     state.created=true;state.rows=[{...row,setup:{...row.setup,draft:{...draft,instructions:JSON.parse(init.body).job}}}];
     if(mode==='refresh-failure') state.fail=true;
+    if(mode==='lost-reply') return Response.json({error:'The connection ended before confirmation'},{status:503});
     return Response.json(state.rows[0]);
   }
   if(state.loading) await new Promise(resolve=>state.loads.push(resolve));
+  if(mode==='unauthorized') return Response.json({error:'Sign in required'},{status:401});
   if(state.fail) return Response.json({error:'Fixture connection failure'},{status:503});
   if(path==='/api/setup-options') return Response.json({enabled:mode!=='disabled',protected_input:false});
-  if(path==='/api/setups') return Response.json(state.rows);
+  if(path==='/api/setups'){const snapshot=structuredClone(state.rows);if(state.holdRows) await new Promise(resolve=>state.releaseRows=resolve);return Response.json(snapshot);}
   if(path==='/api/chats') return Response.json([]);
   if(path==='/api/bots/fixture-bot') return Response.json(status);
   if(path==='/api/bots/fixture-bot/inbox') return Response.json([]);
