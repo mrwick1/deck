@@ -702,6 +702,8 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 **Delivery:** Validate two accounts first. Preserve the earlier full-mail tasks as later acceptance work. Record failures as sanitized, deduplicated GitHub issues for a separate fixing agent. Keep browser failures in bare. Verify the affected task after a fix before clearing its blocker. Existing review and browser-update rules still apply.
 
-**Open choices:** Confirm morning time, timezone, coverage window and mailbox changes before configuring the daily job. The delivery plan proposes summary-only triage until the owner selects its action scope.
+**Action scope:** The owner approved applying labels. Do not archive mail. Include recommended actions in the summary.
+
+**Open choices:** Confirm morning time, timezone, coverage window and label names before configuring the daily job.
 
 **Reason:** The owner wants to assess a useful daily bot before expanding the general product. One bot per mailbox does not meet that goal. This records requirements, not verified multi-account support.

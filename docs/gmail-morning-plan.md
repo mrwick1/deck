@@ -4,6 +4,8 @@
 
 Deliver one morning briefing from one bot across multiple Gmail accounts. Identify threads that need a reply, urgent items, other actions and low-priority information. Group results by priority and show an account label and source-thread link for each item. Explain why a reply or action is needed. Distinguish explicit deadlines from inferred urgency.
 
+Apply triage labels in the correct account. Do not archive mail. Do not send, delete or perform other mailbox changes as part of this milestone. Preserve existing labels. Confirm the label names before the real trial.
+
 Report each account as complete, partial or blocked. State the covered time window and scan limits. Keep unresolved reply items visible on later mornings. Do not claim that an unread-message scan covers all mail that needs a reply. Check later messages in each thread before recommending a reply.
 
 ## Verified starting point
@@ -31,7 +33,9 @@ Create a private fixture with reply-needed, already-replied, urgent, information
 
 Store progress per account. A retry must resume incomplete work without losing completed coverage. Publish one briefing with explicit partial coverage when an account needs owner help. Track unresolved items by account and thread. Confirm the owner's coverage window and scan limit before the real trial.
 
-**Gate:** Every required-reply and urgent fixture item appears with correct account attribution and a valid source reference. No invented deadline or unsupported completion claim passes. Record false positives and scan omissions.
+Read label state back after each change. Test a lost response after a successful label operation, repeated runs and identical thread identifiers in different accounts. A retry must not create duplicate labels or alter another account. Verify that all messages retain their prior archive state and existing labels. Record uncertain results before retrying.
+
+**Gate:** Labels match the intended account and thread after retries. No archive action occurs. Every required-reply and urgent fixture item appears with correct account attribution and a valid source reference. No invented deadline or unsupported completion claim passes. Record false positives and scan omissions.
 
 ### 3. Connect at least two real Gmail accounts
 
@@ -65,7 +69,7 @@ Connect a separate fixing agent through the approved task mechanism. Define its 
 
 ## Scope still to settle
 
-- Summary recommendations only, labels, or labels plus archive. Until selected, no mailbox mutation is part of this milestone.
+- Label names and classification rules. Applying labels is approved; archiving is excluded.
 - Morning time, timezone, delivery destination, coverage window and backlog limit.
 - The real accounts to connect through private setup.
 - The fixing-agent pickup mechanism and review owner.

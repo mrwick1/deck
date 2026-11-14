@@ -12,7 +12,9 @@ The owner selected this first delivery goal on 2026-11-14. One bot must cover mu
 
 **Pass rule:** Both accounts appear correctly in one briefing. A blocked login does not prevent the other account's briefing. Restart and duplicate trigger checks produce no duplicate briefing. Private mail and credentials never enter public issues. The daily trial must meet the acceptance gates in [the delivery plan](gmail-morning-plan.md). No acceptance pass is claimed yet.
 
-**Pending owner choices:** Morning time, timezone, mail coverage window and whether triage may change labels or archive mail. Until the action scope is settled, plan summary recommendations only. This does not revoke authority for other approved jobs.
+**Approved action scope:** Apply triage labels and include recommendations in the briefing. Do not archive mail. Sending, deleting and other mailbox changes remain outside this milestone.
+
+**Pending owner choices:** Morning time, timezone, mail coverage window and label names.
 
 ## Later Gmail capabilities
 
