@@ -245,3 +245,9 @@ The complete synthetic-service and UI-controller suites now pass all 79 tests. A
 The next candidate run failed before protected delivery. The field filled and stayed masked, but its async verification did not return. All four worker gates now carry a result; none was silently omitted. The parent verified no registered survivors, a free VM lock and removal of the disk and memory-state files. See `setup-ui-vm-final-results.md`.
 
 A separate minimal bare probe narrowed the failure. Timers and SHA-256 resolve on a fresh page. The body text getter throws Unsupported when it reaches a textarea. The same getter in an async continuation leaves that result and a later timer pending. The earlier promise-await fix is already an ancestor. Bare issues 481 and 482 track this evidence. The next focused design handles rendered textarea text without collecting form values. It awaits the owner review required by bare's repository instructions.
+
+## Approved textarea fix and combined candidate
+
+The owner approved the textarea design. Draft bare PR 500 contains the focused text-collection fix. All nine element tests and the full library suite pass: 1416 passed, six ignored. Strict formatting and clippy retain documented baseline failures.
+
+A private candidate combines that fix with draft bare PR 479. The minimal MCP check now resolves SHA-256, body text collection around a textarea, and a subsequent timer. The header-gated endpoint also returns 200. No shared browser installation changed. A fresh combined UI/VM run is active with this candidate. The owner-authorized load override remains; memory and exclusive VM checks stay active. All four UI gates and retained sanitized images are required. No acceptance result is available yet.
