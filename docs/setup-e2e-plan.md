@@ -209,3 +209,9 @@ File ownership is separate. The first task owns its lifecycle harness. The secon
 ### Combined UI controller integrated
 
 The controller and its 41 unit tests are integrated. The parent reproduced all tests. No live UI/VM run has occurred. The controller owns the test stack and cleanup. The browser owns all approval, protected-input and challenge form actions. The capture-privacy review must settle before the combined run starts.
+
+## Final scoped evidence review (2026-11-14)
+
+The combined real UI/server/VM journey completes protected delivery, both verified owner-help rounds, restarts and one final action. All four UI checks have observations. The final live QGA check proves file mode and exact value. The worker manifest records 44 passes and a privacy failure plus its aggregate failure. The parent verified that the privacy failure classified non-secret request identifiers as credentials. A separate manual review accepts all 45 required conditions. The original failed manifest is unchanged. See `setup-ui-vm-parent-review.md`.
+
+The latest prototype test run has 439 tests: 438 pass and one screenshot check is skipped. Both approved bare fixes remain draft PRs. The shared installation is unchanged. Rendering, internal wake prose and transient UI/proxy errors remain separate findings. This is not a whole-product or universal-raster verdict. No merge or deployment ran.

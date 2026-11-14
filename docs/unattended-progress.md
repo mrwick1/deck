@@ -1,7 +1,7 @@
 # Unattended implementation handoff
 
-Updated: 2026-11-13.
-Status: core setup and local API/guest synthetic sign-in pass. Remaining validation continues in a new parallel wave. Phone UI rendering remains blocked. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher branch. The local `THREAD.md` records its current review link and ownership.
+Updated: 2026-11-14.
+Status: core setup, API/guest sign-in, saved-state continuation and the combined UI/VM flow have scoped evidence. The combined flow is accepted by parent manual review; its original manifest remains failed on a worker's classification of request identifiers. See [parent review](setup-ui-vm-parent-review.md). Bare rendering and UI usability limits remain. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher. The private `THREAD.md` records ownership.
 
 ## Latest accepted evidence
 
@@ -9,7 +9,7 @@ The [final live report](setup-synthetic-login-final.md) records exit 0. All 55 r
 
 The parent inspected that manifest, checked all registered PIDs are absent and verified the released VM lock. No VM disk or memory-state file remains. Metadata and earlier failed evidence remain private. That accepted run is closed. The new continuation wave is documented below.
 
-Local checks: 303 Rust unit tests, four integration tests, 49 web tests, type checking, build, formatting and clippy pass. The Python suite passes 366 tests with one screenshot gate skipped. No whole-product, real-account, performance or single unmocked UI plus VM claim follows. Bare issues [464](https://github.com/mrwick1/bare/issues/464) and [467](https://github.com/mrwick1/bare/issues/467) retain the phone rendering limits. Raster secrecy and saved-state second-task checks remain unrun.
+Local checks: 313 Rust unit tests, four integration tests, 49 web tests, type checking, build, formatting and clippy pass. The latest Python suite passes 438 tests with one screenshot gate skipped (439 run). These counts cover their recorded source heads. The combined real UI/server/VM evidence uses a scripted model and local service. It does not prove the whole product, real accounts or performance. Bare issues [464](https://github.com/mrwick1/bare/issues/464) and [467](https://github.com/mrwick1/bare/issues/467) retain the phone rendering limits. Saved-state wake and the second task passed 32 required live gates. Inspected private-viewer and native-frame pixels have bounded evidence; universal raster secrecy is not claimed.
 
 ## Read first
 
@@ -257,3 +257,7 @@ A private candidate combines that fix with draft bare PR 479. The minimal MCP ch
 The parent integrated the two-fix report and inspected the retained masked-field and private-viewer images. All four UI gates have supporting observations. The failed final file assertion did not establish missing guest credentials. The guest's saved-state metadata and absent QGA socket explain why the live inspection could not run. The assertion remains unchanged.
 
 The fresh interactive run uses the existing 600-second test idle setting. It must inspect the guest file promptly after the completion restart. The separate saved-wake result still covers short-idle behavior. Prior failed manifests remain unchanged. No production sleep setting changed.
+
+## Parent privacy verdict
+
+The parent inspected all retained images and the recorded private-frame response: HTTP 204, zero bytes. The parent accepts the privacy condition. The worker had failed it for non-secret request identifiers. The original failed manifest and worker report remain unchanged. A separate review record pins their evidence. All 45 required conditions are supported after this manual review. See `setup-ui-vm-parent-review.md`. This is not an automatically green run.

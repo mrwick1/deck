@@ -4,9 +4,13 @@ Update this file when a stage or verification step ends.
 
 For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
 
-## Current branch checkpoint: 2026-11-13
+## Current branch checkpoint: 2026-11-14
 
-The unattended runtime, reviewed setup and protected input are integrated. The publisher branch is `document-bot-setup`. Local checks pass: 303 Rust unit tests, four integration tests, 49 web tests, type checking, production build, formatting and clippy. The prototype Python suite passes 366 tests with one screenshot gate skipped. The real API/guest synthetic-login run passes all 55 required gates: 57 pass statuses, three optional checks unrun and zero failures. Browser UI checks used a fake guest; a single unmocked UI plus VM journey is not claimed. Bare issues 464 and 467 block phone rendering. No merge or deployment ran. Read [the handoff](unattended-progress.md) and [final live report](setup-synthetic-login-final.md) for exact limits.
+The unattended runtime, reviewed setup and protected input are integrated. The publisher branch is `document-bot-setup`. Recorded checks pass: 313 Rust unit tests, four integration tests, 49 web tests, type checking, build, formatting and clippy. The current prototype Python run passes 438 tests with one screenshot check skipped (439 run).
+
+The API/guest synthetic-login run passes all 55 required gates. Saved-state wake and a second paused task pass 32 required live gates. A combined real UI/server/VM journey now has all 45 conditions supported by parent evidence review. Its original automated manifest remains failed: the worker classified non-secret request identifiers as a privacy failure. The parent verified the actual 204/zero-byte private frame response and inspected all retained images. See [the parent review](setup-ui-vm-parent-review.md). This is a manual verdict, not a replacement green manifest.
+
+The UI journey uses an isolated candidate containing draft bare PRs 479 and 500. The shared browser is unchanged. Bare issues 464 and 467 retain rendering limits. Internal wake prose, transient alerts and proxy errors need separate investigation. No merge or deployment ran. Read [the handoff](unattended-progress.md) for exact scope and ownership.
 
 ## Earlier main checkpoint: 2026-11-13
 

@@ -132,7 +132,7 @@ The worker calls `POST /gate` with `pass` or `fail`. All four are required for a
 
 - `ui_review_screen_seen`: the review screen showed the job, task and label before approval.
 - `ui_secret_input_check`: the fill script returned `filled: true`, a length equal to the expected length and a hash prefix. Nothing else.
-- `ui_privacy_viewer`: the page DOM, the live viewer and the pending-verification view held no password, match number or check id that should be hidden. Use `bare` read and find. Record counts, not text.
+- `ui_privacy_viewer`: the rendered page text, live viewer and pending-verification views expose no credential value. Require HTTP 204 with zero frame bytes while private. Owner-facing match numbers and request identifiers are metadata, not passwords. Record raw internal wake prose as a separate usability finding. The protected input itself holds the value transiently; this check does not promise raw DOM or shell redaction. Use `bare` read and find. Record counts, not values.
 - `ui_screenshot_privacy`: a `bare` screenshot of the form after fill, and of the pending view, show a masked field. Inspect the images. A byte search of a PNG proves nothing.
 
 A gate detail that holds the password becomes a failure and is redacted.

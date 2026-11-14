@@ -4,7 +4,7 @@
 
 ## Status
 
-M1, the three-stage one-bot desktop prototype and the measured save optimization are merged. This branch adds unattended accounting and reviewed bot setup. Protected input and local synthetic sign-in pass API/guest acceptance. Phone rendering and optional lifecycle/privacy checks remain open. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
+M1, the three-stage one-bot desktop prototype and the measured save optimization are merged. This branch adds unattended accounting and reviewed bot setup. API/guest sign-in and saved-state continuation pass their live checks. The combined UI/VM flow has a manual evidence verdict; its original failed manifest stays recorded. Phone rendering and bounded privacy limits remain. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 
