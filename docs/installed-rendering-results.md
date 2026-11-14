@@ -25,3 +25,15 @@ The first same-origin fetch to the test-only protected-input route returned 403.
 The failed manifests, screenshots and reports remain in private local evidence directories. They are not public attachments. The final controller reports zero registered process survivors, no credential release and an unchanged frozen base. The worker stopped its browser, bridge and temporary screen. Other sessions were left alone.
 
 The browser ran headless. A mirrored temporary screen existed, but Bare did not bind to it. No mirrored rendering or universal secrecy is claimed. No recording, real account or real credential was used. The installed protected-input and viewer journey remains incomplete until the browser blocker is fixed and a new run passes.
+
+## Follow-up with the existing browser fixes
+
+The approved Fetch Metadata fix in Bare PR #479 was rebased onto main at 28a8fbc2. Its 53 Fetch/XHR release tests pass. A rebuilt MCP browser sends same-origin, cors and empty metadata to a local header-gated endpoint and receives HTTP 200. The existing textarea fix in PR #500 is stacked on it. Their combined serial release library run passes 1,464 tests with six ignored. Async SHA-256, textarea body text and a later timer resolve in the MCP smoke check. Both PRs remain drafts. Resource benchmarks were not repeated and neither fix was merged.
+
+The combined candidate was installed for validation. Its SHA-256 is 18488a21c5ede585bd60980e2681ca46e72ad6acd340d468c4b019b9435d42bf. The prior installed build was retained as a backup. Existing browser processes were not replaced.
+
+The new real UI run passed protected fill and delivery. The returned length and hash matched; the visible-text leak flag was false. The actual Deliver click produced one HTTP 204. The guest file had mode 0600 and the exact value. The local service authenticated the special-character password. Restart during the phone wait preserved ownership and added no work. The host evidence scan found zero matches in 64 files. The process-argument scan found zero matches across 3,785 samples. The parent inspected the masked post-fill capture.
+
+The run remains failed. The worker invoked an unsupported body innerText read over a select control. This operation is outside the textarea fix. Its probes also left pending fetches in the page. Hypothesis: those fetches contributed to the later owner click producing no request. This cause is not verified. The worker updated Bare issues #481 and #482. No phone answer POST or CAPTCHA round completed. The done state and final restart did not run.
+
+The private latest-frame route was observed as HTTP 204 with zero bytes. The full viewer UI gate failed. The worker marked its screenshot gate as passed from the masked form and phone view; the CAPTCHA view was never reached. Treat that as partial image evidence, not a complete screenshot gate. Controller cleanup reports no survivors and an unchanged base. The worker stopped its browser, bridge and temporary screen. A new run must use the planned supported read and find tools and avoid extra page fetch probes. The earlier failed manifest stays unchanged.

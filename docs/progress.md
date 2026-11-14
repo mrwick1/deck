@@ -2,7 +2,7 @@
 
 ## Installed rendering update: 2026-11-14
 
-Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. The latest protected-input rerun stops at the same-origin Fetch Metadata check tracked by Bare #475, before any value release. Cleanup passed. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
+Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. A candidate with draft Bare fixes #479 and #500 now passes protected delivery and service authentication. Full viewer and owner-round acceptance remains failed after an unsupported text probe and a later click with no request. Cleanup passed. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
 
 Update this file when a stage or verification step ends.
 
