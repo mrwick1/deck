@@ -49,6 +49,7 @@ MEM_FILE = "/dev/shm/shared-profile-marker"
 FIDELITY = ("direct guest bare-call over the guest agent, real VM, real guest bare-mcp, "
             "no deck server, no host executor relay, no model, synthetic multi-account fixture (not Google)")
 PINNED_NAME = "bare-mcp.pinned"
+MCP_WAIT = 60  # seconds to wait for the guest bare-mcp before a stop
 OVERRIDE = ("; guest bare-mcp REPLACED in this private overlay by the pinned candidate (explicit override, "
             "standard image and frozen base unchanged)")
 EXPECTED_EFFECTS = {"records": 1, "logins": {"alice": 1, "bob": 1}}
@@ -302,7 +303,11 @@ class Live:
 
     def stop_mcp(self):
         """Kill the one bare-mcp of this run's guest and its direct children. It must be the installed executable of the desktop user."""
+        end = time.monotonic() + MCP_WAIT  # an unprobed boot may not have started the browser yet
         old = self.mcp_pids()
+        while not old and time.monotonic() < end:
+            time.sleep(0.2)
+            old = self.mcp_pids()
         if len(old) != 1:
             raise RuntimeError(f"expected one bare-mcp before the stop, found {len(old)}")
         exe = self.run(["/usr/bin/readlink", "-f", f"/proc/{old[0]}/exe"])[1].strip()

@@ -566,7 +566,24 @@ class GuestInstall(unittest.TestCase):
         self.assertEqual(state["files"][s.BARE_MCP], b"candidate")
         self.assertTrue(any(k == "run" and x[:3] == ["/usr/local/bin/as-deck", "setsid", "-f"] for k, x in self.log))
 
+    def test_waits_for_a_browser_that_starts_late_after_an_unprobed_boot(self):
+        live, state = self.live()
+        calls = {"n": 0}
+        inner = live.run
+
+        def late(argv, timeout=30):
+            if argv[0].endswith("pgrep"):
+                calls["n"] += 1
+                if calls["n"] <= 3:
+                    return 1, "", ""
+            return inner(argv, timeout)
+        live.run = late
+        self.assertEqual(live.install_candidate(self.pinned, self.sha)["installed_sha256"], self.sha)
+
     def test_refuses_to_stop_an_unknown_or_ambiguous_process(self):
+        saved = s.MCP_WAIT
+        s.MCP_WAIT = 0.3
+        self.addCleanup(setattr, s, "MCP_WAIT", saved)
         for kw in ({"pids": "77\n78\n"}, {"pids": ""}, {"exe": "/tmp/other"}):
             live, _ = self.live(**kw)
             with self.assertRaises(RuntimeError):
