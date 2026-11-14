@@ -38,10 +38,10 @@ python3 scripts/vm-prototype/setup_ui_e2e.py prepare --base <frozen-base.qcow2> 
 Start:
 
 ```sh
-python3 scripts/vm-prototype/setup_ui_e2e.py serve --base <frozen-base.qcow2> --deck <deck-binary> --out <short-output-dir> --wait
+python3 scripts/vm-prototype/setup_ui_e2e.py serve --base <frozen-base.qcow2> --deck <deck-binary> --out <short-output-dir>
 ```
 
-The parent owns this call. Run it in the background and read the first stdout line. It is one JSON object: `ui_url`, `control_url`, `control_token`, `out`.
+The interactive run must omit `--wait`. That option stops at the first completed task and prevents the required final restart and late evidence submission. Keep serving until the worker calls `/finish` and `/stop`. The parent owns this call. Run it in the background and read the first stdout line. It is one JSON object: `ui_url`, `control_url`, `control_token`, `out`.
 Use a fresh `--out`. Keep it short: QEMU sockets need a path under 108 bytes.
 The controller takes the same VM lock as `setup_e2e.py` and applies the same host-pressure limits (`--min-avail-mib`, `--max-load`). It never overrides them.
 Do not start another VM-based run while it runs.

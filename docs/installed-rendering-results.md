@@ -37,3 +37,11 @@ The new real UI run passed protected fill and delivery. The returned length and 
 The run remains failed. The worker invoked an unsupported body innerText read over a select control. This operation is outside the textarea fix. Its probes also left pending fetches in the page. Hypothesis: those fetches contributed to the later owner click producing no request. This cause is not verified. The worker updated Bare issues #481 and #482. No phone answer POST or CAPTCHA round completed. The done state and final restart did not run.
 
 The private latest-frame route was observed as HTTP 204 with zero bytes. The full viewer UI gate failed. The worker marked its screenshot gate as passed from the masked form and phone view; the CAPTCHA view was never reached. Treat that as partial image evidence, not a complete screenshot gate. Controller cleanup reports no survivors and an unchanged base. The worker stopped its browser, bridge and temporary screen. A new run must use the planned supported read and find tools and avoid extra page fetch probes. The earlier failed manifest stays unchanged.
+
+## Clean follow-up and controller lifecycle
+
+The next clean run passed 43 recorded checks. Protected delivery, service authentication, both owner rounds, the private viewer and cleanup passed. The viewer returned HTTP 204 with zero bytes while private. Supported Bare read and find checks were used without extra page fetch probes.
+
+Acceptance still failed. The controller was launched with --wait. Its main loop stops as soon as the first task reaches done. It therefore cleaned up before the worker could record the inspected screenshot gate or test the post-completion restart. This cause is verified in the controller loop. The images include the masked form and both pending views. The parent inspected the CAPTCHA pending view. No final restart is claimed. The failed manifest remains unchanged.
+
+The generated interactive start command now omits --wait. The controller still has a deadline, loss checks and explicit stop cleanup. A regression first failed because prepare included the early-stop flag. This is a harness invocation correction, not a change to Deck or its privacy gates. The worker reported printing the local control token once. That controller has ended and the token is inert; do not publish the transcript or token.
