@@ -704,3 +704,13 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Reason:** The guest adapter previously passed no state file. A browser process restart lost saved state held only in memory. The host state directory does not apply to the guest relay.
 
 **Evidence boundary:** The adapter and live synthetic tests pass. One browser session retains two synthetic accounts after a process restart. Actual Gmail switching, guest execution and VM recovery remain separate acceptance gates. No memory-saving claim follows.
+
+## D69. Gate guest readiness on the browser capabilities the adapter uses (2026-11-14)
+
+**Decision:** `bare-call --ready` reads the `tools/list` schemas. It requires the tool properties that the adapter sets: `open` with `state` and `file`, `save_state` with `name` and `file`, and `ensure_session` with `name` and `file`. A missing tool, a missing property or a malformed schema gives `ready: false`, reason `incompatible_browser` and exit 3. The reply lists only static names such as `open.file`. It never holds page content, credentials or schema text. The no-identity check and the RPC failure reasons stay as they were. The probe makes no tool call and starts no session.
+
+**Reason:** The live guest accepted its old browser and then failed on `open` with an unknown `file` property. This is a capability contract. It does not compare version numbers. It does not require `fresh`, which the adapter does not use.
+
+**Harness:** A run with `--bare-candidate` skips the readiness probe before the candidate is installed. The candidate install keeps its hash and manifest checks and must pass the same probe before any scenario tool. A run without a candidate probes at boot and fails before the scenario on an old browser.
+
+**Evidence boundary:** Tests use fakes only. No guest image changed and nothing deployed. The guest image must contain a compatible browser. Live VM and real-account behavior remain untested.

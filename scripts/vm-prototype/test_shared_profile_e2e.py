@@ -76,7 +76,10 @@ class FakeEnv:
         return eff
 
     # ---- guest lifecycle ----
-    def boot_guest(self):
+    def boot_guest(self, probe=True):
+        self.events = getattr(self, "events", []) + [("boot", probe)]
+        if probe and "old_browser" in self.faults:
+            raise s.v.NotReady("not_ready")  # the production gate refuses a browser without the adapter's capabilities
         self.launches += 1
         self.vm = True
         self.mcp = [self.new_pid()]
@@ -87,6 +90,7 @@ class FakeEnv:
         return self.pid_seq
 
     def install_candidate(self, pinned, sha256):
+        self.events = getattr(self, "events", []) + [("install", None)]
         self.installs = getattr(self, "installs", []) + [(str(pinned), sha256)]
         if "install_fail" in self.faults:
             raise RuntimeError("guest install failed")
@@ -106,6 +110,7 @@ class FakeEnv:
         self.page = m.group(1) if m else ""
 
     def call(self, tool, **args):
+        self.events = getattr(self, "events", []) + [("tool", tool)]
         self.calls.append((tool, args))
         if tool == "open":
             if args.get("state"):
@@ -471,6 +476,28 @@ class Candidate(unittest.TestCase):
                 for g in ("restore_from_disk_and_switch_both", "vm_wake_same_boot_and_profile"):
                     self.assertNotEqual(m["gates"].get(g, {}).get("status"), "pass")
 
+    def test_candidate_skips_the_pre_install_probe_and_installs_before_any_tool(self):
+        self.assertEqual(self.go(faults=("old_browser",)), 0, self.m and self.m["gates"])
+        ev = self.env.events
+        self.assertEqual(ev[:2], [("boot", False), ("install", None)])
+        self.assertIn(("tool", "open"), ev)
+        self.assertEqual(self.status("bare_candidate_installed_and_ready"), "pass")
+
+    def test_candidate_that_is_not_ready_after_install_runs_no_tool(self):
+        self.assertEqual(self.go(faults=("old_browser", "not_ready")), 1)
+        self.assertEqual(self.env.events, [("boot", False), ("install", None)])
+        self.assertEqual(self.env.calls, [])
+
+    def test_default_run_with_an_incompatible_browser_fails_before_any_tool(self):
+        a = args(self.tmp.name)
+        env = FakeEnv(self.tmp.name, ("old_browser",))
+        self.assertEqual(s.run(a, env), 1)
+        self.assertEqual(env.events, [("boot", True)])
+        self.assertEqual(env.calls, [])
+        m = json.loads((Path(a.out) / "manifest.json").read_text())
+        self.assertEqual(m["gates"]["run_completed"]["status"], "fail")
+        self.assertNotEqual(m["gates"]["acceptance_complete"]["status"], "pass")
+
     def test_required_gates_include_install_only_with_a_candidate(self):
         self.assertNotIn("bare_candidate_installed_and_ready", s.required_gates(SimpleNamespace(expect_bare_sha256=None, bare_candidate=None)))
         self.assertIn("bare_candidate_installed_and_ready", s.required_gates(SimpleNamespace(expect_bare_sha256="a" * 64, bare_candidate="c")))
@@ -552,6 +579,34 @@ class GuestInstall(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             live.install_candidate(self.pinned, self.sha)
         self.assertNotIn(s.BARE_MCP, state["files"])
+
+
+class LiveBoot(unittest.TestCase):
+    """Live.boot_guest: the pre-install readiness probe is the only thing `probe=False` removes."""
+
+    def boot(self, probe):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = s.Live(args(tmp, out=str(Path(tmp, "out"))))
+            log = []
+            live.p = SimpleNamespace(mk=lambda: log.append("mk"), qga="q")
+            live.register = lambda pid: None
+            live.guest_sha = lambda path: "x"
+            patches = {"create_overlay": lambda *a_: None, "start_qemu": lambda *a_: 1,
+                       "install_executor": lambda *a_: log.append("install_executor"), "ready": lambda *a_, **k: log.append("ready"),
+                       "Qga": lambda q: SimpleNamespace(ping_ready=lambda n: None)}
+            for k, f in patches.items():
+                old = getattr(s.v, k)
+                setattr(s.v, k, f)
+                self.addCleanup(setattr, s.v, k, old)
+            live.boot_guest(probe) if probe is not None else live.boot_guest()
+            return log
+
+    def test_default_probes_readiness_after_installing_the_executor(self):
+        self.assertEqual(self.boot(None), ["mk", "install_executor", "ready"])
+        self.assertEqual(self.boot(True), ["mk", "install_executor", "ready"])
+
+    def test_probe_false_installs_the_executor_and_does_not_probe(self):
+        self.assertEqual(self.boot(False), ["mk", "install_executor"])
 
 
 class Pure(unittest.TestCase):

@@ -246,13 +246,19 @@ class Live:
         self.pid = pid
         self.stack.owned.update(e.capture_processes([pid]))
 
-    def boot_guest(self):
+    def boot_guest(self, probe=True):
+        """Boot the guest and install the executor. `probe` waits for the guest browser to be ready.
+
+        A run with a pinned candidate passes probe=False. The frozen base browser may fail the readiness gate
+        by design. The candidate must pass that same gate in install_candidate before any scenario tool runs.
+        """
         self.p.mk()
         v.create_overlay(self.p, self.a.base)
         self.register(v.start_qemu(self.p, "run", self.a.fixture_port))
         v.Qga(self.p.qga).ping_ready(90)
         v.install_executor(self.p, BOT)  # pushes the candidate bare-call into the private overlay only
-        v.ready(self.p, BOT, 120)
+        if probe:
+            v.ready(self.p, BOT, 120)
         return {"adapter_sha256": self.guest_sha("/usr/local/bin/bare-call"), "bare_mcp_sha256": self.guest_sha("/usr/local/bin/bare-mcp")}
 
     def guest_sha(self, path):
@@ -509,7 +515,7 @@ def execute(a, env, out, pinned=None):
     try:
         e.need(m, "base_frozen_and_verified", base["mode"] == "0o444" and env.base_ok(), f"mode {base['mode']}")
         env.start_fixture()
-        info = env.boot_guest()
+        info = env.boot_guest(probe=not pinned)
         m.data["identity"].update(guest_adapter_sha256=info["adapter_sha256"], bare_mcp_sha256=info["bare_mcp_sha256"])
         if pinned:
             m.data["identity"]["original_guest_bare_mcp_sha256"] = info["bare_mcp_sha256"]

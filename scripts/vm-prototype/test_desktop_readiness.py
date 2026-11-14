@@ -34,6 +34,7 @@ v = load(HERE / "vmproto.py", "vmproto_ready")
 FAKE = r'''
 import json, sys, os, time
 log, delay = sys.argv[1], float(sys.argv[2])
+tools = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
 time.sleep(delay)
 for line in sys.stdin:
     m = json.loads(line)
@@ -43,11 +44,18 @@ for line in sys.stdin:
     if m["method"] == "initialize":
         r = {"protocolVersion": "x"}
     elif m["method"] == "tools/list":
-        r = {"tools": [{"name": "open"}, {"name": "screenshot"}]}
+        r = {"tools": tools if tools is not None else [{"name": "open"}, {"name": "screenshot"}]}
     else:
         r = {"content": [{"type": "text", "text": "{}"}]}
     print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": r}), flush=True)
 '''
+
+
+def tool(name, *props):
+    return {"name": name, "inputSchema": {"type": "object", "properties": {p: {"type": "string"} for p in props}}}
+
+
+GOOD = [tool("open", "url", "state", "file"), tool("save_state", "name", "file"), tool("ensure_session", "name", "file"), tool("screenshot", "path")]
 
 
 class Probe(unittest.TestCase):
@@ -73,13 +81,14 @@ class Probe(unittest.TestCase):
             os.close(fd)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def session(self, delay=0.0):
+    def session(self, delay=0.0, tools=GOOD):
         d = f"{self.rt}/bare"
+        Path(f"{self.tmp}/tools.json").write_text(json.dumps(tools))
         os.mkfifo(f"{d}/in")
         fd = os.open(f"{d}/in", os.O_RDWR)
         self.fds.append(fd)
         out = open(f"{d}/out", "wb")
-        self.procs.append(subprocess.Popen([sys.executable, f"{self.tmp}/fake.py", self.log, str(delay)], stdin=fd, stdout=out))
+        self.procs.append(subprocess.Popen([sys.executable, f"{self.tmp}/fake.py", self.log, str(delay), f"{self.tmp}/tools.json"], stdin=fd, stdout=out))
         out.close()
 
     def ready(self, wait="2"):
@@ -93,7 +102,7 @@ class Probe(unittest.TestCase):
         self.session()
         code, out, _ = self.ready()
         self.assertEqual(code, 0)
-        self.assertEqual(out, {"ready": True, "tools": 2, "bot_id": "bot-1", "guest_id": "g1"})
+        self.assertEqual(out, {"ready": True, "tools": 4, "bot_id": "bot-1", "guest_id": "g1"})
 
     def test_probe_uses_only_initialize_and_tools_list(self):
         self.session()
@@ -126,6 +135,43 @@ class Probe(unittest.TestCase):
         os.remove(f"{self.home}/.local/state/deck-executor/identity.json")
         code, out, _ = self.ready()
         self.assertEqual((code, out["reason"]), (3, "no_identity"))
+
+    def incompatible(self, tools, missing):
+        self.session(tools=tools)
+        code, out, err = self.ready()
+        self.assertEqual((code, out), (3, {"ready": False, "reason": "incompatible_browser", "missing": missing}))
+        self.assertEqual(self.methods(), ["initialize", "notifications/initialized", "tools/list"])
+
+    def test_old_browser_without_open_file_is_incompatible(self):
+        old = [tool("open", "url", "state"), *GOOD[1:]]
+        self.incompatible(old, ["open.file"])
+
+    def test_missing_tool_is_incompatible(self):
+        self.incompatible([GOOD[0], GOOD[2]], ["save_state"])
+
+    def test_no_required_tool_lists_all_three(self):
+        self.incompatible([tool("screenshot", "path")], ["open", "save_state", "ensure_session"])
+
+    def test_missing_ensure_or_save_fields_are_incompatible(self):
+        self.incompatible([GOOD[0], tool("save_state", "name"), tool("ensure_session", "file")], ["save_state.file", "ensure_session.name"])
+
+    def test_malformed_schemas_are_incompatible_and_leak_nothing(self):
+        bad = [{"name": "open", "inputSchema": "secret-page-text"}, {"name": "save_state", "inputSchema": {"properties": ["name", "file"]}},
+               {"name": "ensure_session", "inputSchema": {"properties": {"name": {}, "file": "x"}}}, "junk", None]
+        self.session(tools=bad)
+        code, out, _ = self.ready()
+        self.assertEqual((code, out["ready"], out["reason"]), (3, False, "incompatible_browser"))
+        self.assertNotIn("secret-page-text", json.dumps(out))
+        self.assertLessEqual(set(out), {"ready", "reason", "missing"})
+
+    def test_incompatible_browser_is_reported_before_identity(self):
+        os.remove(f"{self.home}/.local/state/deck-executor/identity.json")
+        self.session(tools=[tool("open", "url")])
+        self.assertEqual(self.ready()[1]["reason"], "incompatible_browser")
+
+    def test_compatible_browser_without_fresh_is_ready(self):
+        self.session(tools=GOOD)
+        self.assertEqual(self.ready()[0], 0)
 
 
 class FakeQga:

@@ -12,6 +12,8 @@ import json, os, re, shutil, stat, sys, time, uuid
 MAX_FILE = 8 << 20
 MAX_COPIES = 12
 PROTOCOL = "2025-06-18"
+# The tool properties that this adapter sets or reads. `ready` checks these and nothing else.
+REQUIRED = {"open": ("state", "file"), "save_state": ("name", "file"), "ensure_session": ("name", "file")}
 STATE_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
@@ -65,8 +67,23 @@ def handshake(rpc, d, wait=30):
     open(marker, "w").close()
 
 
+def missing_capabilities(tools):
+    """Static identifiers (`tool` or `tool.property`) of the REQUIRED capabilities that `tools` lacks. Never schema text."""
+    by = {x.get("name"): x for x in tools if isinstance(x, dict)}
+    gone = []
+    for name, props in REQUIRED.items():
+        schema = (by.get(name) or {}).get("inputSchema")
+        have = schema.get("properties") if isinstance(schema, dict) else None
+        if name not in by:
+            gone.append(name)
+        else:
+            gone += [f"{name}.{p}" for p in props if not (isinstance(have, dict) and isinstance(have.get(p), dict))]
+    return gone
+
+
 def ready(wait):
-    """Read-only readiness probe: print one JSON line. Exit 0 only when bare-mcp answers tools/list.
+    """Read-only readiness probe: print one JSON line. Exit 0 only when bare-mcp answers tools/list
+    and lists the tool properties in REQUIRED (reason incompatible_browser, with static `missing` names, otherwise).
 
     It sends initialize (once per session) and tools/list. It acts on no page and reads no credential.
     It prints stable reason codes, never guest output. It starts no session.
@@ -92,6 +109,9 @@ def ready(wait):
     tools = (v.get("result") or {}).get("tools")
     if "error" in v or not isinstance(tools, list) or not tools:
         return out(ready=False, reason="bad_reply")
+    gone = missing_capabilities(tools)
+    if gone:
+        return out(ready=False, reason="incompatible_browser", missing=gone)
     try:
         with open(os.path.expanduser("~/.local/state/deck-executor/identity.json")) as f:
             ident = json.load(f)

@@ -97,7 +97,8 @@ These are untested until a live run:
 
 1. Before anything starts, the harness checks that the file is a readable executable regular file with the expected digest. It copies the file to a private `0500` artifact in `OUT/private` and checks the copy. A failure exits 2 and starts nothing. The source is only read.
 2. After the guest boots, the harness stops the one guest `bare-mcp` (its `/proc/<pid>/exe` must be the installed path). It stages the artifact over the guest agent under another name and checks its digest and `ldd`. It renames the file over the installed path, checks the installed digest, starts `bare-session` and waits for readiness.
-3. Gate `bare_candidate_installed_and_ready` is required. An install or readiness failure fails acceptance, and cleanup still runs.
-4. The manifest records the original guest digest, the candidate digest and size, and an override note in the fidelity text.
+3. A run with a candidate skips the readiness probe at boot, because the frozen base browser can fail the stricter probe (D69). The restart after the install runs the same probe. No scenario tool runs before it passes. A run without a candidate probes at boot, so an old browser fails before the scenario.
+4. Gate `bare_candidate_installed_and_ready` is required. An install or readiness failure fails acceptance, and cleanup still runs.
+5. The manifest records the original guest digest, the candidate digest and size, and an override note in the fidelity text.
 
-Production still needs a guest image whose browser matches the adapter. See [shared-profile-vm-results.md](shared-profile-vm-results.md), attempt 3.
+The readiness probe now requires the adapter's browser properties (`open` state and file, `save_state` and `ensure_session` name and file) and reports `incompatible_browser` otherwise. Production needs a guest image whose browser has them. This change deploys no image. See [shared-profile-vm-results.md](shared-profile-vm-results.md), attempt 3.
