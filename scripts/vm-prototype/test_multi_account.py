@@ -1,23 +1,29 @@
-"""Probe tests for multi-account use of one bot computer. They change no production code.
+"""Tests for shared browser state with several accounts in ONE browser session.
 
-Part 1 (always runs): the guest adapter `guest/bare-call` `prepare()` with two named sessions.
-Part 2 (set DECK_LIVE_BARE=1): the real `bare-mcp` against a local synthetic same-origin service.
-Cookies are generated at run time. No real account, mailbox or network is used.
+Product rule: one browser session and profile hold every account. The site's own account switcher
+selects the account. Deck never makes a session or profile per account. The saved state name
+identifies that one shared profile.
 
-A failing test here is evidence of a gap, not a harness fault. Tests named `gap_` document a missing
-guarantee: the message of each says what the guest adapter lacks."""
+Part 1 (always runs): `guest/bare-call` `prepare()` fixes the state file path.
+Part 2 (set DECK_LIVE_BARE=1): the real `bare-mcp` against a local synthetic service that simulates
+multi-account cookie behavior. It does not show how Google behaves. Cookies are generated at run time.
+No real account, mailbox or network is used. D33 applies: a trusted guest shell is out of scope."""
 import importlib.machinery
 import importlib.util
 import json
 import os
+import queue
 import secrets
 import shutil
+import signal
+import stat
 import subprocess
 import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 
@@ -33,69 +39,159 @@ def load(path, name):
 bc = load(HERE / "guest" / "bare-call", "bare_call_multi")
 
 
-class GuestAdapter(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="deck-multi-test-")
+class Home:
+    """A temporary HOME for the process. Cleans only its own directory."""
+
+    def home_setup(self, prefix):
+        self.tmp = tempfile.mkdtemp(prefix=prefix)
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.home = Path(self.tmp, "home")
         (self.home / ".config/deck").mkdir(parents=True)
-        self.secrets = self.home / ".config/deck/secrets.env"
-        self.secrets.write_text("ACCT_A_PASS=gen-a\nACCT_B_PASS=gen-b\n")
         self.out = Path(self.tmp, "out")
         self.ws = Path(self.tmp, "ws")
         self.out.mkdir()
         self.ws.mkdir()
-        self._home = os.environ.get("HOME")
+        self.addCleanup(os.environ.__setitem__, "HOME", os.environ.get("HOME", ""))
         os.environ["HOME"] = str(self.home)
-
-    def tearDown(self):
-        os.environ["HOME"] = self._home
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.browser = self.home / ".local/state/deck/browser"
 
     def prep(self, tool, **args):
         return bc.prepare({"name": tool, "arguments": args}, str(self.out), str(self.ws))["arguments"]
 
-    def test_session_and_name_pass_through_unchanged_for_two_accounts(self):
-        for acct in ("a", "b"):
-            a = self.prep("ensure_session", session=acct, name=f"gmail-{acct}", url="https://x.test")
-            self.assertEqual((a["session"], a["name"]), (acct, f"gmail-{acct}"))
-        a = self.prep("step", session="b", steps="goto https://x.test")
-        self.assertEqual(a["session"], "b")
 
-    def test_one_shared_secrets_file_goes_to_both_sessions(self):
-        for acct in ("a", "b"):
-            a = self.prep("ensure_session", session=acct, name=acct)
-            self.assertEqual(a["secrets_file"], str(self.secrets))
-        # Credential binding is by variable name in one file; the adapter has no per-session file.
-        self.assertEqual(self.prep("open", session="a")["secrets_file"], str(self.secrets))
+class GuestAdapter(Home, unittest.TestCase):
+    def setUp(self):
+        self.home_setup("deck-multi-test-")
+        self.secrets = self.home / ".config/deck/secrets.env"
+        self.secrets.write_text("ACCT_A_PASS=gen-a\nACCT_B_PASS=gen-b\n")
 
-    def test_model_cannot_pick_secrets_file_or_state_path(self):
-        a = self.prep("ensure_session", session="a", secrets_file="/etc/shadow")
-        self.assertEqual(a["secrets_file"], str(self.secrets))
-        # `file` is a model argument at this layer; the host strips it (HIDDEN_ARGS) before relay.
-        self.assertIn("file", self.prep("save_state", session="a", name="a", file="/etc/passwd"))
+    def mkbrowser(self):
+        self.browser.mkdir(parents=True, mode=0o700)
+        for d in (self.browser, self.browser.parent):
+            d.chmod(0o700)
 
-    def test_gap_guest_save_state_gets_no_durable_file(self):
+    def test_save_state_and_ensure_session_get_the_fixed_file(self):
+        want = str(self.browser / "shared.state")
         for tool in ("save_state", "ensure_session"):
-            a = self.prep(tool, session="a", name="gmail-a")
-            self.assertIn("file", a, f"guest {tool} gets no state file: a login survives only in bare-mcp memory")
+            self.assertEqual(self.prep(tool, name="shared")["file"], want)
+        self.assertEqual(stat.S_IMODE(self.browser.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(self.browser.parent.stat().st_mode), 0o700)
+        self.assertFalse(Path(want).exists())  # bare creates it; the adapter leaves no empty file
 
-    def test_gap_open_with_state_gets_no_file(self):
-        a = self.prep("open", session="a", state="gmail-a", url="https://x.test")
-        self.assertIn("file", a, "guest open state=... cannot restore from disk after bare-mcp restarts")
+    def test_open_with_state_gets_the_fixed_file_by_state_name(self):
+        a = self.prep("open", state="shared", url="https://x.test")
+        self.assertEqual(a["file"], str(self.browser / "shared.state"))
 
-    def test_downloads_dir_is_shared_between_sessions(self):
-        a = self.prep("open", session="a")
-        b = self.prep("open", session="b")
-        self.assertEqual(a["downloads_dir"], b["downloads_dir"])  # characterization, not a verdict
+    def test_plain_open_is_unchanged(self):
+        a = self.prep("open", url="https://x.test")
+        self.assertNotIn("file", a)
+        self.assertFalse((self.home / ".local").exists())  # no state directory without a state name
+        self.assertIn("downloads_dir", a)
+
+    def test_adapter_overrides_the_caller_file(self):
+        want = str(self.browser / "shared.state")
+        self.assertEqual(self.prep("save_state", name="shared", file="/etc/passwd")["file"], want)
+        self.assertEqual(self.prep("ensure_session", name="shared", file="/etc/passwd")["file"], want)
+        self.assertEqual(self.prep("open", state="shared", file="/etc/passwd")["file"], want)
+        self.assertEqual(self.prep("ensure_session", secrets_file="/etc/shadow", name="shared")["secrets_file"], str(self.secrets))
+
+    def test_session_argument_is_not_used_to_pick_the_file(self):
+        # One shared profile: the session label does not change the state path.
+        a = self.prep("save_state", name="shared", session="main")["file"]
+        b = self.prep("save_state", name="shared", session="other")["file"]
+        self.assertEqual(a, b)
+
+    def test_bad_names_are_rejected(self):
+        for bad in ("", "a/b", "../x", "a.b", " a", "a\n", "é", "x" * 65, None, 7, ["a"]):
+            for tool, key in (("save_state", "name"), ("ensure_session", "name"), ("open", "state")):
+                if tool == "open" and bad is None:
+                    continue  # state absent: a plain open
+                with self.subTest(tool=tool, bad=bad), self.assertRaises(ValueError):
+                    self.prep(tool, **{key: bad})
+        self.assertEqual(self.prep("save_state", name="a-B_9" + "x" * 59)["file"][-6:], ".state")  # 64 chars pass
+
+    def test_existing_valid_file_is_kept(self):
+        self.mkbrowser()
+        f = self.browser / "shared.state"
+        f.write_text("secret-data")
+        f.chmod(0o600)
+        for tool, key in (("save_state", "name"), ("ensure_session", "name"), ("open", "state")):
+            self.assertEqual(self.prep(tool, **{key: "shared"})["file"], str(f))
+        self.assertEqual(f.read_text(), "secret-data")
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
+
+    def test_unsafe_existing_files_are_rejected_and_untouched(self):
+        self.mkbrowser()
+        f = self.browser / "shared.state"
+        target = Path(self.tmp, "target")
+        target.write_text("x")
+        target.chmod(0o600)
+        f.symlink_to(target)
+        self.assertRaises(ValueError, self.prep, "save_state", name="shared")
+        self.assertEqual(target.read_text(), "x")
+        f.unlink()
+        f.symlink_to(Path(self.tmp, "missing"))  # dangling symlink
+        self.assertRaises(ValueError, self.prep, "save_state", name="shared")
+        f.unlink()
+        f.write_text("x")
+        f.chmod(0o644)
+        self.assertRaises(ValueError, self.prep, "open", state="shared")
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o644)  # not repaired silently
+        f.chmod(0o600)
+        os.link(f, Path(self.tmp, "hard"))
+        self.assertRaises(ValueError, self.prep, "open", state="shared")
+        os.unlink(Path(self.tmp, "hard"))
+        f.unlink()
+        f.mkdir()
+        self.assertRaises(ValueError, self.prep, "ensure_session", name="shared")
+        f.rmdir()
+        f.write_text("x")
+        f.chmod(0o600)
+        with mock.patch.object(bc.os, "geteuid", return_value=os.geteuid() + 1):
+            self.assertRaises(ValueError, self.prep, "open", state="shared")  # foreign owner
+
+    def test_unsafe_directories_are_rejected(self):
+        elsewhere = Path(self.tmp, "elsewhere")
+        elsewhere.mkdir(mode=0o700)
+        for link in (self.home / ".local", ):
+            link.symlink_to(elsewhere)
+            self.assertRaises(ValueError, self.prep, "save_state", name="shared")
+            link.unlink()
+        (self.home / ".local/state").mkdir(parents=True)
+        deck = self.home / ".local/state/deck"
+        deck.symlink_to(elsewhere)
+        self.assertRaises(ValueError, self.prep, "save_state", name="shared")
+        deck.unlink()
+        deck.mkdir(mode=0o700)
+        (deck / "browser").symlink_to(elsewhere)
+        self.assertRaises(ValueError, self.prep, "save_state", name="shared")
+        (deck / "browser").unlink()
+        (deck / "browser").mkdir(mode=0o755)
+        (deck / "browser").chmod(0o755)
+        self.assertRaises(ValueError, self.prep, "open", state="shared")
+        self.assertEqual(stat.S_IMODE((deck / "browser").stat().st_mode), 0o755)  # not repaired silently
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        with mock.patch.object(bc.os, "geteuid", return_value=os.geteuid() + 1):
+            self.assertRaises(ValueError, self.prep, "open", state="shared")  # foreign owner
+
+    def test_downloads_dir_stays_shared(self):
+        self.assertEqual(self.prep("open")["downloads_dir"], self.prep("open", session="b")["downloads_dir"])
 
 
 # ---------- live part ----------
 
 class Service:
-    """Same origin, cookie identity. GET /login/<user> sets a random token; /me names the user; /logout drops it."""
+    """Simulates multi-account cookie behavior. This is a fixture, not Google.
+
+    ONE cookie `sid` names one server record: the set of signed-in accounts and the selected one.
+    /login/<u>     adds u to the record of the current cookie (new record without a cookie); selects u.
+    /switch/<u>    selects u when u is signed in; else 403.
+    /logout        fixture semantics: signs out the selected account only; the rest stay.
+    /logout-all    fixture semantics: drops the whole record.
+    /me            shows `user=<selected>` and `accounts=<a,b>`, or `anonymous`."""
 
     def __init__(self):
-        self.tokens = {}
+        self.records = {}
         svc = self
 
         class H(BaseHTTPRequestHandler):
@@ -120,17 +216,34 @@ class Service:
                 return jar.get("sid")
 
             def do_GET(self):
-                p = self.path
+                p, sid = self.path, self.sid()
+                rec = svc.records.get(sid)
                 if p.startswith("/login/"):
-                    tok = secrets.token_hex(8)
-                    svc.tokens[tok] = p.rsplit("/", 1)[1]
-                    return self.send(303, cookie=tok, location="/me")
-                who = svc.tokens.get(self.sid())
-                if p == "/logout":
-                    svc.tokens.pop(self.sid(), None)
-                    who = None
-                if p in ("/me", "/logout"):
-                    return self.send(200, f"<html><body><p>{'user=' + who if who else 'anonymous'}</p></body></html>")
+                    u = p.rsplit("/", 1)[1]
+                    if rec is None:
+                        sid = secrets.token_hex(8)
+                        rec = svc.records[sid] = {"accounts": [], "selected": None}
+                    if u not in rec["accounts"]:
+                        rec["accounts"].append(u)
+                    rec["selected"] = u
+                    return self.send(303, cookie=sid, location="/me")
+                if p.startswith("/switch/"):
+                    u = p.rsplit("/", 1)[1]
+                    if rec is None or u not in rec["accounts"]:
+                        return self.send(403, "<html><body><p>not signed in</p></body></html>")
+                    rec["selected"] = u
+                    return self.send(303, location="/me")
+                if p == "/logout" and rec:
+                    rec["accounts"].remove(rec["selected"])
+                    rec["selected"] = rec["accounts"][0] if rec["accounts"] else None
+                    if not rec["accounts"]:
+                        svc.records.pop(sid)
+                if p == "/logout-all":
+                    svc.records.pop(sid, None)
+                if p in ("/me", "/logout", "/logout-all"):
+                    rec = svc.records.get(sid)
+                    text = f"user={rec['selected']} accounts={','.join(rec['accounts'])}" if rec else "anonymous"
+                    return self.send(200, f"<html><body><p>{text}</p></body></html>")
                 self.send(404)
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
@@ -143,9 +256,15 @@ class Service:
 
 
 class Mcp:
+    """One bare-mcp process in its own process group. Every wait is bounded. A tool error raises."""
+    WAIT = 30.0
+
     def __init__(self):
         self.p = subprocess.Popen(["bare-mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True)
+                                  stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        self.pid = self.p.pid
+        self.q = queue.Queue()
+        threading.Thread(target=lambda: [self.q.put(l) for l in self.p.stdout], daemon=True).start()
         self.n = 0
         self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                 "clientInfo": {"name": "multi-test", "version": "1"}})
@@ -156,78 +275,137 @@ class Mcp:
         self.n += 1
         self.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": self.n, "method": method, "params": params}) + "\n")
         self.p.stdin.flush()
-        return json.loads(self.p.stdout.readline())
+        try:
+            line = self.q.get(timeout=self.WAIT)
+        except queue.Empty:
+            raise TimeoutError(f"bare-mcp gave no answer to {method} in {self.WAIT}s")
+        return json.loads(line)
+
+    def call(self, tool_name, **args):
+        """Raw call: returns (is_error, text)."""
+        r = self.rpc("tools/call", {"name": tool_name, "arguments": args})
+        if "error" in r:
+            raise AssertionError(f"{tool_name}: rpc error {r['error']}")
+        res = r["result"]
+        return bool(res.get("isError")), (res.get("content") or [{}])[0].get("text", "")
 
     def tool(self, tool_name, /, **args):
-        r = self.rpc("tools/call", {"name": tool_name, "arguments": args})["result"]
-        return r.get("content", [{}])[0].get("text", "")
+        err, text = self.call(tool_name, **args)
+        if err:
+            raise AssertionError(f"{tool_name} failed: {text[:300]}")
+        return text
 
-    base = ""
-
-    def me(self, session):
-        self.tool("step", session=session, steps=f"goto {self.base}/me", compact=True)
-        return self.tool("read", session=session).strip()
+    def go(self, url):
+        self.tool("step", steps=f"goto {url}", compact=True)
+        return self.tool("read").strip()
 
     def stop(self):
-        self.p.kill()
+        if self.p.poll() is None:
+            try:
+                os.killpg(self.p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         self.p.wait(timeout=10)
         self.p.stdin.close()
         self.p.stdout.close()
 
 
+class Prep:
+    """Send a tool through the production `bare-call prepare()`, as the guest relay does."""
+
+    def __init__(self, test, mcp):
+        self.t, self.m = test, mcp
+
+    def call(self, tool, **args):
+        p = self.t.prep(tool, **args)
+        return self.m.tool(tool, **p)
+
+
 @unittest.skipUnless(os.environ.get("DECK_LIVE_BARE") == "1" and shutil.which("bare-mcp"),
                      "set DECK_LIVE_BARE=1 with bare-mcp on PATH")
-class LiveBare(unittest.TestCase):
+class LiveBare(Home, unittest.TestCase):
     def setUp(self):
+        self.home_setup("deck-multi-live-")
         self.svc = Service()
-        self.tmp = tempfile.mkdtemp(prefix="deck-multi-live-")
+        self.addCleanup(self.svc.stop)
+        self.m = None
+
+    def start(self):
         self.m = Mcp()
-        self.m.base = self.svc.url
+        self.addCleanup(self.m.stop)
+        return self.m
 
-    def tearDown(self):
-        self.m.stop()
-        self.svc.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    def only_main(self):
+        # One-session evidence: bare lists exactly one live session, and the service holds one record.
+        self.assertEqual(len(self.svc.records), 1, "one cookie record holds every account")
+        text = self.m.tool("sessions")
+        self.assertIn("main", text)
+        self.assertEqual(text.count("http://127.0.0.1"), 1, f"exactly one live session expected: {text}")
 
-    def login(self, session, user):
-        self.m.tool("open", session=session, url=f"{self.svc.url}/login/{user}")
-
-    def test_two_isolated_sessions_alternate_logout_and_reopen(self):
-        m = self.m
-        self.login("a", "alice")
-        self.login("b", "bob")
-        self.assertIn("user=alice", m.me("a"))
-        self.assertIn("user=bob", m.me("b"))
-        self.assertIn("user=alice", m.me("a"))  # alternating read
-        self.assertIn("a", m.tool("sessions"))
-        # save both to files, then log out A
-        fa, fb = f"{self.tmp}/a.state", f"{self.tmp}/b.state"
-        m.tool("save_state", session="a", name="gmail-a", file=fa)
-        m.tool("save_state", session="b", name="gmail-b", file=fb)
-        self.assertEqual(oct(os.stat(fa).st_mode & 0o777), "0o600")
-        m.tool("step", session="a", steps=f"goto {self.svc.url}/logout", compact=True)
-        self.assertIn("anonymous", m.me("a"))
-        self.assertIn("user=bob", m.me("b"))  # B stays usable
-        # close both, restart bare-mcp (new process memory), reopen from files only
-        m.tool("close", session="a")
-        m.tool("close", session="b")
+    def test_one_session_holds_two_accounts_and_survives_a_restart(self):
+        base, m = self.svc.url, self.start()
+        pids = {m.pid}
+        m.tool("open", url=f"{base}/login/alice")  # session main, no per-account session
+        self.assertIn("user=alice accounts=alice", m.go(f"{base}/me"))
+        self.assertIn("user=bob accounts=alice,bob", m.go(f"{base}/login/bob"))  # B is added; A is not overwritten
+        for _ in range(2):  # alternate through the site's own switcher
+            self.assertIn("user=alice accounts=alice,bob", m.go(f"{base}/switch/alice"))
+            self.assertIn("user=bob accounts=alice,bob", m.go(f"{base}/switch/bob"))
+        self.only_main()
+        Prep(self, m).call("save_state", name="shared")
+        f = self.browser / "shared.state"
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
+        tok = next(iter(self.svc.records))
+        self.assertIn(tok, f.read_text(), "the one cookie token is on disk")
+        # restart: new process memory, restore through prepare() from the file only
+        m.tool("close")
         m.stop()
-        self.m = m = Mcp()
-        m.base = self.svc.url
-        m.tool("open", session="a2", url=f"{self.svc.url}/me", state="gmail-a", file=fa)
-        m.tool("open", session="b2", url=f"{self.svc.url}/me", state="gmail-b", file=fb)
-        self.assertIn("anonymous", m.me("a2"))  # the service revoked A's token at logout: a restored file cannot revive it
-        self.assertIn("user=bob", m.me("b2"))
+        m = self.start()
+        pids.add(m.pid)
+        self.assertEqual(len(pids), 2)
+        Prep(self, m).call("open", state="shared", url=f"{base}/me")
+        self.assertIn("accounts=alice,bob", m.go(f"{base}/me"))
+        self.assertIn("user=alice", m.go(f"{base}/switch/alice"))
+        self.assertIn("user=bob", m.go(f"{base}/switch/bob"))
+        self.assertIn("user=alice", m.go(f"{base}/switch/alice"))
+        self.only_main()
 
-    def test_gap_state_is_not_restored_by_name_without_file_after_restart(self):
-        m = self.m
-        self.login("a", "alice")
-        m.tool("save_state", session="a", name="gmail-a")  # memory only: what the guest adapter sends today
+    def test_ensure_session_restores_the_shared_profile_from_disk(self):
+        base, m = self.svc.url, self.start()
+        m.tool("open", url=f"{base}/login/alice")
+        m.go(f"{base}/login/bob")
+        Prep(self, m).call("save_state", name="shared")
         m.stop()
-        self.m = m = Mcp()
-        m.base = self.svc.url
-        m.tool("open", session="a2", url=f"{self.svc.url}/me", state="gmail-a")
-        self.assertIn("user=alice", m.me("a2"), "memory-only state does not survive a bare-mcp restart")
+        m = self.start()
+        # `login` fails on purpose: a restore from the file must pass the check before any login runs.
+        out = Prep(self, m).call("ensure_session", name="shared", url=f"{base}/me", login="expect js \"false\"", check='expect css="p" text="user=bob accounts=alice,bob"')
+        self.assertIn("restored", out)
+        self.assertIn("user=alice", m.go(f"{base}/switch/alice"))
+        self.assertIn("user=bob", m.go(f"{base}/switch/bob"))
+        self.only_main()
+
+    def test_logout_selected_account_vs_logout_all_fixture_semantics(self):
+        base, m = self.svc.url, self.start()
+        m.tool("open", url=f"{base}/login/alice")
+        m.go(f"{base}/login/bob")
+        self.assertIn("user=alice accounts=alice", m.go(f"{base}/logout"))  # signs out bob (selected) only
+        self.assertIn("user=alice", m.go(f"{base}/switch/alice"))
+        m.go(f"{base}/login/bob")
+        self.assertIn("anonymous", m.go(f"{base}/logout-all"))  # fixture semantics: whole record gone
+        self.assertEqual(self.svc.records, {})
+        self.assertIn("anonymous", m.go(f"{base}/me"))
+
+    def test_characterization_direct_bare_without_file_is_memory_only(self):
+        # What the adapter sent before: save_state with a name and no file. It does not survive a restart.
+        base, m = self.svc.url, self.start()
+        m.tool("open", url=f"{base}/login/alice")
+        m.tool("save_state", name="shared")
+        m.stop()
+        m = self.start()
+        err, text = m.call("open", state="shared", url=f"{base}/me")
+        self.assertTrue(err or "user=alice" not in text, f"unexpected restore: {text[:200]}")
+        if not err:
+            self.assertNotIn("user=alice", m.go(f"{base}/me"))
 
 
 if __name__ == "__main__":

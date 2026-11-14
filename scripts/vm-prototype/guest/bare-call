@@ -7,11 +7,12 @@ The reply goes to $DECK_OUT/reply.json, so the host fetches it as a checked arti
 Files that the reply names (screenshots, downloads) are copied next to it.
 Paths of the guest never reach the model: the host maps them to its own artifact paths.
 """
-import json, os, shutil, sys, time, uuid
+import json, os, re, shutil, stat, sys, time, uuid
 
 MAX_FILE = 8 << 20
 MAX_COPIES = 12
 PROTOCOL = "2025-06-18"
+STATE_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def session_dir():
@@ -100,6 +101,36 @@ def ready(wait):
     return out(ready=True, tools=len(tools), bot_id=bot, guest_id=guest)
 
 
+def state_file(name):
+    """Path of the one shared browser profile saved under `name`. Raises ValueError on an unsafe name or path.
+
+    The directories must be real, owned by this user, and private (no group or other bits) from `deck` down.
+    An existing file must be a regular file with one link, owned by this user, mode 0600. Nothing is repaired.
+    A missing file is left to bare, which creates it with mode 0600. This is not a defense against a hostile guest shell (D33).
+    """
+    if not (isinstance(name, str) and STATE_NAME.fullmatch(name)):
+        raise ValueError("browser state name not allowed: use 1 to 64 letters, digits, _ or -")
+    uid = os.geteuid()
+    path = os.path.expanduser("~")
+    for i, part in enumerate((".local", "state", "deck", "browser")):
+        path = os.path.join(path, part)
+        try:
+            st = os.lstat(path)
+        except FileNotFoundError:
+            os.mkdir(path, 0o700)
+            st = os.lstat(path)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or (i >= 2 and st.st_mode & 0o077):
+            raise ValueError("browser state directory is not a private directory of this user")
+    path = os.path.join(path, name + ".state")
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return path
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:
+        raise ValueError("browser state file is not a private regular file of this user")
+    return path
+
+
 def prepare(params, out, workspace):
     """Fix the arguments that Deck controls. The model's values for them were removed on the host."""
     args = dict(params.get("arguments") or {})
@@ -109,6 +140,11 @@ def prepare(params, out, workspace):
     secrets = os.path.expanduser("~/.config/deck/secrets.env")
     if name in ("open", "ensure_session") and os.path.isfile(secrets):
         args["secrets_file"] = secrets
+    # One shared profile: the saved name picks the file. The model's `file` is replaced.
+    if name in ("save_state", "ensure_session"):
+        args["file"] = state_file(args.get("name"))
+    elif name == "open" and args.get("state") is not None:
+        args["file"] = state_file(args["state"])
     if name == "open":
         dl = os.path.join(workspace, "downloads")
         os.makedirs(dl, exist_ok=True)
