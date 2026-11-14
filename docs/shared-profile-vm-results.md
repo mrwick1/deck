@@ -217,4 +217,4 @@ I removed the task-owned lock file and its directory. The shared lock, the other
 
 ### Not tested
 
-The live guest acceptance of this candidate, real Gmail, the deck server and relay, provisioning and performance. The load came from other work on this machine.
+The live guest acceptance of this candidate, real Gmail, the deck server and relay, provisioning and performance. No process-level attribution of host load was performed.
