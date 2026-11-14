@@ -694,3 +694,14 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Store a per-bot privacy generation with the gate-open transaction. Keep it after the gate closes. Sample the gate and generation together before and after capture. Discard a frame if the gate is open or the generation changed. Refuse a cached frame from an older generation.
 
 **Reason:** A gate can open and close during one capture. A boolean check cannot detect that transition. This refines D63. It adds no routine approval and does not establish universal redaction or real-pixel secrecy.
+
+
+## D67. Prove one morning-summary bot across multiple Gmail accounts (2026-11-14)
+
+**Decision:** Make a morning briefing the first daily-use goal. One bot manages multiple Gmail accounts on its computer. It identifies mail that needs a reply and triages the remaining mail. Keep account identity and login state separate. Show the account for every result. A blocked account must not stop independent work on other accounts.
+
+**Delivery:** Validate two accounts first. Preserve the earlier full-mail tasks as later acceptance work. Record failures as sanitized, deduplicated GitHub issues for a separate fixing agent. Keep browser failures in bare. Verify the affected task after a fix before clearing its blocker. Existing review and browser-update rules still apply.
+
+**Open choices:** Confirm morning time, timezone, coverage window and mailbox changes before configuring the daily job. The delivery plan proposes summary-only triage until the owner selects its action scope.
+
+**Reason:** The owner wants to assess a useful daily bot before expanding the general product. One bot per mailbox does not meet that goal. This records requirements, not verified multi-account support.
