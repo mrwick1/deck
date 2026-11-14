@@ -4,6 +4,10 @@ Update this file when a stage or verification step ends.
 
 For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
 
+## Current product target: 2026-11-14
+
+PR #29 is merged. The owner selected one morning-summary bot across multiple Gmail accounts as the first daily-use goal. Multi-account support is not yet accepted. Follow [the delivery plan](gmail-morning-plan.md) and the revised [success criterion](success-criteria.md). Earlier branch and deployment statements below describe their recorded checkpoints.
+
 ## Current branch checkpoint: 2026-11-14
 
 The unattended runtime, reviewed setup and protected input are integrated. The publisher branch is `document-bot-setup`. Recorded checks pass: 313 Rust unit tests, four integration tests, 49 web tests, type checking, build, formatting and clippy. The current prototype Python run passes 438 tests with one screenshot check skipped (439 run).
