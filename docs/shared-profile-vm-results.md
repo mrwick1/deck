@@ -218,3 +218,51 @@ I removed the task-owned lock file and its directory. The shared lock, the other
 ### Not tested
 
 The live guest acceptance of this candidate, real Gmail, the deck server and relay, provisioning and performance. No process-level attribution of host load was performed.
+
+## Live attempt 5 (candidate source `6e2cbb7`, harness `d98fcfe` plus one correction): accepted
+
+Date: 2026-11-14.
+Attempts 3 and 4 stay as recorded above. This run is the first real guest run of the source-tracked candidate. Attempt 3 used another binary and does not count for it.
+
+### Setup
+
+The merge `git merge --ff-only d98fcfe` left no diff against that commit. The candidate was `bare-mcp` built from source `6e2cbb73ca749b5e567cfca87ed65fba08754307`. Its SHA-256 matched before launch: `d9435503f412352c5d04dcd60f0ff48b4bf496bf48b12e2b9ac2d39ce0df831b` (19528144 bytes). The owner allowed a separate lock again. Each run used a new lock file, a new output directory and a free loopback fixture port. The shared lock and other runs were not touched. The load guard (8.0) and the memory guard (6144 MiB) were unchanged. I made no load polling.
+The offline suite for the harness ran after the correction: 51 tests, all passed. The parent's other offline gates were not repeated.
+
+```sh
+python3 scripts/vm-prototype/shared_profile_e2e.py --base <frozen base .qcow2 with sidecar> --out <new short private dir> \
+  --lock <new task-owned lock file> --fixture-port <free loopback port> \
+  --bare-candidate <private candidate path> --expect-bare-sha256 d9435503f412352c5d04dcd60f0ff48b4bf496bf48b12e2b9ac2d39ce0df831b
+```
+
+### Run 5a: harness race, exit 1
+
+Host load at start was 0.84. The run booted the guest, then stopped with `expected one bare-mcp before the stop, found 0`. No scenario gate ran. The cause is in the harness. A run with a candidate skips the readiness probe at boot. The install started before the guest session had started its browser. The candidate was not at fault.
+The manifest is kept unchanged in its private directory. It is not an acceptance.
+
+### Correction (one, harness only)
+
+A regression test came first: `test_waits_for_a_browser_that_starts_late_after_an_unprobed_boot`. It failed with the same error. `stop_mcp` now waits up to `MCP_WAIT` (60 s) for the browser to appear. It still refuses zero processes after the wait, two processes and a foreign executable. Only `shared_profile_e2e.py` and `test_shared_profile_e2e.py` changed. No gate, guard or production file changed.
+
+### Run 5b: accepted, exit 0
+
+Host load at start was 7.92 (limit 8.0) and 16.48 at the end. About 12.4 GiB of memory was available at start. Another load was on the host, so this run makes no performance or memory claim.
+
+- Original guest `bare-mcp`: `bc8d33dc325b5b534e73042a81e605a3190827ce77ff33088e0f94e187da7c17`.
+- Installed candidate, equal to the expected digest: `d9435503f412352c5d04dcd60f0ff48b4bf496bf48b12e2b9ac2d39ce0df831b`.
+- Guest adapter `bare-call` equals the checkout copy: `19532bfe6a516758539ca0f6bc3268756f9f5b43d342c019ed907277e4cc4f1a`.
+- Harness: `913374c5da4c918e22bea17168d9dabf15e504e9d68950601af38a2de7c02145`. Base id `a90de2e085a7ad52`.
+
+All 15 required gates passed, and `acceptance_complete` passed: `base_frozen_and_verified`, `bare_candidate_installed_and_ready`, `guest_adapter_hash_equals_candidate`, `bare_mcp_sha256_equals_expected`, `both_accounts_signed_in_together`, `alternating_identity_before_save`, `one_bare_main_session_one_cookie_record`, `state_private_dir_and_file_0600`, `state_saved_with_cookie_record`, `mcp_restart_new_process`, `restore_from_disk_and_switch_both`, `vm_wake_same_boot_and_profile`, `no_duplicate_fixture_effects`, `base_unchanged`, `no_owned_process_left`.
+
+- One `main` session held both synthetic identities. The service held one record, one login for A and one for B.
+- After a new `bare-mcp` process (one before, one after, none shared), the state file restored both accounts and A, B, A switched.
+- The VM save took 3.7 s and the wake 1.4 s (usable in 1.9 s). The boot id, the `bare-mcp` process and the memory marker were the same. Both accounts still switched.
+
+### Cleanup
+
+The harness stopped only its registered VM and fixture. No registered process survived and no QEMU process remained. The overlay was removed. I removed my lock files. The frozen base kept its mode `0444`, its size and its SHA-256 (`a90de2e0...`, digest checked before and after). The manifests, the pinned candidate copy and the candidate are kept outside Git.
+
+### Not tested
+
+Real Gmail, the deck server and host executor relay, a model, the provisioning route, memory use and performance with a single VM, a reproducible build of the candidate, and a guest image that ships this browser.

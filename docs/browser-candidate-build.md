@@ -31,3 +31,5 @@ The worker ran bounded `initialize` and `tools/list` requests. The browser repor
 This candidate has not passed the live guest acceptance run. The earlier accepted binary has a different digest. Do not transfer its result to this candidate. One recorded build establishes source provenance; it does not prove bit-for-bit reproducibility. No shared binary or frozen image was updated. Actual Gmail remains untested.
 
 Live attempt 4 on 2026-11-14 was refused by the load guard (exit 3, load 23.71). Nothing started. The candidate is still not accepted. See [shared-profile-vm-results.md](shared-profile-vm-results.md).
+
+Live attempt 5 on 2026-11-14 passed in a real guest with this exact candidate (digest above, installed into a private overlay only). All 15 required gates passed on a synthetic fixture. A harness race needed one test-first correction. See [shared-profile-vm-results.md](shared-profile-vm-results.md). The frozen base and the standard image are unchanged. Real Gmail, the server relay, provisioning and performance stay untested.
