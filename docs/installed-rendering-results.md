@@ -45,3 +45,19 @@ The next clean run passed 43 recorded checks. Protected delivery, service authen
 Acceptance still failed. The controller was launched with --wait. Its main loop stops as soon as the first task reaches done. It therefore cleaned up before the worker could record the inspected screenshot gate or test the post-completion restart. This cause is verified in the controller loop. The images include the masked form and both pending views. The parent inspected the CAPTCHA pending view. No final restart is claimed. The failed manifest remains unchanged.
 
 The generated interactive start command now omits --wait. The controller still has a deadline, loss checks and explicit stop cleanup. A regression first failed because prepare included the early-stop flag. This is a harness invocation correction, not a change to Deck or its privacy gates. The worker reported printing the local control token once. That controller has ended and the token is inert; do not publish the transcript or token.
+
+## Accepted interactive run
+
+The corrected interactive controller ran from harness commit 92e23fc. The installed browser hash remained 18488a21c5ede585bd60980e2681ca46e72ad6acd340d468c4b019b9435d42bf. The real Deck UI and one real guest completed the local synthetic sign-in. The manifest is green: 46 entries pass, including acceptance_complete, which checks all 45 required gates. No gate is absent or failed. The prior failed manifests remain unchanged.
+
+The actual UI created, reviewed and approved the setup, delivered the protected value and answered both owner requests. All four UI evidence gates passed. The owner answers remained pending until the scripted model checked the local service. Nineteen scripted tool calls ran once each. The service recorded one successful submission from one attempt. The protected guest file had mode 0600 and the exact value.
+
+At the phone wait, the managed latest-frame route returned HTTP 204 with zero bytes. The worker inspected the visible page with supported Bare reads. The parent inspected the masked form and both pending-verification captures. These images show masked dots and pending status, with no credential visible. This is bounded visual evidence. It does not prove whole-page value absence, raw DOM protection, shell redaction or all-frame secrecy.
+
+Restart during the wait preserved ownership and added no work. After completion, the second restart kept the same counts: 20 model requests, 19 tool calls, 44 messages and two wakes. The final restart gate passed. The worker recorded the screenshot gate before release and explicitly called finish and stop. Finish returned ok true with no pending UI gates.
+
+The host evidence scan found zero matches in 31 files. The process-argument scan found zero matches across 1,717 samples. The frozen base was unchanged. Cleanup reported no survivors. The parent confirmed that all four registered subprocess identities and the worker bridge were absent, and that both controller listeners were closed. The worker also closed its Bare session and destroyed its temporary screen.
+
+The model, local service owner steps, fill script and restart control were scripted. The UI, server, private VM, protected transfer and browser were real. Bare ran headless; its temporary mirror did not render the browser. No recording, real account or real credential was used. The long-text fixture was not repeated in this run. Existing rendering evidence remains separate.
+
+Bare PRs #479 and #500 remain draft and unmerged. Their combined candidate is the installed validation build, not a released main build. The misleading run-failed alert, raw wake prose and legacy bot 404 remain separate usability findings. They did not prevent the accepted journey. No deployment or universal privacy claim follows from this result.

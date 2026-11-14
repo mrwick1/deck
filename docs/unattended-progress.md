@@ -2,7 +2,7 @@
 
 ## Installed rendering update: 2026-11-14
 
-Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. A candidate with draft Bare fixes #479 and #500 now passes protected delivery and service authentication. Full viewer and owner-round acceptance remains failed after an unsupported text probe and a later click with no request. Cleanup passed. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
+Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. The installed candidate with draft Bare fixes #479 and #500 passes the complete interactive UI and real-VM synthetic journey. All 45 required gates pass, including the private viewer, inspected images and final restart. Cleanup passed. These browser fixes remain unmerged; bounded evidence and earlier failed runs are retained. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
 
 Updated: 2026-11-14.
 Status: core setup, API/guest sign-in, saved-state continuation and the combined UI/VM flow have scoped evidence. The combined flow is accepted by parent manual review; its original manifest remains failed on a worker's classification of request identifiers. See [parent review](setup-ui-vm-parent-review.md). Bare rendering and UI usability limits remain. No merge or deployment ran. Review: [draft PR #29](https://github.com/mrwick1/deck/pull/29). Integration runs on `finish-bot-setup-e2e`; `document-bot-setup` is the publisher. The private `THREAD.md` records ownership.
