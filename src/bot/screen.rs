@@ -89,6 +89,8 @@ pub struct Stats {
     pub errors: AtomicU64,
     pub delivered: AtomicU64,
     pub unchanged: AtomicU64,
+    /// Captures dropped because the gate was open when they finished.
+    pub withheld: AtomicU64,
     pub bytes_delivered: AtomicU64,
     pub capture_us: AtomicU64,
 }
@@ -101,6 +103,7 @@ pub struct StatsView {
     pub errors: u64,
     pub delivered: u64,
     pub unchanged: u64,
+    pub withheld: u64,
     pub bytes_delivered: u64,
     pub capture_ms_total: u64,
 }
@@ -111,8 +114,19 @@ pub struct Screen {
     awake: watch::Receiver<bool>,
     tx: watch::Sender<Frame>,
     running: AtomicBool,
+    /// True while a protected value may show on the screen. Set once, when the bot is wired.
+    gate: std::sync::OnceLock<PrivacyState>,
+    /// The generation of the frame in the cache.
+    frame_gen: AtomicU64,
     pub stats: Stats,
 }
+
+#[cfg(test)]
+pub type PrivacyGate = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// The gate and its generation, sampled together: `(open, generation)`. The generation grows at
+/// each open and never shrinks, so a gate that opened and shut again still changes it.
+pub type PrivacyState = Arc<dyn Fn() -> (bool, u64) + Send + Sync>;
 
 impl Screen {
     pub fn new(
@@ -126,8 +140,28 @@ impl Screen {
             awake,
             tx: watch::channel(Frame::default()).0,
             running: AtomicBool::new(false),
+            gate: std::sync::OnceLock::new(),
+            frame_gen: AtomicU64::new(0),
             stats: Stats::default(),
         })
+    }
+
+    /// While the gate answers true, nothing is captured and no frame is shown. The gate must
+    /// answer true when it cannot tell. Only the first call has effect.
+    #[cfg(test)]
+    pub fn set_privacy_gate(&self, gate: PrivacyGate) {
+        self.set_privacy_state(Arc::new(move || (gate(), 0)));
+    }
+
+    /// Like `set_privacy_gate`, with a generation. A capture is dropped when the gate is open
+    /// at its end or when the generation differs from its start. Only the first call has effect.
+    pub fn set_privacy_state(&self, state: PrivacyState) {
+        let _ = self.gate.set(state);
+    }
+
+    /// `(open, generation)`. No gate means shut, generation 0.
+    fn privacy(&self) -> (bool, u64) {
+        self.gate.get().map_or((false, 0), |g| g())
     }
 
     /// Subscribe. The first viewer starts the worker, if the computer is awake.
@@ -159,17 +193,51 @@ impl Screen {
         });
     }
 
+    /// Drop the cached frame and move the sequence, so a viewer fetches the empty answer.
+    fn scrub(&self) {
+        self.tx.send_if_modified(|f| {
+            if f.png.is_empty() {
+                return false;
+            }
+            *f = Frame {
+                seq: f.seq + 1,
+                png: Arc::default(),
+            };
+            true
+        });
+    }
+
     async fn work(&self) {
         let mut awake = self.awake.clone();
         let mut last = String::new();
-        let mut seq = self.tx.borrow().seq;
         while self.tx.receiver_count() > 0 && *awake.borrow() {
+            let (open, before) = self.privacy();
+            if open {
+                last.clear();
+                self.scrub();
+                tokio::select! {
+                    _ = self.tx.closed() => {}
+                    _ = awake.changed() => {}
+                    _ = tokio::time::sleep(self.interval) => {}
+                }
+                continue;
+            }
             let t = std::time::Instant::now();
             let r = self.cap.grab().await;
             self.stats
                 .capture_us
                 .fetch_add(t.elapsed().as_micros() as u64, Relaxed);
             self.stats.captures.fetch_add(1, Relaxed);
+            // The gate may have opened while the grab ran, even if it has shut again. The grab
+            // cannot be cancelled, so the result is dropped when the gate is open now or the
+            // generation moved since the grab began.
+            let (open, after) = self.privacy();
+            if open || after != before {
+                self.stats.withheld.fetch_add(1, Relaxed);
+                last.clear();
+                self.scrub();
+                continue;
+            }
             match r {
                 Ok(png) => {
                     let mut h = Sha256::new();
@@ -179,14 +247,16 @@ impl Screen {
                         self.stats.unchanged.fetch_add(1, Relaxed);
                     } else {
                         last = digest;
-                        seq += 1;
                         self.stats.delivered.fetch_add(1, Relaxed);
                         self.stats
                             .bytes_delivered
                             .fetch_add(png.len() as u64, Relaxed);
-                        self.tx.send_replace(Frame {
-                            seq,
-                            png: Arc::new(png),
+                        self.frame_gen.store(after, Relaxed);
+                        self.tx.send_modify(|f| {
+                            *f = Frame {
+                                seq: f.seq + 1,
+                                png: Arc::new(png),
+                            }
                         });
                     }
                 }
@@ -202,7 +272,14 @@ impl Screen {
         }
     }
 
+    /// The newest frame. A read while the gate is open, or after its generation moved, also clears the cache, so the frame
+    /// cannot return if the gate shuts before the worker looks again.
     pub fn latest(&self) -> Frame {
+        let (open, generation) = self.privacy();
+        if open || generation != self.frame_gen.load(Relaxed) {
+            self.scrub();
+            return Frame::default();
+        }
         self.tx.borrow().clone()
     }
 
@@ -215,6 +292,7 @@ impl Screen {
             errors: s.errors.load(Relaxed),
             delivered: s.delivered.load(Relaxed),
             unchanged: s.unchanged.load(Relaxed),
+            withheld: s.withheld.load(Relaxed),
             bytes_delivered: s.bytes_delivered.load(Relaxed),
             capture_ms_total: s.capture_us.load(Relaxed) / 1000,
         }
@@ -358,5 +436,237 @@ mod tests {
         let n = s.stats.captures.load(Relaxed);
         tokio::time::sleep(Duration::from_millis(80)).await;
         assert_eq!(s.stats.captures.load(Relaxed), n);
+    }
+
+    #[tokio::test]
+    async fn an_open_privacy_gate_stops_capture_and_clears_the_shown_frame() {
+        let cap = Fake::new(&["secret-on-screen"], 0);
+        let (s, _awake) = screen(cap.clone(), true);
+        let private = Arc::new(AtomicBool::new(false));
+        let flag = private.clone();
+        s.set_privacy_gate(Arc::new(move || flag.load(Relaxed)));
+        let _rx = s.watch();
+        until(|| !s.latest().png.is_empty()).await;
+        private.store(true, Relaxed);
+        until(|| s.latest().png.is_empty()).await;
+        let n = s.stats.captures.load(Relaxed);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(s.stats.captures.load(Relaxed), n, "captured while private");
+        private.store(false, Relaxed);
+        until(|| !s.latest().png.is_empty()).await;
+    }
+
+    /// A capture the test releases by hand. Each grab waits for one permit, then returns the
+    /// current bytes. `started` counts grabs that began.
+    struct Held {
+        permits: Arc<tokio::sync::Semaphore>,
+        bytes: Mutex<Vec<u8>>,
+        started: AtomicUsize,
+    }
+
+    impl Held {
+        fn new(bytes: &str) -> Arc<Self> {
+            Arc::new(Self {
+                permits: Arc::new(tokio::sync::Semaphore::new(0)),
+                bytes: Mutex::new(bytes.as_bytes().to_vec()),
+                started: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    impl Capture for Held {
+        fn grab(&self) -> BoxFuture<'_, anyhow::Result<Vec<u8>>> {
+            Box::pin(async move {
+                self.started.fetch_add(1, Relaxed);
+                self.permits.acquire().await.unwrap().forget();
+                Ok(self.bytes.lock().unwrap().clone())
+            })
+        }
+    }
+
+    fn gated(cap: Arc<Held>, interval_ms: u64) -> (Arc<Screen>, Arc<AtomicBool>) {
+        let (_, rx) = watch::channel(true);
+        let s = Screen::new(cap, Duration::from_millis(interval_ms), rx);
+        let private = Arc::new(AtomicBool::new(false));
+        let flag = private.clone();
+        s.set_privacy_gate(Arc::new(move || flag.load(Relaxed)));
+        (s, private)
+    }
+
+    #[tokio::test]
+    async fn a_capture_finished_while_the_gate_is_open_is_never_published() {
+        let cap = Held::new("public-1");
+        let (s, private) = gated(cap.clone(), 10);
+        let rx = s.watch();
+        // Positive control: a public frame is delivered while the gate is shut.
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        // The next grab starts, the gate opens, and the grab then finishes.
+        until(|| cap.started.load(Relaxed) == 2).await;
+        private.store(true, Relaxed);
+        *cap.bytes.lock().unwrap() = b"on-screen-while-private".to_vec();
+        cap.permits.add_permits(1);
+        until(|| s.stats.captures.load(Relaxed) == 2).await;
+        assert!(s.latest().png.is_empty());
+        // The gate shuts before the next interval. No cached frame may show.
+        private.store(false, Relaxed);
+        assert!(
+            s.latest().png.is_empty(),
+            "a frame from an open gate came back"
+        );
+        assert!(rx.borrow().png.is_empty());
+        assert_eq!(s.stats.delivered.load(Relaxed), 1);
+        assert_eq!(s.stats.withheld.load(Relaxed), 1);
+    }
+
+    /// A gate with a generation. `open` and `generation` are set by the test.
+    fn gated_gen(
+        cap: Arc<Held>,
+        interval_ms: u64,
+    ) -> (Arc<Screen>, Arc<AtomicBool>, Arc<AtomicU64>) {
+        let (_, rx) = watch::channel(true);
+        let s = Screen::new(cap, Duration::from_millis(interval_ms), rx);
+        let (open, generation) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let (o, g) = (open.clone(), generation.clone());
+        s.set_privacy_state(Arc::new(move || (o.load(Relaxed), g.load(Relaxed))));
+        (s, open, generation)
+    }
+
+    #[tokio::test]
+    async fn a_gate_that_opens_and_shuts_inside_one_grab_drops_that_capture() {
+        let cap = Held::new("public-1");
+        let (s, open, generation) = gated_gen(cap.clone(), 10);
+        let _rx = s.watch();
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        // The next grab starts. The gate opens and shuts before it finishes.
+        until(|| cap.started.load(Relaxed) == 2).await;
+        open.store(true, Relaxed);
+        generation.fetch_add(1, Relaxed);
+        open.store(false, Relaxed);
+        *cap.bytes.lock().unwrap() = b"private-frame".to_vec();
+        cap.permits.add_permits(1);
+        until(|| s.stats.captures.load(Relaxed) == 2).await;
+        until(|| s.stats.withheld.load(Relaxed) == 1).await;
+        // Stop the worker from taking a public frame: hold the next grab.
+        assert!(s.latest().png.is_empty(), "the private frame was published");
+        assert_eq!(s.stats.delivered.load(Relaxed), 1);
+        // A fresh public capture at the new generation resumes.
+        *cap.bytes.lock().unwrap() = b"public-2".to_vec();
+        cap.permits.add_permits(100);
+        until(|| !s.latest().png.is_empty()).await;
+        assert_eq!(s.latest().png.as_slice(), b"public-2");
+    }
+
+    #[tokio::test]
+    async fn a_frame_from_an_older_generation_does_not_return_after_an_unseen_open_and_shut() {
+        let cap = Held::new("public-1");
+        let (s, open, generation) = gated_gen(cap.clone(), 10_000);
+        let _rx = s.watch();
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        open.store(true, Relaxed);
+        generation.fetch_add(1, Relaxed);
+        open.store(false, Relaxed);
+        assert!(s.latest().png.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_store_generation_persists_across_close_and_reopen() {
+        let dir = std::env::temp_dir().join(format!("deck-gen-{}", uuid::Uuid::new_v4().simple()));
+        let store = crate::store::Store::open(&dir).unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (false, 0));
+        store
+            .record_secret("b", "r1", "L", "N", None)
+            .await
+            .unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (true, 1));
+        store.close_privacy_gate("b").await.unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (false, 1));
+        store
+            .record_secret("b", "r2", "L", "N", None)
+            .await
+            .unwrap();
+        store.close_privacy_gate("b").await.unwrap();
+        assert_eq!(store.privacy_state_sync("b"), (false, 2));
+        assert_eq!(store.privacy_state_sync("other"), (false, 0));
+        drop(store);
+        let again = crate::store::Store::open(&dir).unwrap();
+        assert_eq!(again.privacy_state_sync("b"), (false, 2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_failed_gate_read_answers_open() {
+        let store = crate::store::Store::open_memory().unwrap();
+        store
+            .run_sync(|c| c.execute_batch("DROP TABLE privacy_generations"))
+            .unwrap();
+        assert!(store.privacy_state_sync("b").0);
+    }
+
+    #[tokio::test]
+    async fn a_cached_frame_does_not_return_after_the_gate_opens_and_shuts_unseen_by_the_worker() {
+        let cap = Held::new("public-1");
+        // The worker sleeps for ten seconds, so only the read path can see the gate.
+        let (s, private) = gated(cap.clone(), 10_000);
+        let _rx = s.watch();
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        private.store(true, Relaxed);
+        assert!(s.latest().png.is_empty());
+        private.store(false, Relaxed);
+        assert!(s.latest().png.is_empty(), "the old frame came back");
+    }
+
+    #[tokio::test]
+    async fn clearing_the_frame_moves_the_sequence_so_a_viewer_fetches_the_empty_answer() {
+        let cap = Held::new("public-1");
+        let (s, private) = gated(cap.clone(), 10_000);
+        let mut rx = s.watch();
+        cap.permits.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(2), rx.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        let before = rx.borrow_and_update().seq;
+        private.store(true, Relaxed);
+        let _ = s.latest();
+        private.store(false, Relaxed);
+        let moved = tokio::time::timeout(Duration::from_secs(2), rx.changed()).await;
+        assert!(moved.is_ok(), "the sequence did not move");
+        assert!(rx.borrow().seq > before);
+    }
+
+    #[tokio::test]
+    async fn the_screen_resumes_with_a_new_public_frame_not_the_old_one() {
+        let cap = Held::new("public-1");
+        let (s, private) = gated(cap.clone(), 10);
+        let _rx = s.watch();
+        cap.permits.add_permits(1);
+        until(|| s.latest().png.as_slice() == b"public-1").await;
+        private.store(true, Relaxed);
+        until(|| s.latest().png.is_empty()).await;
+        private.store(false, Relaxed);
+        *cap.bytes.lock().unwrap() = b"public-2".to_vec();
+        cap.permits.add_permits(100);
+        until(|| !s.latest().png.is_empty()).await;
+        assert_eq!(s.latest().png.as_slice(), b"public-2");
+    }
+
+    #[tokio::test]
+    async fn a_gate_that_answers_open_for_every_read_shows_nothing_and_captures_nothing() {
+        // The wired gate answers true when its store read fails. This is that answer.
+        let cap = Held::new("public-1");
+        let (_, rx) = watch::channel(true);
+        let s = Screen::new(cap.clone(), Duration::from_millis(10), rx);
+        s.set_privacy_gate(Arc::new(|| true));
+        let _rx = s.watch();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(cap.started.load(Relaxed), 0);
+        assert!(s.latest().png.is_empty());
     }
 }

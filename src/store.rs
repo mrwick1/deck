@@ -147,9 +147,138 @@ CREATE TABLE inbox_decisions(
 );
 ";
 
+/// Versioned bot definitions, setup drafts, typed holds and the accounting ledger.
+/// Existing bots get no row in any of these tables: no authority and no ceiling are invented.
+/// Amounts are integer minor units of the stated currency and exponent.
+const SCHEMA_V5: &str = "
+CREATE TABLE bot_setup_drafts(
+    draft_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_state(bot_id),
+    revision INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE bot_definitions(
+    bot_id TEXT NOT NULL REFERENCES bot_state(bot_id),
+    version INTEGER NOT NULL,
+    instructions TEXT NOT NULL,
+    authority TEXT NOT NULL CHECK(authority IN ('full','restricted','revoked')),
+    restrictions TEXT NOT NULL DEFAULT '[]',
+    actor TEXT NOT NULL,
+    draft_id TEXT,
+    draft_revision INTEGER,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(bot_id, version),
+    UNIQUE(draft_id, draft_revision)
+);
+CREATE TABLE bot_holds(
+    bot_id TEXT NOT NULL REFERENCES bot_state(bot_id),
+    kind TEXT NOT NULL CHECK(kind IN ('ceiling','investigation','unknown_outcome')),
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(bot_id, kind)
+);
+CREATE TABLE bot_accounting(
+    bot_id TEXT PRIMARY KEY REFERENCES bot_state(bot_id),
+    currency TEXT NOT NULL,
+    exponent INTEGER NOT NULL CHECK(exponent BETWEEN 0 AND 9),
+    period TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    ceiling INTEGER NOT NULL CHECK(ceiling >= 0),
+    allowance INTEGER NOT NULL CHECK(allowance >= 0 AND allowance <= ceiling),
+    version INTEGER NOT NULL
+);
+CREATE TABLE accounting_changes(
+    change_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_accounting(bot_id),
+    kind TEXT NOT NULL CHECK(kind IN ('configure','ceiling','allowance','period')),
+    old_value INTEGER NOT NULL,
+    new_value INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE accounting_reservations(
+    reservation_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_accounting(bot_id),
+    period TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK(amount >= 0),
+    state TEXT NOT NULL CHECK(state IN ('reserved','unresolved','settled')),
+    settlement_id TEXT UNIQUE,
+    settled_amount INTEGER CHECK(settled_amount >= 0),
+    created_at TEXT NOT NULL,
+    settled_at TEXT
+);
+";
+
+const SCHEMA_V6: &str = "
+CREATE TABLE ceiling_requests(
+    request_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL REFERENCES bot_accounting(bot_id),
+    version INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    exponent INTEGER NOT NULL,
+    ceiling INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','approved','superseded')),
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX one_pending_ceiling ON ceiling_requests(bot_id) WHERE state = 'pending';
+CREATE TABLE ceiling_responses(
+    response_id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL REFERENCES ceiling_requests(request_id),
+    bot_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+";
+
+const SCHEMA_V7: &str =
+    "ALTER TABLE bot_setup_drafts ADD COLUMN lifecycle INTEGER NOT NULL DEFAULT 0;";
+
+/// Metadata only. No column holds a protected value.
+const SCHEMA_V8: &str = "
+CREATE TABLE secret_receipts(
+    bot_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    name TEXT NOT NULL,
+    delivered_at TEXT NOT NULL,
+    PRIMARY KEY(bot_id, request_id)
+);
+CREATE TABLE secret_requests(
+    request_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','delivered','superseded')),
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE privacy_gates(
+    bot_id TEXT PRIMARY KEY,
+    opened_at TEXT NOT NULL
+);
+";
+
+/// One counter per bot. It grows at each gate open and is never deleted, so it survives the
+/// close. It holds no protected value.
+const SCHEMA_V9: &str = "
+CREATE TABLE privacy_generations(
+    bot_id TEXT PRIMARY KEY,
+    generation INTEGER NOT NULL
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bot_id: Option<String>,
     pub title: String,
     pub created_at: String,
 }
@@ -217,26 +346,21 @@ fn rfc3339(secs: i64) -> String {
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    migrate_to(conn, i64::MAX)
+}
+
+/// Apply each schema step above the stored version, up to `max`. Tests use `max` to build old databases.
+pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version < 1 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;"
-        ))?;
-    }
-    if version < 2 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"
-        ))?;
-    }
-    if version < 3 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"
-        ))?;
-    }
-    if version < 4 {
-        conn.execute_batch(&format!(
-            "BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"
-        ))?;
+    let steps = [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+        SCHEMA_V9,
+    ];
+    for (i, sql) in steps.iter().enumerate() {
+        let v = i as i64 + 1;
+        if version < v && v <= max {
+            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {v}; COMMIT;"))?;
+        }
     }
     Ok(())
 }
@@ -264,6 +388,18 @@ impl Store {
         Self::from_conn(Connection::open_in_memory()?)
     }
 
+    /// Used by the setup worker on a blocking thread before each provisioning side effect.
+    pub(crate) fn run_sync<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> anyhow::Result<T> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        Ok(f(&conn)?)
+    }
+
     pub(crate) async fn run<T: Send + 'static>(
         &self,
         f: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
@@ -286,6 +422,7 @@ impl Store {
                 params![title, created_at],
             )?;
             Ok(Chat {
+                bot_id: None,
                 id: c.last_insert_rowid(),
                 title,
                 created_at,
@@ -296,9 +433,10 @@ impl Store {
 
     pub async fn list_chats(&self) -> anyhow::Result<Vec<Chat>> {
         self.run(|c| {
-            c.prepare("SELECT id, title, created_at FROM chats ORDER BY id DESC")?
+            c.prepare("SELECT c.id, c.title, c.created_at, b.bot_id FROM chats c LEFT JOIN bot_state b ON b.chat_id=c.id ORDER BY c.id DESC")?
                 .query_map([], |r| {
                     Ok(Chat {
+                        bot_id: r.get(3)?,
                         id: r.get(0)?,
                         title: r.get(1)?,
                         created_at: r.get(2)?,
@@ -499,13 +637,31 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 9);
     }
 
     #[test]
     fn formats_rfc3339() {
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339(1_709_210_096), "2024-02-29T12:34:56Z");
+    }
+
+    #[tokio::test]
+    async fn listed_chats_identify_their_own_bot_for_navigation() {
+        let store = Store::open_memory().unwrap();
+        let a = store.bot_flags("a", "A").await.unwrap().chat_id;
+        let b = store.bot_flags("b", "B").await.unwrap().chat_id;
+        let plain = store.create_chat("plain".into()).await.unwrap().id;
+        let chats = store.list_chats().await.unwrap();
+        assert_eq!(
+            chats.iter().find(|c| c.id == a).unwrap().bot_id.as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            chats.iter().find(|c| c.id == b).unwrap().bot_id.as_deref(),
+            Some("b")
+        );
+        assert_eq!(chats.iter().find(|c| c.id == plain).unwrap().bot_id, None);
     }
 
     #[tokio::test]

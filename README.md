@@ -4,7 +4,7 @@
 
 ## Status
 
-M1 and the three-stage one-bot desktop prototype are merged. The measured save optimization and benchmark reports are in PR #23, pending merge. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
+M1, the three-stage one-bot desktop prototype and the measured save optimization are merged. This branch adds unattended accounting and reviewed bot setup. API/guest sign-in and saved-state continuation pass their live checks. The combined UI/VM flow has a manual evidence verdict; its original failed manifest stays recorded. Phone rendering and bounded privacy limits remain. See [docs/progress.md](docs/progress.md) for verified scope and open work. Start with [docs/vision.md](docs/vision.md).
 
 ## Development
 
@@ -35,6 +35,9 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 | File | Contents |
 | --- | --- |
 | [docs/progress.md](docs/progress.md) | Current status, verification and historical checkpoints |
+| [docs/unattended-implementation-plan.md](docs/unattended-implementation-plan.md) | Approved unattended requirements and implementation stages |
+| [docs/unattended-progress.md](docs/unattended-progress.md) | Agent assignments, integration state, verification and handoff |
+| [docs/bot-setup-integration.md](docs/bot-setup-integration.md) | Reviewed setup flow, configuration, API and remaining limits |
 | [docs/vision.md](docs/vision.md) | Goal, user, scope and quality bar |
 | [docs/architecture.md](docs/architecture.md) | Parts of the system and how they talk |
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |

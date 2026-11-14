@@ -4,11 +4,22 @@
 //! The loop is event-driven: it wakes on a change or at the next deadline (idle save, batch
 //! close). An idle bot makes no model call, no poll and no capture.
 
+pub mod accounting;
 pub mod api;
+pub mod authority;
+pub mod challenge;
+pub mod challenge_api;
 pub mod db;
 pub mod events;
 pub mod hub;
+pub mod provisioning;
 pub mod screen;
+pub mod secret_requests_api;
+pub mod secrets;
+pub mod setup;
+pub mod setup_api;
+pub mod setup_store;
+pub mod state;
 pub mod vm;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
@@ -88,6 +99,8 @@ pub struct InboxItem {
     pub title: String,
     pub detail: String,
     pub task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ceiling: Option<authority::PendingCeilingRequest>,
 }
 
 #[derive(Default)]
@@ -155,12 +168,16 @@ impl Bot {
         let (w, m) = ev.as_ref().map_or((2000, 10_000), |e| {
             (e.batch_window_ms, e.batch_max_delay_ms)
         });
+        let screen = Screen::new(cap, Duration::from_millis(v.screen_interval_ms), awake_rx);
+        // Every route that shows the screen passes this gate. A read error counts as open.
+        let (gate_store, gate_bot) = (store.clone(), v.bot_id.clone());
+        screen.set_privacy_state(Arc::new(move || gate_store.privacy_state_sync(&gate_bot)));
         Ok(Arc::new(Self {
             id: v.bot_id.clone(),
             chat_id: flags.chat_id,
             idle: Duration::from_secs(v.idle_secs),
             events_cfg: ev,
-            screen: Screen::new(cap, Duration::from_millis(v.screen_interval_ms), awake_rx),
+            screen,
             store,
             agent,
             vm,
@@ -235,6 +252,15 @@ impl Bot {
                     .await?;
             }
         }
+        // The resume mark lives in memory. A waiting task whose chat ends with an owner message
+        // got its answer before the restart: run it once, and keep the pause and budget gates.
+        if let Some(t) = self.store.owner_task(&self.id).await?
+            && t.state == "waiting"
+            && let Some(msgs) = self.store.list_messages(t.chat_id).await?
+            && msgs.last().is_some_and(|m| m.role == "user")
+        {
+            self.inner.lock().unwrap().resume = Some(t.id);
+        }
         let st = self.vm.status().await?;
         if st.running {
             self.set_comp(Comp::Waking);
@@ -288,7 +314,9 @@ impl Bot {
         self.close_batches().await?;
         let busy = self.inner.lock().unwrap().current.is_some();
         let flags = self.store.bot_flags(&self.id, "Bot").await?;
-        let gates_open = !flags.automation_paused && !flags.budget_hold;
+        let gates_open = !flags.automation_paused
+            && !flags.budget_hold
+            && self.store.holds(&self.id).await?.is_empty();
         let owner = self.store.owner_task(&self.id).await?;
         if !busy && !self.stopping.load(Relaxed) {
             let resume = if gates_open {
@@ -386,7 +414,10 @@ impl Bot {
     async fn dispatch(self: &Arc<Self>, task: Task, resume: bool) -> anyhow::Result<()> {
         let gate = self.dispatch_gate.lock().await;
         let flags = self.store.bot_flags(&self.id, "Bot").await?;
-        if flags.automation_paused || flags.budget_hold {
+        if flags.automation_paused
+            || flags.budget_hold
+            || !self.store.holds(&self.id).await?.is_empty()
+        {
             if resume {
                 self.inner.lock().unwrap().resume = Some(task.id);
             }
@@ -924,6 +955,17 @@ impl Bot {
                 title: "Budget hold".into(),
                 detail: flags.budget_reason.unwrap_or_default(),
                 task_id: None,
+                ceiling: None,
+            });
+        }
+        if let Some(request) = internal(self.store.pending_ceiling(&self.id).await)? {
+            out.push(InboxItem {
+                kind: "ceiling_request",
+                id: request.id.clone(),
+                title: "Spending ceiling reached".into(),
+                detail: request.reason.clone(),
+                task_id: None,
+                ceiling: Some(request),
             });
         }
         for c in self.decision_commands().await? {
@@ -947,6 +989,7 @@ impl Bot {
                     c.detail.map(|d| format!(" ({d})")).unwrap_or_default()
                 ),
                 task_id: Some(c.task_id),
+                ceiling: None,
             });
         }
         for t in internal(self.store.tasks(&self.id, 0).await)? {
@@ -961,6 +1004,7 @@ impl Bot {
                 title: t.title,
                 detail: t.detail.unwrap_or_default(),
                 task_id: Some(t.id),
+                ceiling: None,
             });
         }
         Ok(out)
@@ -1017,6 +1061,10 @@ impl Bot {
             "automation_paused": flags.automation_paused,
             "budget_hold": flags.budget_hold,
             "budget_reason": flags.budget_reason,
+            "ceiling_request": internal(self.store.pending_ceiling(&self.id).await)?,
+            "accounting": internal(self.store.accounting(&self.id).await)?,
+            "exposure": internal(self.store.exposure(&self.id).await)?,
+            "holds": internal(self.store.holds(&self.id).await)?,
             "working": working,
             "waiting": waiting,
             "queued": queued,
@@ -1035,6 +1083,46 @@ impl Bot {
             "screen": self.screen.view(),
         }))
     }
+}
+
+/// Construct one isolated configured runtime. All model calls use its own accounting profile.
+pub async fn runtime(
+    config: Arc<Config>,
+    store: Store,
+    model: crate::model::ModelClient,
+) -> anyhow::Result<(Arc<Agent>, Arc<Bot>)> {
+    let v = config
+        .vm
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("a computer configuration is required"))?;
+    let accounting = accounting::install(&config, &store).await?;
+    let vm: Arc<dyn vm::Vm> = Arc::new(vm::Harness::new(v));
+    let hub = hub::Hub::new(
+        store.clone(),
+        &v.bot_id,
+        config.data_dir.clone(),
+        vm.clone(),
+        v.command_secs,
+    );
+    let tools = crate::tools::Tools::new(
+        Arc::new(hub::GuestHost(hub.clone())),
+        store.clone(),
+        config.workspace(),
+        &config.data_dir,
+    )
+    .with_guest(hub.clone());
+    let mut agent = Agent::with_tools(config.clone(), store.clone(), model, tools);
+    if let Some(accounting) = accounting {
+        agent = agent.with_accounting(accounting);
+    }
+    let agent = Arc::new(agent);
+    let capture = Arc::new(screen::QmpCapture {
+        socket: vm.qmp(),
+        dir: config.data_dir.join("screen"),
+    });
+    let bot = Bot::new(&config, store, agent.clone(), vm, hub, capture).await?;
+    bot.start().await?;
+    Ok((agent, bot))
 }
 
 #[cfg(test)]
@@ -1621,6 +1709,81 @@ mod tests {
         assert!(last.contains("red"));
     }
 
+    /// A new process on the same database, computer and model script.
+    async fn second_process(t: &T) -> Arc<Bot> {
+        let model = ModelClient::new(&t.config.model.base_url, Some("k".into()), "K");
+        let tools = Tools::new(
+            Arc::new(GuestHost(t.g.hub.clone())),
+            t.g.store.clone(),
+            t.config.workspace(),
+            &t.config.data_dir,
+        )
+        .with_guest(t.g.hub.clone());
+        let agent = Arc::new(Agent::with_tools(
+            t.config.clone(),
+            t.g.store.clone(),
+            model,
+            tools,
+        ));
+        Bot::new(
+            &t.config,
+            t.g.store.clone(),
+            agent,
+            t.g.vm.clone(),
+            t.g.hub.clone(),
+            t.cap.clone(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_owner_answer_survives_a_host_restart_and_the_pause_still_holds() {
+        let t = setup(
+            vec![
+                call("ask_owner", json!({"question": "which color?"})),
+                text("used red"),
+            ],
+            5000,
+            false,
+        )
+        .await;
+        let a = t.bot.submit("paint".into(), Mode::Queue, 1).await.unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        t.bot.set_paused(true).await.unwrap();
+        t.bot.submit("red".into(), Mode::Steer, 1).await.unwrap();
+        t.bot.stop_loop();
+        // The host restarts before the answer runs. The computer keeps running.
+        let t2 = second_process(&t).await;
+        t2.start().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(state(&t, &a.task_id).await, "waiting", "pause still holds");
+        assert_eq!(t.seen.lock().unwrap().len(), 1);
+        t2.set_paused(false).await.unwrap();
+        done(&t, &a.task_id, "done").await;
+        assert!(
+            t.seen
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .to_string()
+                .contains("red")
+        );
+        let msgs =
+            t.g.store
+                .list_messages(t2.chat_id())
+                .await
+                .unwrap()
+                .unwrap();
+        let answers = msgs
+            .iter()
+            .filter(|m| m.role == "user" && m.content.contains("\"red\""))
+            .count();
+        assert_eq!(answers, 1, "the answer is stored once");
+        t2.stop_loop();
+    }
+
     #[tokio::test]
     async fn priority_orders_the_queue() {
         let t = setup(vec![text("hi"), text("lo")], 5000, true).await;
@@ -1657,6 +1820,437 @@ mod tests {
         assert!(!t.bot.screen.view().worker);
         drop(rx);
         let _ = Path::new("");
+    }
+
+    #[tokio::test]
+    async fn a_new_bot_gates_its_screen_with_the_store_before_any_viewer() {
+        let t = setup(vec![], 5000, false).await;
+        t.g.store
+            .record_secret("main", "r1", "L", "DECK_X", None)
+            .await
+            .unwrap();
+        let cap = Arc::new(Cap(AtomicU64::new(0)));
+        let bot = Bot::new(
+            &t.config,
+            t.g.store.clone(),
+            t.agent.clone(),
+            t.g.vm.clone(),
+            t.g.hub.clone(),
+            cap.clone(),
+        )
+        .await
+        .unwrap();
+        bot.set_comp(Comp::Awake);
+        let _rx = bot.screen.watch();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(cap.0.load(Relaxed), 0, "captured while the gate is open");
+        t.g.store.close_privacy_gate("main").await.unwrap();
+        until("a capture", || async { cap.0.load(Relaxed) > 0 }).await;
+    }
+
+    // ---- Targeted-wake acceptance (real sender, real Store, real Python executor) ----
+    // Limits: the model is scripted, the computer is the fake VM, the guest receipt is a Store row
+    // and no HTTP route or real guest delivery runs. No service login is proved.
+
+    use crate::bot::challenge::Decision;
+    use crate::bot::secret_requests_api::{self as sra, Woke};
+    use crate::bot::secrets::{canonical_name, unix_now};
+
+    const EFFECT: &str = "echo x >> $DECK_WORKSPACE/effects.log";
+
+    fn effects(t: &T) -> usize {
+        std::fs::read_to_string(t.g.dir.join("ws/effects.log")).map_or(0, |s| s.lines().count())
+    }
+
+    async fn open_request(t: &T) -> String {
+        t.g.store
+            .open_secret_requests("main", unix_now())
+            .await
+            .unwrap()
+            .pop()
+            .expect("an open request")
+            .request_id
+    }
+
+    /// The host receipt, as `ensure_delivered` records it. The value never exists here.
+    async fn receipt(t: &T, id: &str) {
+        t.g.store
+            .record_secret(
+                "main",
+                id,
+                "Site pass",
+                &canonical_name("Site pass"),
+                Some(id),
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn marker_count(t: &T, marker: &str) -> usize {
+        t.g.store
+            .list_messages(t.bot.chat_id())
+            .await
+            .unwrap()
+            .unwrap()
+            .iter()
+            .filter(|m| m.role == "user" && m.content.contains(marker))
+            .count()
+    }
+
+    fn secret_script() -> Vec<(u16, String)> {
+        vec![
+            call(
+                "request_secret",
+                json!({"label": "Site pass", "purpose": "sign in"}),
+            ),
+            call("shell", json!({ "script": EFFECT })),
+            text("finished"),
+        ]
+    }
+
+    #[tokio::test]
+    async fn the_real_sender_resumes_the_waiting_task_once_after_a_delivered_secret() {
+        let t = setup(secret_script(), 5000, false).await;
+        let a = t
+            .bot
+            .submit("sign in".into(), Mode::Queue, 1)
+            .await
+            .unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        assert_eq!(t.seen.lock().unwrap().len(), 1);
+        let id = open_request(&t).await;
+        receipt(&t, &id).await;
+        let send = sra::sender(t.bot.clone());
+        let marker = format!("[request {id}]");
+        assert_eq!(
+            sra::resume_delivered(&t.g.store, "main", &id, &send)
+                .await
+                .unwrap(),
+            Some(Woke::Sent)
+        );
+        done(&t, &a.task_id, "done").await;
+        assert_eq!((t.seen.lock().unwrap().len(), effects(&t)), (3, 1));
+        assert!(t.seen.lock().unwrap()[1].to_string().contains(&marker));
+        // A repeat, a reconcile and a second route all find the finished state.
+        let again = sra::resume_delivered(&t.g.store, "main", &id, &send)
+            .await
+            .unwrap();
+        assert!(
+            matches!(again, Some(Woke::NoTask | Woke::Already)),
+            "{again:?}"
+        );
+        sra::reconcile(&t.g.store, "main", unix_now(), &send)
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!((t.seen.lock().unwrap().len(), effects(&t)), (3, 1));
+        assert_eq!(t.g.store.tasks("main", 10).await.unwrap().len(), 1);
+        assert_eq!(marker_count(&t, &marker).await, 1);
+        assert!(
+            !t.seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.to_string().contains("hunter2"))
+        );
+    }
+
+    /// Every hold keeps the wait, persists the answer once, and lets the task run once on release.
+    async fn hold_case(apply: fn(&T) -> BoxFuture<'_, ()>, lift: fn(&T) -> BoxFuture<'_, ()>) {
+        let t = setup(secret_script(), 5000, false).await;
+        let a = t
+            .bot
+            .submit("sign in".into(), Mode::Queue, 1)
+            .await
+            .unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        let id = open_request(&t).await;
+        receipt(&t, &id).await;
+        apply(&t).await;
+        let send = sra::sender(t.bot.clone());
+        let marker = format!("[request {id}]");
+        for want in [Woke::Sent, Woke::Already] {
+            assert_eq!(
+                sra::resume_delivered(&t.g.store, "main", &id, &send)
+                    .await
+                    .unwrap(),
+                Some(want)
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(state(&t, &a.task_id).await, "waiting", "the wait is kept");
+        assert_eq!((t.seen.lock().unwrap().len(), effects(&t)), (1, 0));
+        assert_eq!(
+            marker_count(&t, &marker).await,
+            1,
+            "the wake is persisted once"
+        );
+        lift(&t).await;
+        t.bot.kick();
+        done(&t, &a.task_id, "done").await;
+        assert_eq!((t.seen.lock().unwrap().len(), effects(&t)), (3, 1));
+        assert_eq!(marker_count(&t, &marker).await, 1);
+        assert_eq!(t.g.store.tasks("main", 10).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_automation_pause_holds_a_delivered_wake_until_released() {
+        hold_case(
+            |t| Box::pin(async { t.g.store.set_paused("main", true).await.unwrap() }),
+            |t| Box::pin(async { t.g.store.set_paused("main", false).await.unwrap() }),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_budget_hold_holds_a_delivered_wake_until_released() {
+        hold_case(
+            |t| {
+                Box::pin(async {
+                    t.g.store
+                        .set_budget_hold("main", Some("fixture".into()))
+                        .await
+                        .unwrap()
+                })
+            },
+            |t| Box::pin(async { t.g.store.set_budget_hold("main", None).await.unwrap() }),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_ceiling_hold_holds_a_delivered_wake_until_released() {
+        use crate::bot::state::HoldKind;
+        hold_case(
+            |t| {
+                Box::pin(async {
+                    t.g.store
+                        .set_hold("main", HoldKind::Ceiling, "fixture")
+                        .await
+                        .unwrap()
+                })
+            },
+            |t| {
+                Box::pin(async {
+                    t.g.store
+                        .clear_hold("main", HoldKind::Ceiling)
+                        .await
+                        .unwrap()
+                })
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_durable_answer_survives_a_restart_and_runs_the_same_task_once() {
+        let t = setup(secret_script(), 5000, false).await;
+        let a = t
+            .bot
+            .submit("sign in".into(), Mode::Queue, 1)
+            .await
+            .unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        let id = open_request(&t).await;
+        receipt(&t, &id).await;
+        t.bot.set_paused(true).await.unwrap();
+        let send = sra::sender(t.bot.clone());
+        sra::resume_delivered(&t.g.store, "main", &id, &send)
+            .await
+            .unwrap();
+        t.bot.stop_loop();
+        // The host restarts after the answer is durable and before the model continues.
+        let t2 = second_process(&t).await;
+        t2.start().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            state(&t, &a.task_id).await,
+            "waiting",
+            "the pause still holds"
+        );
+        assert_eq!(t.seen.lock().unwrap().len(), 1);
+        // The restarted host repeats the reconcile. It must not add a second message.
+        let send2 = sra::sender(t2.clone());
+        sra::reconcile(&t.g.store, "main", unix_now(), &send2)
+            .await
+            .unwrap();
+        t2.set_paused(false).await.unwrap();
+        done(&t, &a.task_id, "done").await;
+        assert_eq!((t.seen.lock().unwrap().len(), effects(&t)), (3, 1));
+        assert_eq!(marker_count(&t, &format!("[request {id}]")).await, 1);
+        assert_eq!(t.g.store.tasks("main", 10).await.unwrap().len(), 1);
+        t2.stop_loop();
+    }
+
+    #[tokio::test]
+    async fn an_answer_after_the_task_was_replaced_creates_and_steers_nothing() {
+        let t = setup(
+            vec![
+                secret_script().remove(0),
+                call("ask_owner", json!({"question": "which one?"})),
+                text("never"),
+            ],
+            5000,
+            false,
+        )
+        .await;
+        let a = t
+            .bot
+            .submit("sign in".into(), Mode::Queue, 1)
+            .await
+            .unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        let id = open_request(&t).await;
+        receipt(&t, &id).await;
+        t.g.store
+            .move_task(&a.task_id, &["waiting"], "cancelled", None)
+            .await
+            .unwrap();
+        let send = sra::sender(t.bot.clone());
+        let marker = format!("[request {id}]");
+        // The replacement waits for its own owner answer. It owns the bot now.
+        let b = t.bot.submit("other".into(), Mode::Queue, 1).await.unwrap();
+        assert_ne!(a.task_id, b.task_id);
+        done(&t, &b.task_id, "waiting").await;
+        assert_eq!(t.seen.lock().unwrap().len(), 2);
+        assert_eq!(
+            sra::resume_delivered(&t.g.store, "main", &id, &send)
+                .await
+                .unwrap(),
+            Some(Woke::NoTask)
+        );
+        sra::reconcile(&t.g.store, "main", unix_now(), &send)
+            .await
+            .unwrap();
+        // Even a direct call with the old task id cannot reach the new waiting task.
+        assert!(send(a.task_id.clone(), "late".into()).await.is_err());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(marker_count(&t, &marker).await, 0);
+        assert_eq!(marker_count(&t, "late").await, 0);
+        assert_eq!(t.g.store.tasks("main", 10).await.unwrap().len(), 2);
+        assert_eq!(state(&t, &b.task_id).await, "waiting");
+        assert_eq!(t.seen.lock().unwrap().len(), 2, "no model call was steered");
+        assert_eq!(state(&t, &a.task_id).await, "cancelled");
+    }
+
+    /// A ready setup row for the bot `main`, seeded directly. The approval and steps are fixtures.
+    async fn seed_ready_setup(t: &T) {
+        use crate::bot::setup::{Authority, Draft, Limits, Resources, Setup, Status};
+        let mut s = Setup::new(
+            "main",
+            Draft {
+                revision: 1,
+                name: "fixture".into(),
+                instructions: "fixture".into(),
+                model: "fixture".into(),
+                authority: Authority::Full,
+                resources: Resources {
+                    cpus: 2,
+                    memory_mib: 2048,
+                    disk_gib: 10,
+                },
+                budget: None,
+                credentials: vec![],
+                task: None,
+            },
+        )
+        .unwrap();
+        s.approve(
+            1,
+            "owner",
+            &Limits {
+                max_cpus: 2,
+                max_memory_mib: 2048,
+                max_disk_gib: 10,
+            },
+        )
+        .unwrap();
+        s.steps.iter_mut().for_each(|x| x.status = Status::Done);
+        let body = serde_json::to_string(&s).unwrap();
+        t.g.store
+            .run(move |c| {
+                c.execute(
+                    "INSERT INTO bot_setup_drafts(draft_id,bot_id,revision,body,updated_at,lifecycle) VALUES ('main','main',1,?1,?2,1)",
+                    rusqlite::params![body, crate::store::now()],
+                )
+                .map(drop)
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_phone_answer_wakes_the_task_which_checks_status_and_reports_verification() {
+        let t = setup(
+            vec![
+                call(
+                    "request_owner_help",
+                    json!({"kind":"phone","instructions":"Approve on the phone","match_number":"42"}),
+                ),
+                call("owner_help_status", json!({"request_id":"main:1"})),
+                call(
+                    "report_help_verification",
+                    json!({"request_id":"main:1","result":"verified","observation":"fixture page showed the inbox"}),
+                ),
+                text("signed in"),
+            ],
+            5000,
+            false,
+        )
+        .await;
+        seed_ready_setup(&t).await;
+        let a = t
+            .bot
+            .submit("sign in".into(), Mode::Queue, 1)
+            .await
+            .unwrap();
+        done(&t, &a.task_id, "waiting").await;
+        let row = t.g.store.setup_record("main").await.unwrap().unwrap();
+        let wait = row.setup.wait.clone().expect("a help wait");
+        assert_eq!(wait.request_id, "main:1");
+        // The owner answers. The route saves the answer and wakes the exact task.
+        t.bot.set_paused(true).await.unwrap();
+        let mut s = row.setup;
+        s.respond("main:1", Decision::Completed, 0).unwrap();
+        t.g.store.save_setup_state(row.version, &s).await.unwrap();
+        let send = sra::sender(t.bot.clone());
+        let r = sra::resume_challenge(
+            &t.g.store,
+            "main",
+            &a.task_id,
+            "main:1",
+            Decision::Completed,
+            &send,
+        )
+        .await;
+        assert_eq!(r, Ok(Woke::Sent));
+        let r = sra::resume_challenge(
+            &t.g.store,
+            "main",
+            &a.task_id,
+            "main:1",
+            Decision::Completed,
+            &send,
+        )
+        .await;
+        assert_eq!(r, Ok(Woke::Already));
+        assert_eq!(
+            t.seen.lock().unwrap().len(),
+            1,
+            "held until the pause lifts"
+        );
+        t.bot.set_paused(false).await.unwrap();
+        done(&t, &a.task_id, "done").await;
+        assert_eq!(t.seen.lock().unwrap().len(), 4);
+        assert_eq!(t.g.store.tasks("main", 10).await.unwrap().len(), 1);
+        assert_eq!(marker_count(&t, "[challenge main:1 completed]").await, 1);
+        let after = t.g.store.setup_record("main").await.unwrap().unwrap();
+        assert!(
+            after.setup.wait.is_none(),
+            "the task closed the request itself"
+        );
+        let log = t.seen.lock().unwrap().last().unwrap().to_string();
+        assert!(log.contains("\\\"state\\\":\\\"answered\\\""), "{log}");
     }
 
     async fn http(

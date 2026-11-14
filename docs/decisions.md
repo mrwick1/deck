@@ -577,3 +577,120 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** The owner sets one success criterion at a time. Each criterion has tasks, a proof and a pass rule in `docs/success-criteria.md`. The first criterion is SC1: Gmail works end to end. Private eval tasks prove it.
 
 **Reason:** A fixed target with machine-scored checks shows when work is done. It also picks the next `bare` and `deck` fixes.
+
+## D57. Review conversational bot setup before creation (2026-11-13)
+
+**Decision:** The owner describes the bot's job in chat. Deck asks follow-up questions and proposes a name, instructions, model, permissions and computer configuration. Each new bot gets its own computer by default. Deck recommends the model, tools and resources from the job. The owner can edit every proposed setting and approve or reject each permission separately. Deck waits for setup approval before creating the bot and computer.
+
+**Drafts:** Save unfinished setup so the owner can leave and continue later.
+
+**Permissions:** Recommend full authority for the approved job under D60. The owner can narrow that authority during setup. If a restriction blocks required work, suggest a narrower alternative and explain which work remains blocked.
+
+**Execution:** Set up the computer first. Then request required credentials through protected input in the bot's chat. Keep credential values out of chat history and model context. Trigger phone approval when needed and wait for the owner. Pause at a CAPTCHA and notify the owner to complete it. Preserve setup progress in both cases.
+
+**Recovery:** Default to three total attempts for setup failures that are safe to retry. Let the owner change the limit. Notify the owner when attempts are exhausted. Waiting for a login approval or CAPTCHA does not consume retries. D34 still governs uncertain external actions. Continue independent setup and work only when it does not disturb the blocked task's session.
+
+**Completion:** Show setup progress and requests for help in the bot's chat. Finish with a checklist of configured items and remaining blockers. Start specific work already supplied by the owner once its prerequisites are ready. If the owner supplied only a general role, finish setup, notify the owner that the bot is ready and ask for instructions. Shared inbox presentation remains for a later planning pass.
+
+**Later changes:** Update ordinary job instructions directly. Recommend model changes. The bot can install tools and adjust computer resources automatically without another setup approval. Report significant changes in chat. Request approval only when authority must extend beyond the approved scope or an explicit restriction must change. D60 governs routine action authority. D61 governs automatic working-budget increases and the owner-set spending ceiling.
+
+**Reason:** The owner approved conversational setup with review, automatic preparation and durable requests for help. This refines D28–D30. It records product requirements, not implemented behavior.
+
+## D58. Keep explicit grants and restrictions persistent (2026-11-13)
+
+**Decision:** Describe permissions as actions, such as reading mail, sending mail, deleting mail and submitting applications. A send-mail grant covers every recipient. Ongoing grants remain active until revoked.
+
+**Requests:** Do not request approval for actions already covered by D60. When additional authority is required, offer allow once, allow until revoked and deny. Accept explicit grants from the owner's authenticated chat instructions and show the resulting grant in chat. Clarify vague instructions. Websites, messages and other external content cannot grant permissions.
+
+**Revocation:** Block new actions immediately. Stop an active action where possible and report its outcome. Revocation cannot undo an action already submitted. Resolve uncertain outcomes under D34.
+
+**Blocked work:** Pause dependent work. Continue unrelated work only when it does not disturb the waiting task's session. Show what remains blocked.
+
+**Coverage:** Apply the same permission instructions to desktop, browser, shell and API actions. Preserve D33's trusted-instruction boundary. This decision does not claim that raw tool access provides hard technical enforcement.
+
+**History and requests:** Record who approved each grant, its scope and when it changed or was revoked. Show requests in the bot's chat and notify the owner when attention is needed. Defer shared inbox design. Notification delivery remains a separate design choice.
+
+**Verification:** Cover grants, denials, one-time use, revocation during work and attempts through another tool. Verify behavior rather than only the approval screen. Distinguish tested behavior from the technical guarantees that D33 excludes.
+
+**Reason:** The owner approved these permission defaults. They refine D25 and D33 without changing the accepted trust model.
+
+## D59. Support long-running unattended sessions (2026-11-13)
+
+**Decision:** Design bots for long-running unattended work. Preserve task progress across restarts. Retry safe work within limits. Continue unblocked work without disturbing waiting tasks. Wait durably when approval or owner input is required.
+
+**Owner return:** Notifications must lead back to the task and retain enough context for the owner to respond later. The owner's absence must not discard progress, grant permission or bypass a hold.
+
+**Boundary:** Unattended sessions do not mean ten sessions or any other concurrency limit. Preserve task ownership, pause, budget and uncertain-outcome rules. This decision does not approve new event sources or notification channels.
+
+**Reason:** The owner clarified that bots will run unattended for long periods. This is a product requirement, not a claim of verified recovery behavior.
+
+
+## D60. Default to full authority for unattended work (2026-11-13)
+
+**Decision:** Propose full authority for the bot's job during setup. One setup approval authorizes the bot to select actions and complete that job without repeated action approvals. This includes sending messages, posting, submitting forms, deleting items, installing tools and adjusting computer resources within the approved scope. A send-mail grant covers every recipient.
+
+**Owner control:** The owner can restrict authority during setup, change it later, stop work or revoke it. Request approval to extend beyond the approved scope or change an explicit restriction. Existing authority does not expire because a session runs unattended for a long time.
+
+**Requests for help:** Request credentials through protected input. Wait for phone approval or CAPTCHA completion when needed. Ask to raise the absolute spending ceiling under D61. Investigate uncertain outcomes under D34 before asking for direction. Preserve progress while waiting. Continue independent work only when session ownership and dependencies permit it.
+
+**Visibility:** Record outcomes and significant changes in chat. Keep routine progress silent or in summaries. Focus notifications on actionable blockers. This decision selects no new notification channel.
+
+**Boundary:** Current permissions apply across desktop, browser, shell and API tools under D33's trusted-instruction model. External content cannot expand authority. Full authority does not bypass owner stop, pause, revocation, uncertain-outcome rules or the absolute spending ceiling.
+
+**Scope change:** This replaces repeated action approvals within the approved job under D14, D25 and D58. It preserves initial setup review under D57 and explicit restrictions. It is a product requirement, not a claim of implemented enforcement.
+
+**Reason:** The owner wants unattended bots with full authority. Frequent permission requests defeat that purpose.
+
+## D61. Adjust working budgets below an owner-set spending ceiling (2026-11-13)
+
+**Decision:** Distinguish the bot's working budget from its absolute spending ceiling. The bot can raise its working budget automatically when the work reasonably requires it. It cannot exceed or change the ceiling set by the owner. If more allowance is required, preserve progress and request a ceiling increase from the owner.
+
+**Increase basis:** Base an automatic increase on the remaining work and recent spending. Record its reason in chat and notify the owner after the increase. Repeated failures without progress or a spending spike must pause the affected task for investigation rather than justify repeated budget increases.
+
+**Ceiling hold:** Reaching a working budget alone does not require owner approval when an increase fits below the ceiling. If the next expenditure cannot fit below the ceiling, hold the affected work. Events, schedules, restarts, automatic budget changes and owner absence cannot bypass that hold. Only explicit owner approval can raise the ceiling. Preserve pause and unknown-outcome holds independently.
+
+**Open details:** Define currency, accounting periods, ceiling scope, in-flight cost reservations, increase sizing and spike thresholds before implementation. These details must preserve the owner-only ceiling change. Do not claim that accounting controls universally prevent spending through raw browser or shell access under D33.
+
+**Scope change:** This replaces D36's approval requirement when a working budget is reached. Owner approval remains required to raise the absolute ceiling. It updates the spending boundary in D57 and D59. It does not approve the five planning agents' other proposed defaults.
+
+**Verification requirements:** Show that routine authorized actions proceed without approval. Show that working-budget increases fit below the ceiling and retain their reasons. Show that insufficient ceiling allowance holds work and produces one durable request. Reject bot-originated ceiling increases. Confirm that restart, schedule delivery and duplicate owner responses cannot bypass or apply an increase twice. Preserve login waits, revocation and uncertain outcomes.
+
+**Reason:** The owner permits reasonable automatic budget increases but reserves changes to the absolute spending ceiling.
+
+**Implementation proposal:** See [unattended-implementation-plan.md](unattended-implementation-plan.md) for delivery stages, dependencies and verification gates. The proposal does not approve unresolved accounting defaults.
+
+## D62. Commit reviewed setup progress and initial work durably (2026-11-13)
+
+**Decision:** Store setup snapshots in the existing SQLite store. Use separate snapshot and reviewed-draft revisions. Approve instructions and spending configuration atomically. Save the ready marker and initial task in one transaction. Register ready bots with independent runtime paths and control routes.
+
+**Host binding:** Pin the approved image, runtime, resource, model and pricing profile. Stop on a changed binding or a mismatched image or executor identity. Preserve existing files. Paused or budget-held ready bots must retain access to owner controls without an automatic wake.
+
+**Boundary:** These are implementation choices for D57–D61. They do not approve numeric budget defaults, capacity claims or protected credential storage. Current resource and model support remains limited by the configured harness and priced profile. Protected input and live acceptance remain open.
+
+**Reason:** Unattended setup must survive restarts without losing its initial work, repeating approval or attaching another bot's computer.
+
+## D63. Deliver protected input by guest reference and reconcile receipts (2026-11-13)
+
+**Decision:** Accept protected values through authenticated endpoints outside ordinary chat. Keep the host value in request memory. Send it to the bound guest through stdin. Store only request metadata and receipts on the host. Keep the guest credential file private. Complete a wait only after matching guest evidence. Recheck that evidence before recovering a delivered task request.
+
+**Privacy boundary:** Mask the entry control and clear it on submission or dismissal. Gate Deck screenshot tools and the live viewer while sign-in is sensitive. Raw guest shell, DOM and evaluation remain inside D33's trusted-instruction boundary. This is not universal value redaction. Live guest and raster acceptance must be reported separately.
+
+**Reason:** Implement D29, D57 and unattended waits without putting values into model context, chat, command arguments or durable host records. Preserve exact task ownership and independent holds when an owner responds.
+
+## D64. Prepare private storage and prove desktop readiness before initial work (2026-11-13)
+
+**Decision:** Create validated owner-only bot data and workspace folders before runtime registration. Refuse linked or foreign-owned path components. Keep configuration reads free of directory creation. Before the executor setup step completes, require the existing bare session to answer its protocol and match the bound guest identity. Use a bounded probe. A missing session cannot count as Ready.
+
+**Reason:** Live acceptance found missing host directories and a first browser task that ran before the desktop answered. These checks refine D62. They add no routine owner approval and authorize no replacement computer or browser fallback. Live confirmation remains a separate gate.
+
+## D65. Validate local synthetic sign-in before a real account (2026-11-13)
+
+**Decision:** Run setup acceptance against a local synthetic login first. Use generated credentials, a scripted model and one private guest computer. Exercise phone approval and CAPTCHA-style owner waits without a real account. Verify the service state separately from the owner answer. Keep live VM checks serial.
+
+**Reason:** The owner explicitly selected local synthetic login first. This permits delivery, restart and duplication checks without Gmail or private account state. A fixture pass does not establish real-service CAPTCHA support or universal screenshot secrecy.
+
+## D66. Preserve privacy transitions during capture (2026-11-13)
+
+**Decision:** Store a per-bot privacy generation with the gate-open transaction. Keep it after the gate closes. Sample the gate and generation together before and after capture. Discard a frame if the gate is open or the generation changed. Refuse a cached frame from an older generation.
+
+**Reason:** A gate can open and close during one capture. A boolean check cannot detect that transition. This refines D63. It adds no routine approval and does not establish universal redaction or real-pixel secrecy.

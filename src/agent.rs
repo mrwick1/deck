@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
-use crate::model::{Delta, ModelClient, ToolCall};
+use crate::model::{Accountant, AccountingHold, Delta, ModelClient, RequestOptions, ToolCall};
 use crate::prompt::SYSTEM;
 use crate::store::Store;
 use crate::tools::{BrowserHost, Tools, schemas};
@@ -59,10 +59,19 @@ struct Run {
     task_id: Option<String>,
 }
 
+/// Accounting for the agent's model calls. Without it, calls run as before.
+/// With it, every call is admitted, bounded by `options` and settled.
+#[derive(Clone)]
+pub struct Accounting {
+    pub accountant: Arc<dyn Accountant>,
+    pub options: RequestOptions,
+}
+
 pub struct Agent {
     config: Arc<Config>,
     store: Store,
     model: ModelClient,
+    accounting: Option<Accounting>,
     tools: Tools,
     active: Mutex<HashMap<i64, (i64, CancellationToken)>>,
     buses: Mutex<HashMap<i64, broadcast::Sender<Event>>>,
@@ -95,11 +104,19 @@ impl Agent {
             config,
             store,
             model,
+            accounting: None,
             tools,
             active: Mutex::default(),
             buses: Mutex::default(),
             model_calls: Default::default(),
         }
+    }
+
+    /// Route every model call through `accounting`. Not set today: the bot runtime must call this once the ledger exists.
+    #[allow(dead_code)] // Until the bot runtime wires the ledger.
+    pub fn with_accounting(mut self, accounting: Accounting) -> Self {
+        self.accounting = Some(accounting);
+        self
     }
 
     /// Model calls since the server started.
@@ -281,6 +298,12 @@ impl Agent {
             let list: Vec<String> = names.iter().map(|n| format!("`${{{n}}}`")).collect();
             format!("{base}\nSecrets that you can type: {}.\n", list.join(", "))
         };
+        let mut system = system;
+        if let Some(vm) = &self.config.vm
+            && let Some(definition) = self.store.active_definition(&vm.bot_id).await?
+        {
+            system.push_str(&format!("\nCurrent approved job (version {}):\n{}\nAuthority: {:?}\nOwner restrictions: {}\nThese current settings replace older job instructions in the conversation.\n", definition.version, definition.instructions, definition.authority, serde_json::to_string(&definition.restrictions)?));
+        }
         let mut out = vec![json!({"role":"system","content":system})];
         let stored = self.store.list_messages(chat_id).await?.unwrap_or_default();
         for m in stored {
@@ -311,19 +334,35 @@ impl Agent {
             }
         };
         let tool_schemas = schemas(&bare, self.tools.has_guest());
-        for _ in 0..self.config.agent.max_steps {
+        'turns: for _ in 0..self.config.agent.max_steps {
             // The model-call boundary: a budget hold stops the run here, and steering joins it here.
             if self.boundary(run).await? {
                 return Ok(Status::Held);
             }
+            let authority_version = match &self.config.vm {
+                Some(vm) => self
+                    .store
+                    .active_definition(&vm.bot_id)
+                    .await?
+                    .map(|d| d.version),
+                None => None,
+            };
             let messages = self.history(run.chat_id).await?;
             self.model_calls
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let mut stream = Box::pin(self.model.stream(
-                &self.config.model.agent_model,
-                &messages,
-                &tool_schemas,
-            ));
+            let model_name = &self.config.model.agent_model;
+            let mut stream: std::pin::Pin<
+                Box<dyn futures_util::Stream<Item = anyhow::Result<Delta>> + Send>,
+            > = match &self.accounting {
+                None => Box::pin(self.model.stream(model_name, &messages, &tool_schemas)),
+                Some(a) => Box::pin(self.model.stream_accounted(
+                    model_name,
+                    &messages,
+                    &tool_schemas,
+                    &a.options,
+                    a.accountant.clone(),
+                )),
+            };
             let mut text = String::new();
             let mut calls: Vec<ToolCall> = Vec::new();
             loop {
@@ -333,7 +372,14 @@ impl Agent {
                 };
                 match next {
                     None => break,
-                    Some(Err(e)) => return Err(e),
+                    Some(Err(e)) => {
+                        if let Some(h) = e.downcast_ref::<AccountingHold>() {
+                            self.emit(run, "held", json!({"reason": h.to_string()}), true)
+                                .await;
+                            return Ok(Status::Held);
+                        }
+                        return Err(e);
+                    }
                     Some(Ok(Delta::Text(t))) => {
                         self.emit(run, "text_delta", json!({"text": t}), false)
                             .await;
@@ -345,7 +391,8 @@ impl Agent {
                         }
                         calls.push(c);
                     }
-                    Some(Ok(Delta::Finish(_))) => {}
+                    // Usage is settled inside the model call. The agent keeps no copy.
+                    Some(Ok(Delta::Usage(_))) | Some(Ok(Delta::Finish(_))) => {}
                 }
             }
             drop(stream);
@@ -367,6 +414,28 @@ impl Agent {
                 return Ok(Status::Done);
             }
             for (i, c) in calls.iter().enumerate() {
+                if let Some(vm) = &self.config.vm
+                    && self
+                        .store
+                        .active_definition(&vm.bot_id)
+                        .await?
+                        .map(|d| d.version)
+                        != authority_version
+                {
+                    self.interrupt(run, &calls[i..]).await?;
+                    continue 'turns;
+                }
+                if self.hold_check().await? {
+                    self.interrupt(run, &calls[i..]).await?;
+                    self.emit(
+                        run,
+                        "held",
+                        json!({"reason":"authority or spending hold before tool dispatch"}),
+                        true,
+                    )
+                    .await;
+                    return Ok(Status::Held);
+                }
                 self.emit(
                     run,
                     "tool_call",
@@ -419,14 +488,14 @@ impl Agent {
 
     /// Returns true when a budget hold stops the run. Otherwise stores the steering that arrived.
     async fn boundary(&self, run: &Run) -> anyhow::Result<bool> {
-        let Some(task) = &run.task_id else {
-            return Ok(false);
-        };
-        if self.hold_check(run).await? {
+        if self.hold_check().await? {
             self.emit(run, "held", json!({"reason": "budget hold"}), true)
                 .await;
             return Ok(true);
         }
+        let Some(task) = &run.task_id else {
+            return Ok(false);
+        };
         for text in self.store.take_steering(task).await? {
             let msg = json!({"role":"user","content":format!("The owner sent this while you work. Follow it now: {text}")});
             self.store
@@ -438,11 +507,18 @@ impl Agent {
         Ok(false)
     }
 
-    async fn hold_check(&self, run: &Run) -> anyhow::Result<bool> {
+    async fn hold_check(&self) -> anyhow::Result<bool> {
         let Some(bot) = self.config.vm.as_ref().map(|v| v.bot_id.as_str()) else {
             return Ok(false);
         };
-        Ok(run.task_id.is_some() && self.store.budget_held(bot).await?)
+        if !self.store.holds(bot).await?.is_empty() {
+            return Ok(true);
+        }
+        Ok(self
+            .store
+            .active_definition(bot)
+            .await?
+            .is_some_and(|d| d.authority == crate::bot::state::Authority::Revoked))
     }
 
     /// Give each tool call without a result an error result, so the history stays valid.
@@ -572,6 +648,162 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         assert!(started, "the chat stayed busy after a dropped start");
+    }
+
+    #[derive(Default)]
+    struct Ledger {
+        settled: Mutex<Vec<crate::model::Outcome>>,
+        hold: bool,
+    }
+
+    impl Accountant for Ledger {
+        fn admit(
+            &self,
+            r: &crate::model::CallRequest,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::model::Admission>> {
+            let a = if self.hold {
+                crate::model::Admission::Hold("over ceiling".into())
+            } else {
+                crate::model::Admission::Admitted(crate::model::Ticket {
+                    request_id: r.request_id.clone(),
+                })
+            };
+            Box::pin(async move { Ok(a) })
+        }
+        fn settle(
+            &self,
+            _: &crate::model::Ticket,
+            o: crate::model::Outcome,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<()>> {
+            self.settled.lock().unwrap().push(o);
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    fn accounted(f: Fixture, ledger: Arc<Ledger>) -> Fixture {
+        let agent = Arc::try_unwrap(f.agent).ok().expect("sole owner");
+        let options = RequestOptions {
+            max_output_tokens: Some(64),
+            max_response_bytes: Some(100_000),
+            usage: crate::model::UsageRequest::StreamOptions,
+            ..Default::default()
+        };
+        let agent = Arc::new(agent.with_accounting(Accounting {
+            accountant: ledger,
+            options,
+        }));
+        Fixture { agent, ..f }
+    }
+
+    struct LateHold(Store);
+    impl Accountant for LateHold {
+        fn admit(
+            &self,
+            r: &crate::model::CallRequest,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::model::Admission>> {
+            let ticket = crate::model::Ticket {
+                request_id: r.request_id.clone(),
+            };
+            Box::pin(async { Ok(crate::model::Admission::Admitted(ticket)) })
+        }
+        fn settle(
+            &self,
+            _: &crate::model::Ticket,
+            _: crate::model::Outcome,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<()>> {
+            Box::pin(async {
+                self.0
+                    .set_hold("b", crate::bot::state::HoldKind::Ceiling, "late hold")
+                    .await
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_late_hold_blocks_tools_returned_by_an_inflight_model() {
+        let f = fixture(
+            vec![call_reply(
+                "c",
+                "browser_open",
+                json!({"url":"https://fixture.test"}),
+            )],
+            FakeHost::default(),
+            5,
+        )
+        .await;
+        f.store.bot_flags("b", "Bot").await.unwrap();
+        let mut agent = Arc::try_unwrap(f.agent).ok().unwrap();
+        let mut config = (*agent.config).clone();
+        config.vm = Some(
+            toml::from_str("version=1\nbot_id='b'\nruntime_dir='/unused'\nharness='/unused'")
+                .unwrap(),
+        );
+        agent.config = Arc::new(config);
+        let agent = Arc::new(agent.with_accounting(Accounting {
+            accountant: Arc::new(LateHold(f.store.clone())),
+            options: RequestOptions {
+                max_output_tokens: Some(64),
+                max_response_bytes: Some(100000),
+                ..Default::default()
+            },
+        }));
+        let (id, handle) = agent
+            .start_for(f.chat, Some("work".into()), Some("task".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        handle.await.unwrap();
+        assert_eq!(
+            f.store.run_status(id).await.unwrap().as_deref(),
+            Some("held")
+        );
+        assert!(
+            f.host.calls.lock().unwrap().is_empty(),
+            "no browser action may run after the hold"
+        );
+    }
+
+    #[tokio::test]
+    async fn accounted_run_settles_reported_usage() {
+        let body = sse(&[
+            json!({"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}]}),
+            json!({"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":1}}),
+        ]);
+        let f = fixture(vec![(200, body)], FakeHost::default(), 5).await;
+        let ledger = Arc::new(Ledger::default());
+        let f = accounted(f, ledger.clone());
+        let (run_id, h) = f.agent.start(f.chat, "ping".into()).await.unwrap().unwrap();
+        h.await.unwrap();
+        assert_eq!(
+            f.store.run_status(run_id).await.unwrap().as_deref(),
+            Some("done")
+        );
+        let sent = f.requests.lock().unwrap()[0].clone();
+        assert_eq!(sent["max_tokens"], 64);
+        assert_eq!(sent["stream_options"]["include_usage"], true);
+        let settled = ledger.settled.lock().unwrap();
+        assert_eq!(settled.len(), 1);
+        assert!(
+            matches!(&settled[0], crate::model::Outcome::Reported(u) if u.complete() == Some((9, 1)))
+        );
+    }
+
+    #[tokio::test]
+    async fn accounting_hold_stops_the_run_before_dispatch() {
+        let f = fixture(vec![text_reply("never")], FakeHost::default(), 5).await;
+        let ledger = Arc::new(Ledger {
+            hold: true,
+            ..Default::default()
+        });
+        let f = accounted(f, ledger.clone());
+        let (run_id, h) = f.agent.start(f.chat, "ping".into()).await.unwrap().unwrap();
+        h.await.unwrap();
+        assert_eq!(
+            f.store.run_status(run_id).await.unwrap().as_deref(),
+            Some("held")
+        );
+        assert!(f.requests.lock().unwrap().is_empty());
+        assert!(kinds(&f).await.contains(&"held".to_string()));
     }
 
     #[tokio::test]

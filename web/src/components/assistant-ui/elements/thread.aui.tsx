@@ -229,7 +229,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      className="aui-root aui-thread-root bg-background @container flex h-full min-w-0 flex-col [overflow-wrap:anywhere]"
       style={{
         ["--thread-max-width" as string]: "var(--chat-content-max-width)",
         // deck: an opaque card, so docked panels can tuck under it (as in T3 Code).
@@ -245,7 +245,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
       >
         <div
           className={cn(
-            "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
+            "mx-auto flex w-full min-w-0 max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
             isEmpty && "justify-center",
           )}
         >

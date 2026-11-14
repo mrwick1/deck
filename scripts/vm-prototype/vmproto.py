@@ -24,6 +24,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script directory
+import secretchan  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
 IMAGE_URL = "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
 FIXTURE_ADDR = "10.0.2.100"  # address the guest uses for the fixture
@@ -543,6 +546,57 @@ def install_executor(p, bot_id):
     return info
 
 
+class NotReady(Exception):
+    """The desktop or executor is not ready. `code` is a stable value: no guest output is carried."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+PROBE_WAIT = 8  # seconds the guest probe waits for one bare-mcp answer
+
+
+def ready(p, bot_id, timeout, qga=None, sleep=time.sleep, clock=time.monotonic):
+    """Prove that the desktop session and the executor answer, inside a hard deadline.
+
+    One probe asks the existing bare-mcp for initialize and tools/list through the QGA channel. It
+    also checks the executor service and that the guest identity equals the host binding. It reads
+    only. It never starts a session, opens a page or reads a credential. Raises NotReady.
+    """
+    info = read_json(p.root / "executor.json") if (p.root / "executor.json").exists() else {}
+    if not info:
+        raise NotReady("no_binding")
+    if info.get("bot_id") != bot_id:
+        raise NotReady("bot_mismatch")
+    qga = qga or Qga(p.qga)
+    end = clock() + timeout
+    while True:
+        try:
+            code, out, _ = qga.exec(["/usr/local/bin/as-deck", "/usr/local/bin/bare-call", "--ready", str(PROBE_WAIT)],
+                                    timeout=PROBE_WAIT + 10)
+            r = json.loads(out) if out.strip() else {}
+            if code == 0 and r.get("ready") is True:
+                if (r.get("bot_id"), r.get("guest_id")) != (info.get("bot_id"), info.get("guest_id")):
+                    raise NotReady("identity_mismatch")
+                if qga.exec(["systemctl", "is-active", "--quiet", "deck-executor.service"], timeout=10)[0] == 0:
+                    return {"ok": True, "bot_id": r["bot_id"], "guest_id": r["guest_id"], "tools": r["tools"]}
+        except (OSError, ValueError, RuntimeError, TimeoutError):
+            pass  # the agent or the session is not up yet
+        if clock() >= end:
+            raise NotReady("not_ready")
+        sleep(min(0.5, max(0.0, end - clock())))
+
+
+def cmd_ready(a, p):
+    try:
+        out = ready(p, a.bot, a.timeout)
+    except NotReady as e:
+        print(json.dumps({"ok": False, "error": e.code}))
+        sys.exit(e.code)  # the code alone goes to stderr, so the caller can show it
+    print(json.dumps(out))
+
+
 def cmd_install_executor(a, p):
     print(json.dumps(install_executor(p, a.bot)))
 
@@ -755,6 +809,29 @@ def cmd_exec(a, p):
     sys.exit(code)
 
 
+def secret_cmd(a, p, run):
+    """Print metadata or a stable error code as one JSON line. Nothing else reaches stdout or stderr."""
+    try:
+        info = read_json(p.root / "executor.json") if (p.root / "executor.json").exists() else {}
+        if info.get("bot_id") != a.bot:
+            raise secretchan.SecretError("bot_mismatch")
+        print(json.dumps(run(Qga(p.qga))))
+    except secretchan.SecretError as e:
+        print(json.dumps({"ok": False, "error": e.code}))
+        sys.exit(1)
+
+
+def cmd_deliver_secret(a, p):
+    def run(qga):
+        label, value = secretchan.read_request(sys.stdin)
+        return secretchan.deliver(qga, a.bot, a.request_id, label, value)
+    secret_cmd(a, p, run)
+
+
+def cmd_secret_receipt(a, p):
+    secret_cmd(a, p, lambda qga: secretchan.receipt(qga, a.bot, a.request_id))
+
+
 def cmd_capture(a, p):
     """Real desktop capture two ways: QEMU screendump (host side) and grim (guest compositor)."""
     p.art.mkdir(parents=True, exist_ok=True)
@@ -825,6 +902,18 @@ def main(argv=None):
     s = sub.add_parser("install-executor", help="bootstrap the guest executor into the running VM and bind it to one bot")
     s.add_argument("--bot", required=True)
     s.set_defaults(f=cmd_install_executor)
+    s = sub.add_parser("ready", help="read-only probe: the desktop session and the executor answer; prints one JSON line")
+    s.add_argument("--bot", required=True)
+    s.add_argument("--timeout", type=int, default=60, help="seconds to wait in total")
+    s.set_defaults(f=cmd_ready)
+    s = sub.add_parser("deliver-secret", help="read JSON {label,value} on stdin and store it in the bot's guest; prints metadata only")
+    s.add_argument("--bot", required=True)
+    s.add_argument("--request-id", required=True)
+    s.set_defaults(f=cmd_deliver_secret)
+    s = sub.add_parser("secret-receipt", help="report whether a request's secret reached the guest, without its value")
+    s.add_argument("--bot", required=True)
+    s.add_argument("--request-id", required=True)
+    s.set_defaults(f=cmd_secret_receipt)
     s = sub.add_parser("capture", help="capture the desktop")
     s.add_argument("--tag")
     s.set_defaults(f=cmd_capture)
