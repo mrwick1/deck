@@ -1,5 +1,9 @@
 # Deck progress and plan
 
+## Installed rendering update: 2026-11-14
+
+Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. The latest protected-input rerun stops at the same-origin Fetch Metadata check tracked by Bare #475, before any value release. Cleanup passed. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
+
 Update this file when a stage or verification step ends.
 
 For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
