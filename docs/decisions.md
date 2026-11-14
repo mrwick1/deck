@@ -698,3 +698,11 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 ### 2026-11-14: keep interactive acceptance open until explicit stop
 
 The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
+
+## UI experience prototype (2026-11-14)
+
+**Decision:** Build the new experience in a separate `prototype.html` entry point. Preserve the existing app as a reference. Use the installed React and Motion dependencies. Start with a bot-centered home, a main composer and bot workspaces with chat, activity and computer views.
+
+**Reason:** The owner approved a new interface with fluid motion and stable layouts. A separate sample-data journey permits review before runtime integration.
+
+**Boundary:** The prototype makes no API requests. Account connection, owner approval, work and results are simulations. State resets on reload. Browser motion, accessibility and layout-shift acceptance remain unverified.

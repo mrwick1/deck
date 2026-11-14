@@ -31,6 +31,7 @@ export default defineConfig({
       },
     }),
   ],
+  build: { rollupOptions: { input: { app: path.resolve(import.meta.dirname, 'index.html'), prototype: path.resolve(import.meta.dirname, 'prototype.html') } } },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     proxy: {
