@@ -40,6 +40,7 @@ max_steps = 30
 # bot_id = "main"
 # runtime_dir = "/path/outside/git/deck-vm"
 # harness = "scripts/vm-prototype/vmproto.py"
+# internet = false # true allows outbound access, including reachable private services
 # idle_secs = 120
 # command_secs = 120
 # lifecycle_secs = 120

@@ -1,5 +1,9 @@
 # Deck progress and plan
 
+## Installed rendering update: 2026-11-14
+
+Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. The installed candidate with draft Bare fixes #479 and #500 passes the complete interactive UI and real-VM synthetic journey. All 45 required gates pass, including the private viewer, inspected images and final restart. Cleanup passed. These browser fixes remain unmerged; bounded evidence and earlier failed runs are retained. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
+
 Update this file when a stage or verification step ends.
 
 For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
@@ -33,6 +37,14 @@ The save result is a warm-cache, one-bot improvement. Concurrent saves, slow sto
 Merged the current main branch into the performance branch. Preserved published decisions D52 and D53. Renumbered the performance decisions to D54 and D55 and updated their references. The conflict affected documentation only.
 
 All 197 prototype Python tests, 28 eval tests and 22 web tests pass. All 135 Rust unit tests and three non-live integration tests pass. Rust formatting and clippy pass. Web type checking and the production build pass. The build retains its bundle-size warning. Live VM, browser and performance experiments were not repeated for this documentation conflict resolution.
+
+## Gmail milestone preparation: 2026-11-13
+
+The first real-account milestone is Gmail: sign in, read one selected test email, download its attachment and retain access after automatic save/wake. Sending and deleting are outside this milestone.
+
+The guest network previously reached only the synthetic fixture. The preparation branch adds explicit `[vm] internet = true`, with the restricted default preserved. Save metadata records the setting. Restore refuses a different setting before starting the guest. See D70.
+
+A fresh private overlay reached the Google sign-in endpoint over HTTPS before and after a real save/restore cycle. Both probes returned HTTP 302. The owned VM stopped after the check. No account credentials were used. This checks guest connectivity and restore, not browser login or Gmail behavior. All 199 Python tests, 136 Rust unit tests and three non-live integration tests pass. Rust formatting and clippy pass. Live browser tests remain ignored.
 
 ## Historical checkpoints
 

@@ -695,6 +695,10 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 **Reason:** A gate can open and close during one capture. A boolean check cannot detect that transition. This refines D63. It adds no routine approval and does not establish universal redaction or real-pixel secrecy.
 
+### 2026-11-14: keep interactive acceptance open until explicit stop
+
+The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
+
 ## D68. Persist the shared browser profile in guest-owned storage (2026-11-14)
 
 **Decision:** The guest browser adapter sets a private state file for `save_state`, `ensure_session` and `open state=`. A validated saved-state name selects the file. The live session label does not select it. One shared profile can retain multiple accounts through a site's account switcher. This adds no per-account browser or profile.
@@ -714,3 +718,11 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Harness:** A run with `--bare-candidate` skips the readiness probe before the candidate is installed. The candidate install keeps its hash and manifest checks and must pass the same probe before any scenario tool. A run without a candidate probes at boot and fails before the scenario on an old browser.
 
 **Evidence boundary:** Tests use fakes only. No guest image changed and nothing deployed. The guest image must contain a compatible browser. Live VM and real-account behavior remain untested.
+
+## D70. Make guest internet access explicit (2026-11-13)
+
+**Decision:** VM mode keeps fixture-only networking by default. Set `[vm] internet = true` to permit outbound access for real sites. The CLI uses `--internet`. This also permits access to reachable private services. It adds no inbound port or host mount.
+
+**Reason:** The first Gmail milestone needs a real site. Synthetic tests must keep their existing restricted network.
+
+**Recovery:** Save metadata records the network policy. Restore refuses a different policy before starting QEMU. Older saved states use the restricted default. Restore with the original setting before changing the policy for a cold boot.
