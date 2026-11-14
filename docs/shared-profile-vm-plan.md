@@ -1,7 +1,7 @@
 # Shared profile real-guest acceptance plan
 
 Date: 2026-11-14.
-Status: the harness is written and unit tested. It has not run in a guest. This document claims no live result.
+Status: the harness is unit tested. Live results are in [shared-profile-vm-results.md](shared-profile-vm-results.md).
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Placeholders: `BASE` is a frozen base `.qcow2` with its `.json` sidecar. `OUT` i
 
 ```sh
 python3 scripts/vm-prototype/shared_profile_e2e.py --base BASE --out OUT \
-  [--fixture-port PORT] [--expect-bare-sha256 SHA] [--timeout 900] [--keep-disk]
+  [--fixture-port PORT] [--expect-bare-sha256 SHA] [--bare-candidate PATH] [--timeout 900] [--keep-disk]
 ```
 
 Exit codes: 0 accepted, 1 not accepted, 2 bad setup (existing `OUT`, long path), 3 host pressure, 4 lock held. Codes 2 to 4 start nothing. Run only when the shared lock is free and the load is under 8.0. Run one VM at a time.
@@ -90,3 +90,14 @@ These are untested until a live run:
 - fixture reachability from the guest at the forwarded address, before and after the wake;
 - `save_vm` and `restore_vm` timings, and that a wake keeps the browser alive;
 - the full server and relay route, real Gmail and any per-site account switcher.
+
+## Pinned browser candidate (optional)
+
+`--bare-candidate PATH` needs `--expect-bare-sha256`. It tests a newer `bare-mcp` than the one in the frozen base. It is a test override, not an image update.
+
+1. Before anything starts, the harness checks that the file is a readable executable regular file with the expected digest. It copies the file to a private `0500` artifact in `OUT/private` and checks the copy. A failure exits 2 and starts nothing. The source is only read.
+2. After the guest boots, the harness stops the one guest `bare-mcp` (its `/proc/<pid>/exe` must be the installed path). It stages the artifact over the guest agent under another name and checks its digest and `ldd`. It renames the file over the installed path, checks the installed digest, starts `bare-session` and waits for readiness.
+3. Gate `bare_candidate_installed_and_ready` is required. An install or readiness failure fails acceptance, and cleanup still runs.
+4. The manifest records the original guest digest, the candidate digest and size, and an override note in the fidelity text.
+
+Production still needs a guest image whose browser matches the adapter. See [shared-profile-vm-results.md](shared-profile-vm-results.md), attempt 3.

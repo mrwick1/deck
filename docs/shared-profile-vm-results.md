@@ -140,3 +140,52 @@ The harness stopped only its registered VM and fixture. The overlay was removed.
 ### Next step
 
 Provide a frozen base whose `bare-mcp` accepts `file` on `open`, or change the adapter and `bare` together. Then run again. Nothing here supports real Gmail.
+
+## Live attempt 3 (source `f0e26fa`): pinned browser candidate, accepted
+
+Date: 2026-11-14.
+Attempt 2 stays as recorded above. Its manifest is kept unchanged in its private directory.
+
+### Setup
+
+The owner allowed a separate lock again. This run used a new lock file, a new output directory and a free fixture port. The shared lock and the other run were not touched. The load guard (8.0) and memory guard (6144 MiB) were unchanged. The run waited about 17 minutes (34 refusals, exit 3, nothing started) until the load average fell below 8.0. At start it was 7.06. At end it was 8.81. Another run was active during this time, so this run makes no performance or memory claim.
+
+```sh
+python3 scripts/vm-prototype/shared_profile_e2e.py --base <frozen base .qcow2 with sidecar> --out <new short private dir> \
+  --lock <new task-owned lock file> --fixture-port <free loopback port> \
+  --bare-candidate <host bare-mcp> --expect-bare-sha256 18488a21c5ede585bd60980e2681ca46e72ad6acd340d468c4b019b9435d42bf
+```
+
+Exit 0 (accepted). Offline suite before the run: 45 tests, 45 passed (the 31 earlier tests and 14 new ones).
+
+### Candidate handling
+
+- The harness checked the candidate (readable executable regular file, expected digest). It then copied it to a private `0500` artifact in the output directory and checked the copy. The host file was only read.
+- In the guest overlay only, it stopped the one `bare-mcp` (its `/proc/<pid>/exe` was the installed path), staged the file under another name, checked its digest and `ldd`, renamed it over `/usr/local/bin/bare-mcp`, checked the installed digest, started `bare-session` and waited for readiness.
+- The frozen base was not modified. Its digest check passed before and after. The standard image is not updated by this run.
+
+### Identities
+
+- Original guest `bare-mcp`: `bc8d33dc325b5b534e73042a81e605a3190827ce77ff33088e0f94e187da7c17`.
+- Installed candidate (actual browser in the run): `18488a21c5ede585bd60980e2681ca46e72ad6acd340d468c4b019b9435d42bf`, 20362312 bytes, ELF x86-64, BuildID `43de293ac9301f0ef89b2c2341b36b4a85749a05`, rustc 1.96.0. Needs `libxkbcommon`, `libgcc_s`, `libm`, `libc`. The guest `ldd` found them.
+- Guest adapter `bare-call`: `0a0a05d0a79722fa631dbd19291c74e31ce5c8f09c96ac568bbbb29cdefe64aa`, equal to the candidate adapter.
+- Harness: `1d4747cfc471a3ff5d358096686744a0893ecf1f9d2c80e1187f2b1e652d419a`. Base id `a90de2e085a7ad52`.
+- Provenance limit: the candidate is the host binary in use on this machine. This task did not rebuild it from a known source commit or release. The private pinned copy is the only record. Do not call it a release.
+
+### Gate results
+
+All 15 required gates passed: `base_frozen_and_verified`, `bare_candidate_installed_and_ready`, `guest_adapter_hash_equals_candidate`, `bare_mcp_sha256_equals_expected`, `both_accounts_signed_in_together`, `alternating_identity_before_save`, `one_bare_main_session_one_cookie_record`, `state_private_dir_and_file_0600`, `state_saved_with_cookie_record`, `mcp_restart_new_process`, `restore_from_disk_and_switch_both`, `vm_wake_same_boot_and_profile`, `no_duplicate_fixture_effects`, `base_unchanged`, `no_owned_process_left`. `acceptance_complete` passed.
+
+- One `main` session held both accounts. The service held one record, one login for A and one for B.
+- After a new `bare-mcp` process, `open state=` restored both accounts from the file, and A, B, A switched in one session.
+- The VM save took 4.1 s and the wake 1.4 s. The boot id, `bare-mcp` pid and memory marker were the same, and the state file was unchanged. Both accounts still switched.
+- No registered process survived. The overlay and the task-owned lock file were removed.
+
+### Product and harness conclusion
+
+No harness correction was needed beyond the candidate install. The failure in attempt 2 was a browser version mismatch: the guest `bare-mcp` lacked `open` argument `file`. With a `bare-mcp` that has it, the flow passes in a real guest.
+Production support still needs a guest image whose `bare-mcp` matches the adapter. This run does not update that image.
+
+### Not tested
+
+Real Gmail, the deck server and host executor relay, a model, tool schemas, the provisioning route, memory use and performance with a single VM, and a reproducible build of the candidate.
