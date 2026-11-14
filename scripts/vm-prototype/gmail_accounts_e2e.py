@@ -6,6 +6,7 @@ Staged, because a real sign-in needs a person to look at each page:
                vault accounts as protected guest secrets. The guest stays running. Every failed gate stops
                the run and cleans up what it started, before any secret is delivered where possible.
   call         run one bare tool through the guest entrypoint. Output is sanitized. See "Mailbox boundary".
+  controls     print counts of header controls (numbers only, no text) to find the account-control selector.
   identity     report which account (A, B, other, ambiguous, blocked, unknown) the open Gmail page shows.
   switch       open /mail/u/<index>/ and report whether the verified identity is the wanted account.
   restart-mcp  close the browser session and restart the owned guest bare-mcp (after save_state).
@@ -122,6 +123,36 @@ def classify(raw, accounts):
     else:
         ident = known.get(next(iter(found)), "other")
     return {"identity": ident, "host_class": hc}
+
+
+CONTROL_COUNTS = {"all": "*", "a": "a", "aria_label": "[aria-label]", "aria_at": '[aria-label*="@"]', "label_google_account": '[aria-label*="Google Account"]',
+                  "signout_href": 'a[href*="SignOutOptions"]', "header": "header", "banner": '[role="banner"]', "main": '[role="main"]',
+                  "iframe": "iframe", "input": "input"}  # fixed list: the probe returns numbers, never text
+
+
+def controls_js():
+    parts = ", ".join(f"{k}: document.querySelectorAll({json.dumps(v)}).length" for k, v in CONTROL_COUNTS.items())
+    return ("JSON.stringify({host: location.hostname, proto: location.protocol, ready: document.readyState,"
+            " u_path: /^\\/mail\\/u\\/[0-9]+\\//.test(location.pathname), counts: {" + parts + "}})")
+
+
+def classify_controls(raw):
+    """host class and the whitelisted integer counts, on the mailbox over https only. Never any other key or text."""
+    try:
+        d = json.loads(raw)
+        if isinstance(d, str):
+            d = json.loads(d)
+    except (TypeError, ValueError):
+        return {"host_class": "unknown"}
+    if not isinstance(d, dict):
+        return {"host_class": "unknown"}
+    hc = host_class(d.get("host")) if d.get("proto") == "https:" else "unknown"
+    if hc != "mailbox":
+        return {"host_class": hc}
+    c = d.get("counts") if isinstance(d.get("counts"), dict) else {}
+    ready = d.get("ready") if d.get("ready") in ("loading", "interactive", "complete") else "unknown"
+    return {"host_class": hc, "ready": ready, "u_path": d.get("u_path") is True,
+            "counts": {k: c[k] for k in CONTROL_COUNTS if isinstance(c.get(k), int) and not isinstance(c.get(k), bool)}}
 
 
 def delivery_plan(creds):
@@ -294,6 +325,8 @@ def cmd_up(a):
             need(m, "both_accounts_delivered_as_protected_secrets", len(m["secrets_delivered"]) == 4 and all(m["secrets_delivered"].values()))
         except BaseException as x:  # noqa: BLE001 - every failure cleans up; only stable text is reported
             m["error"] = error_text(x)
+            if isinstance(x, RuntimeError) and "secrets_delivered" not in m:  # nothing was sent yet: show the reason, scrubbed
+                m["error"] += ": " + sanitize(str(x), {k: c[0] for k, c in creds.items()}, [c[1] for c in creds.values()], 200)
             print(f"FAILED: {m['error']}", file=sys.stderr)
             env.a.keep_disk = False  # no authenticated state exists yet
             try:
@@ -394,6 +427,13 @@ def cmd_identity(a):
     return 0 if r["identity"] in ("A", "B") else 1
 
 
+def cmd_controls(a):
+    env = attach(a)
+    err, text = env.call("eval", js=controls_js())
+    print(json.dumps({"host_class": "unknown"} if err else classify_controls(text)))
+    return 0
+
+
 def cmd_switch(a):
     env = attach(a)
     items, selector = read_refs(a)
@@ -448,6 +488,7 @@ def parse(argv=None):
     c.add_argument("tool")
     c.add_argument("args", nargs="?", default="{}")
     sub.add_parser("identity")
+    sub.add_parser("controls")
     s = sub.add_parser("switch")
     s.add_argument("--to", required=True, choices=("A", "B"))
     s.add_argument("--index", required=True, type=int, choices=range(10), help="Gmail /mail/u/<index>/ to open. The identity check decides success")
@@ -461,7 +502,7 @@ def parse(argv=None):
     return a
 
 
-COMMANDS = {"up": cmd_up, "call": cmd_call, "identity": cmd_identity, "switch": cmd_switch, "restart-mcp": cmd_restart, "down": cmd_down}
+COMMANDS = {"up": cmd_up, "call": cmd_call, "identity": cmd_identity, "controls": cmd_controls, "switch": cmd_switch, "restart-mcp": cmd_restart, "down": cmd_down}
 
 
 def main(argv=None):

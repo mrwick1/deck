@@ -313,6 +313,13 @@ class UpScenario(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(self.env.cleaned, 1)
 
+    def test_pre_delivery_runtime_error_shows_a_sanitized_reason(self):
+        rc, out, err = self.run_up(boom=RuntimeError(f"qga exec failed {SECRET} first.user@gmail.com"))
+        self.assertEqual(rc, 1)
+        self.assertIn("qga exec failed", out + err)
+        self.assertNotIn(SECRET, out + err)
+        self.assertNotIn("first.user@gmail.com", out + err)
+
     def test_systemexit_from_the_vm_layer_is_controlled(self):
         rc, _, _ = self.run_up(boom=SystemExit(f"qemu died {SECRET}"))
         self.assertEqual(rc, 1)
@@ -547,6 +554,26 @@ class OutputBoundary(unittest.TestCase):
             rc, out, _ = run_captured(g.main, self.argv + ["identity"])
         self.assertEqual(json.loads(out)["identity"], "blocked")
         self.assertNotEqual(rc, 0)
+
+    def test_controls_prints_only_whitelisted_counts_and_never_text(self):
+        raw = json.dumps({"host": "mail.google.com", "proto": "https:", "ready": "complete", "u_path": True,
+                          "counts": {"all": 900, "aria_label": 40, "aria_at": 1, "label_google_account": 1, "title": "INBOX first.user@gmail.com"},
+                          "text": "INBOX secret subject first.user@gmail.com", "extra": 5})
+        env = FakeCallEnv([], identity=[(False, raw)])
+        rc, out, err = self.run_cmd(env, "controls")
+        d = json.loads(out)
+        self.assertEqual(d["host_class"], "mailbox")
+        self.assertEqual(d["counts"], {"all": 900, "aria_label": 40, "aria_at": 1, "label_google_account": 1})
+        self.assertNotIn("INBOX", out + err)
+        self.assertNotIn("first.user", out + err)
+        self.assertNotIn("text", d)
+
+    def test_controls_on_another_host_or_probe_error_shows_nothing(self):
+        for probe in ((False, json.dumps({"host": "accounts.google.com", "proto": "https:", "counts": {"all": 3}})), (True, "INBOX x")):
+            env = FakeCallEnv([], identity=[probe])
+            rc, out, err = self.run_cmd(env, "controls")
+            self.assertNotIn("counts", json.loads(out))
+            self.assertNotIn("INBOX", out + err)
 
     # switch
     def test_switch_navigates_by_index_and_succeeds_only_when_identity_is_verified(self):
