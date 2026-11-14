@@ -266,10 +266,14 @@ class Mcp:
         self.q = queue.Queue()
         threading.Thread(target=lambda: [self.q.put(l) for l in self.p.stdout], daemon=True).start()
         self.n = 0
-        self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                "clientInfo": {"name": "multi-test", "version": "1"}})
-        self.p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
-        self.p.stdin.flush()
+        try:
+            self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                    "clientInfo": {"name": "multi-test", "version": "1"}})
+            self.p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            self.p.stdin.flush()
+        except BaseException:
+            self.stop()
+            raise
 
     def rpc(self, method, params):
         self.n += 1
@@ -308,6 +312,17 @@ class Mcp:
         self.p.wait(timeout=10)
         self.p.stdin.close()
         self.p.stdout.close()
+
+
+class HarnessCleanup(unittest.TestCase):
+    def test_failed_initialize_stops_the_owned_process(self):
+        with mock.patch.object(Mcp, "rpc", side_effect=TimeoutError("no handshake")), mock.patch.object(Mcp, "stop") as stop:
+            process = mock.Mock()
+            process.stdout = iter(())
+            with mock.patch.object(subprocess, "Popen", return_value=process):
+                with self.assertRaises(TimeoutError):
+                    Mcp()
+            stop.assert_called_once()
 
 
 class Prep:

@@ -694,3 +694,13 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Store a per-bot privacy generation with the gate-open transaction. Keep it after the gate closes. Sample the gate and generation together before and after capture. Discard a frame if the gate is open or the generation changed. Refuse a cached frame from an older generation.
 
 **Reason:** A gate can open and close during one capture. A boolean check cannot detect that transition. This refines D63. It adds no routine approval and does not establish universal redaction or real-pixel secrecy.
+
+## D68. Persist the shared browser profile in guest-owned storage (2026-11-14)
+
+**Decision:** The guest browser adapter sets a private state file for `save_state`, `ensure_session` and `open state=`. A validated saved-state name selects the file. The live session label does not select it. One shared profile can retain multiple accounts through a site's account switcher. This adds no per-account browser or profile.
+
+**Storage:** Keep the state under the guest user's `.local/state/deck/browser` directory. Reject unsafe names, linked or foreign directories, and unsafe existing files. Preserve valid files. Bare creates state files with private permissions.
+
+**Reason:** The guest adapter previously passed no state file. A browser process restart lost saved state held only in memory. The host state directory does not apply to the guest relay.
+
+**Evidence boundary:** The adapter and live synthetic tests pass. One browser session retains two synthetic accounts after a process restart. Actual Gmail switching, guest execution and VM recovery remain separate acceptance gates. No memory-saving claim follows.
