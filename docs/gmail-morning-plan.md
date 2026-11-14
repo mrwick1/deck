@@ -2,7 +2,7 @@
 
 ## Goal
 
-Deliver one morning briefing from one bot across multiple Gmail accounts. Identify threads that need a reply, urgent items, other actions and low-priority information. Group results by priority and show an account label and source-thread link for each item. Explain why a reply or action is needed. Distinguish explicit deadlines from inferred urgency.
+Deliver one morning briefing from one bot across multiple Gmail accounts. Use one browser session and Gmail account switching. Do not create a separate browser or isolated session per account. Identify threads that need a reply, urgent items, other actions and low-priority information. Group results by priority and show an account label and source-thread link for each item. Explain why a reply or action is needed. Distinguish explicit deadlines from inferred urgency.
 
 Apply triage labels in the correct account. Do not archive mail. Do not send, delete or perform other mailbox changes as part of this milestone. Preserve existing labels. Confirm the label names before the real trial.
 
@@ -19,13 +19,13 @@ Report each account as complete, partial or blocked. State the covered time wind
 
 ## Delivery order and checks
 
-### 1. Prove account isolation in one bot
+### 1. Prove account switching in one browser session
 
-Inspect the guest browser session model before selecting storage changes. Reuse existing session support where it provides isolation. Bind each account to a stable internal identifier, a display label and a private session reference. Verify the signed-in identity before reading or acting. Never infer identity from tab order or a Gmail account index alone. Keep credentials and account details outside Git.
+Inspect the guest browser session model and Gmail account-switching flow before selecting changes. Use one shared browser session for all connected accounts. Bind each account to a stable internal identifier and display label. Preserve the shared login state. Verify the signed-in identity before reading or acting. Never infer identity from tab order or a Gmail account index alone. Keep credentials and account details outside Git.
 
-Check two fixture accounts in the same bot computer. Give them distinct messages and overlapping thread identifiers. Switch between them repeatedly. Restart the service, save and wake the computer, and restart the browser. Verify that each account retains its own session and results. Expire one login and prove that the other account still completes. Refuse mismatched identity. Write a failing regression before fixing any defect.
+Check two fixture accounts through a switcher in the same browser session and bot computer. Give them distinct messages and overlapping thread identifiers. Switch between them repeatedly. Restart the service, save and wake the computer, and restart the browser. Verify that the shared session retains both signed-in identities and routes results to the correct account. Expire one login and prove that the other account still completes. Refuse mismatched identity. Write a failing regression before fixing any defect.
 
-**Gate:** Two isolated accounts work in one bot. No cross-account results or credentials appear. Record each recovery mode separately.
+**Gate:** Two accounts work through switching in one browser session. No result or label action is attributed to the wrong account. Record each recovery mode separately.
 
 ### 2. Produce and grade the briefing on demand
 
@@ -41,7 +41,7 @@ Read label state back after each change. Test a lost response after a successful
 
 Use protected input and bare only. Keep account identities, messages, captures and evaluation results private. Test initial sign-in, phone approval, saved sessions and account-specific reauthentication. Run the briefing on demand before enabling the morning trigger. Compare its findings with the owner's inbox review.
 
-**Gate:** One real-model run covers both accounts correctly. A subsequent run reuses both sessions. One expired account produces a partial briefing and a durable request for help without blocking the other.
+**Gate:** One real-model run switches between both accounts correctly in one browser session. A subsequent run restores the shared login state. Test the actual scope of logout and reauthentication; do not assume they affect only one account. Continue other-account work only when its authenticated state is verified. Otherwise report the shared-session blocker.
 
 ### 4. Run once each morning
 

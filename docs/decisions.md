@@ -698,7 +698,7 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 ## D67. Prove one morning-summary bot across multiple Gmail accounts (2026-11-14)
 
-**Decision:** Make a morning briefing the first daily-use goal. One bot manages multiple Gmail accounts on its computer. It identifies mail that needs a reply and triages the remaining mail. Keep account identity and login state separate. Show the account for every result. A blocked account must not stop independent work on other accounts.
+**Decision:** Make a morning briefing the first daily-use goal. One bot manages multiple Gmail accounts on its computer. It identifies mail that needs a reply and triages the remaining mail. Use one browser session with Gmail account switching. Keep account identity and task results distinct within the shared login state. Do not create a separate browser or isolated session per account. Show the account for every result. A blocked account must not stop independent work on other accounts.
 
 **Delivery:** Validate two accounts first. Preserve the earlier full-mail tasks as later acceptance work. Record failures as sanitized, deduplicated GitHub issues for a separate fixing agent. Keep browser failures in bare. Verify the affected task after a fix before clearing its blocker. Existing review and browser-update rules still apply.
 

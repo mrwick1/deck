@@ -4,11 +4,11 @@ Work in `deck` follows success criteria. The owner sets one criterion at a time.
 
 ## SC1. One morning-summary bot across multiple Gmail accounts
 
-The owner selected this first delivery goal on 2026-11-14. One bot must cover multiple Gmail accounts. A separate bot per account does not meet the goal.
+The owner selected this first delivery goal on 2026-11-14. One bot must cover multiple Gmail accounts. Use one browser session and Gmail account switching. A separate bot or isolated browser session per account does not meet the goal.
 
 **Output:** One morning briefing identifies mail that needs a reply, urgent items, other actions and low-priority information. Each item names its account and links to its source thread. The briefing states coverage and lists blocked accounts.
 
-**Proof:** Start with two isolated synthetic accounts in one bot computer. Then run private acceptance with at least two real Gmail accounts and the real model through bare. Verify account identity, login persistence, summary accuracy and recovery independently of the bot's claims.
+**Proof:** Start with two synthetic accounts and an account switcher in one browser session on one bot computer. Then run private acceptance with at least two real Gmail accounts and the real model through bare. Verify account identity, login persistence, summary accuracy and recovery independently of the bot's claims.
 
 **Pass rule:** Both accounts appear correctly in one briefing. A blocked login does not prevent the other account's briefing. Restart and duplicate trigger checks produce no duplicate briefing. Private mail and credentials never enter public issues. The daily trial must meet the acceptance gates in [the delivery plan](gmail-morning-plan.md). No acceptance pass is claimed yet.
 
