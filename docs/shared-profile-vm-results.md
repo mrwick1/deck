@@ -39,9 +39,9 @@ Exit 0. 15 tests ran. 4 live tests were skipped because `DECK_LIVE_BARE` was not
 | VM save and wake, same boot, no duplicate fixture action | not tested |
 | Full host and API route | not tested |
 
-## To run later
+## Preparation at the first blocked checkpoint
 
-Run when the lock is free and the load is under 8.0. The harness is not written yet. Reuse `Stack`, `take_lock`, `create_overlay`, `install_executor` and `save_vm` / `restore_vm`. Serve the `Service` fixture on the host loopback. The guest reaches it at the forwarded fixture address. Keep the browser restart and the VM save and wake as separate steps. Do not label the fixture as Google evidence.
+At this checkpoint, the harness was not written yet. The later attempt below uses the completed harness. Run when the lock is free and the load is under 8.0. Reuse `Stack`, `take_lock`, `create_overlay`, `install_executor` and `save_vm` / `restore_vm`. Serve the `Service` fixture on the host loopback. The guest reaches it at the forwarded fixture address. Keep the browser restart and the VM save and wake as separate steps. Do not label the fixture as Google evidence.
 
 ## Live attempt 1 (harness at `100d3f2`): lock held, nothing started
 
