@@ -694,3 +694,7 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 **Decision:** Store a per-bot privacy generation with the gate-open transaction. Keep it after the gate closes. Sample the gate and generation together before and after capture. Discard a frame if the gate is open or the generation changed. Refuse a cached frame from an older generation.
 
 **Reason:** A gate can open and close during one capture. A boolean check cannot detect that transition. This refines D63. It adds no routine approval and does not establish universal redaction or real-pixel secrecy.
+
+### 2026-11-14: keep interactive acceptance open until explicit stop
+
+The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.

@@ -634,6 +634,7 @@ class RealStack(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             plan = json.loads(r.stdout)
             self.assertIn("serve", plan["start_command"])
+            self.assertNotIn("--wait", plan["start_command"], "interactive acceptance must allow the final restart and evidence before /stop")
             self.assertFalse(out.exists())
 
 

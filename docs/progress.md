@@ -1,5 +1,9 @@
 # Deck progress and plan
 
+## Installed rendering update: 2026-11-14
+
+Bare PRs #511 and #517 are merged and installed. Real phone-width buttons now render visibly. The installed candidate with draft Bare fixes #479 and #500 passes the complete interactive UI and real-VM synthetic journey. All 45 required gates pass, including the private viewer, inspected images and final restart. Cleanup passed. These browser fixes remain unmerged; bounded evidence and earlier failed runs are retained. See [the installed rendering report](installed-rendering-results.md). Earlier checkpoints below retain their original source and limits.
+
 Update this file when a stage or verification step ends.
 
 For ongoing unattended-bot implementation, read [the implementation handoff](unattended-progress.md). It lists the six agents, integrated commits, current checks and remaining work.
