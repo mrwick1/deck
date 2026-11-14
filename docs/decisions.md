@@ -729,6 +729,6 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 
 **Decision:** Use the existing shadcn/Radix controls, Vaul sheets, Motion transitions and assistant-ui chat renderer for the redesign. Start with mobile layouts. Cover every screen, input, selection, loading state and message-send transition. Retain reduced-motion support and real backend behavior.
 
-**Review gate:** The owner requested one GPT Sol Medium review and one Opus 5.5 review of every screen before design finalization. Record findings and fixes per screen. Do not claim native-device performance from viewport simulation.
+**Review gate:** The owner requested two rounds for each screen. GPT Sol Medium and Opus 5.5 both review each round. Exchange their first-round feedback before the second round. Complete Home before mobile navigation, mobile use and the remaining screens. Record findings and fixes per screen. Do not claim native-device performance from viewport simulation.
 
 **Reason:** The owner made a fluid mobile experience the main priority and expanded the work from Home to the complete flow.

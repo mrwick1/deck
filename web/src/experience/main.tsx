@@ -2,12 +2,15 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { motion, MotionConfig } from "motion/react";
 import { ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, House, Mail, MessageCircle, Monitor, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { WaitPanel } from "../components/SetupWait";
 import * as api from "../lib/api";
 import { describeBot } from "../lib/bot";
-import { HomeStart } from "./HomeStart";
+import { Button } from "../components/ui/button";
+import { Textarea } from "../components/ui/textarea";
+import { ChoiceSheet } from "./ChoiceSheet";
+import { HomeStart, HomeLoading } from "./HomeStart";
 import { Chat } from "./Chat";
 import { Computer } from "./Computer";
 import { Requests, useRequests } from "./Requests";
@@ -24,18 +27,30 @@ const readRoute = () => location.hash.slice(1) || "home";
 function App() {
   const data = useWorkspace();
   const [route, setRoute] = useState(readRoute);
+  const navigationEpoch = useRef(0);
+  const [acceptedSetups, setAcceptedSetups] = useState<api.SetupRecord[]>([]);
+  const rows = [...data.rows, ...acceptedSetups.filter(row => !data.rows.some(saved => saved.setup.id === row.setup.id))];
+  useEffect(() => { setAcceptedSetups(previous => previous.filter(row => !data.rows.some(saved => saved.setup.id === row.setup.id))); }, [data.rows]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const scrolls = useRef(new Map<string, number>());
   const [destination, setDestination] = useState("new");
-  useEffect(() => { if (data.loaded && !data.enabled) setDestination(current => current === "new" ? "chat" : current); }, [data.loaded, data.enabled]);
+  useEffect(() => { if (data.hasData && !data.enabled) setDestination(current => current === "new" ? "chat" : current); }, [data.hasData, data.enabled]);
   const [busy, setBusy] = useState(false);
   const guard = useRef(false);
   const [error, setError] = useState("");
-  useEffect(() => { const changed = () => { setRoute(readRoute()); setError(""); }; window.addEventListener("hashchange", changed); return () => window.removeEventListener("hashchange", changed); }, []);
-  const navigate = (value: string) => { location.hash = value; setRoute(value); setError(""); };
+  useEffect(() => { const changed = () => { navigationEpoch.current++; setRoute(readRoute()); setError(""); }; window.addEventListener("hashchange", changed); return () => window.removeEventListener("hashchange", changed); }, []);
+  const navigate = (value: string) => { navigationEpoch.current++; location.hash = value; setRoute(value); setError(""); };
+  useEffect(() => {
+    if (!data.hasData) return;
+    const frame = requestAnimationFrame(() => {
+      const heading = document.querySelector<HTMLElement>(".app h1, .app main h2");
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [route, data.hasData]);
   const draft = (key: string) => drafts[key] ?? "";
   const put = (key: string, value: string) => setDrafts(previous => ({ ...previous, [key]: value }));
-  const fresh = data.loaded && !data.error;
+  const fresh = data.hasData && !data.error;
   const run = async (action: () => Promise<void>) => {
     if (guard.current || !fresh) return;
     guard.current = true; setBusy(true); setError("");
@@ -45,47 +60,59 @@ function App() {
   };
   const propose = (targetDestination = destination) => run(async () => {
     const job = draft("home").trim(); if (!job) return;
+    const epoch = navigationEpoch.current, origin = readRoute();
+    const clearSentDraft = () => setDrafts(previous => previous.home?.trim() === job ? { ...previous, home: "" } : previous);
+    const complete = (path: string, message: string) => {
+      clearSentDraft();
+      if (navigationEpoch.current === epoch && readRoute() === origin) navigate(path);
+      else toast.success(message, { action: { label: "Open", onClick: () => navigate(path) } });
+    };
     if (targetDestination === "new") {
-      const row = await api.createSetup(job); await data.refresh(); put("home", ""); navigate(`setup/${encodeURIComponent(row.setup.id)}`);
+      const row = await api.createSetup(job);
+      setAcceptedSetups(previous => [...previous.filter(item => item.setup.id !== row.setup.id), row]);
+      complete(`setup/${encodeURIComponent(row.setup.id)}`, "Setup draft created. Ready for review.");
+      void data.refresh();
     } else if (targetDestination === "chat") {
       put("chat/new", job); put("home", ""); navigate("chat/new");
     } else {
       const target = destinationOptions(data.rows).find(item => item.id === targetDestination) ?? data.bots.filter(item => item.bot_id === targetDestination).map(item => ({ chatId: item.chat_id }))[0];
       if (!target) throw new Error("This bot is not ready. Refresh before sending.");
-      await api.sendMessage(target.chatId, job, { mode: "queue" }); put("home", ""); await data.refresh(); navigate(`bot/${encodeURIComponent(targetDestination)}`);
+      await api.sendMessage(target.chatId, job, { mode: "queue" });
+      complete(`bot/${encodeURIComponent(targetDestination)}`, "Task received by the bot");
+      void data.refresh();
     }
   });
   const split = route.indexOf("/");
   const page = split < 0 ? route : route.slice(0, split);
   let id = "";
   try { id = split < 0 ? "" : decodeURIComponent(route.slice(split + 1)); } catch { id = ""; }
-  const row = data.rows.find(item => item.setup.id === id);
+  const row = rows.find(item => item.setup.id === id);
   const status = data.bots.find(item => item.bot_id === id);
-  const names = new Map(data.rows.map(item => [item.setup.id, item.setup.draft.name]));
-  const waiting = data.rows.filter(item => item.setup.wait || item.phase === "Investigate" || item.phase === "Exhausted");
+  const names = new Map(rows.map(item => [item.setup.id, item.setup.draft.name]));
+  const waiting = rows.filter(item => item.setup.wait || item.phase === "Investigate" || item.phase === "Exhausted");
   const attention = data.bots.filter(item => item.waiting || item.budget_hold || item.unresolved || item.ceiling_request);
   const results = data.bots.flatMap(bot => bot.tasks.filter(task => task.state === "done").map(task => ({ bot, task }))).slice(0, 8);
   const openBot = (botId: string) => navigate(`bot/${encodeURIComponent(botId)}`);
   const openSetup = (item: api.SetupRecord) => navigate(`${item.runtime_ready ? "bot" : "setup"}/${encodeURIComponent(item.setup.id)}`);
-  const bots = [...data.rows.map(item => ({ id: item.setup.id, name: item.setup.draft.name, row: item, status: data.bots.find(bot => bot.bot_id === item.setup.id) })), ...data.bots.filter(bot => !names.has(bot.bot_id)).map(bot => ({ id: bot.bot_id, name: "Default bot", row: undefined, status: bot }))];
-  const firstHome = page === "home" && data.loaded && data.enabled && !bots.length;
+  const bots = [...rows.map(item => ({ id: item.setup.id, name: item.setup.draft.name, row: item, status: data.bots.find(bot => bot.bot_id === item.setup.id) })), ...data.bots.filter(bot => !names.has(bot.bot_id)).map(bot => ({ id: bot.bot_id, name: "Default bot", row: undefined, status: bot }))];
+  const firstHome = page === "home" && data.hasData && data.enabled && !bots.length;
   return <MotionConfig reducedMotion="user" transition={{ duration: .18, ease: [0.22, 1, 0.36, 1] }}><TooltipProvider><div className="shell compact experience">
     <aside className="rail"><button className="brand" onClick={() => navigate("home")}>deck</button><button aria-label="Home" onClick={() => navigate("home")}><House size={18}/></button><button aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button></aside>
     <div className="app">
-      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back to home" onClick={() => navigate("home")}><ArrowLeft size={18}/></button><h1>{page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : "Chat with Deck"}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={() => { void data.refresh(); }}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
-      {(data.error || error) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
-      {!data.loaded ? <main className="content"><p role="status">Loading your workspace…</p></main> : <>
+      {page !== "bot" && !firstHome && data.hasData && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back to home" onClick={() => navigate("home")}><ArrowLeft size={18}/></button><h1>{page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : "Chat with Deck"}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={() => { void data.refresh(); }}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
+      {(data.hasData && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
+      {!data.hasData ? <HomeLoading error={data.error} retry={() => { void data.refresh(); }}/> : <>
         {firstHome && <HomeStart draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh} busy={busy} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: () => { void data.refresh(); } }]} />}
         {(page === "home" || page === "new") && !firstHome && <>
           <main className="content" key={page} ref={element => { if (element) element.scrollTop = scrolls.current.get(page) ?? 0; }} onScroll={event => scrolls.current.set(page, event.currentTarget.scrollTop)}>
             {page === "new" ? <section className="new-job"><h2>What should this bot do?</h2><p>Describe the job below. You’ll review the setup before a computer is created.</p><p className="fine-print">Do not put credentials in this description.</p></section> : <>
-              <div className="section-heading"><h2>Your workspace</h2><button className="text-button" disabled={!data.enabled || !fresh} onClick={() => { setDestination("new"); navigate("new"); }}><Plus size={18}/> New bot</button></div>
-              {(waiting.length > 0 || attention.length > 0) && <section aria-label="Needs you" className="attention-list"><h2>Needs you</h2>{waiting.map(item => <button className="attention" key={item.setup.id} onClick={() => openSetup(item)}><span><strong>{item.setup.draft.name}</strong><small>{item.setup.wait ? "Sign-in needs your help" : item.phase === "Investigate" ? "An outcome needs investigation" : "Setup attempts exhausted"}</small></span><ChevronRight size={18}/></button>)}{attention.filter(bot => !waiting.some(item => item.setup.id === bot.bot_id)).map(bot => <button className="attention" key={bot.bot_id} onClick={() => navigate(`bot/${encodeURIComponent(bot.bot_id)}?requests`)}><span><strong>{names.get(bot.bot_id) ?? "Default bot"}</strong><small>{describeBot(bot).label}</small></span><ChevronRight size={18}/></button>)}</section>}
-              <section aria-label="Your bots" className="bot-list">{bots.map(item => <button key={item.id} className="bot-list-row" onClick={() => item.row ? openSetup(item.row) : openBot(item.id)}><span className="bot-icon"><Mail size={18}/></span><span className="bot-row-copy"><strong>{item.name}</strong><span>{item.status?.working?.title ?? item.row?.setup.draft.instructions ?? "Ready for a task"}</span><small><span className="status-dot"/>{item.status ? describeBot(item.status).label : item.row?.phase === "Draft" ? "Review setup" : item.row?.phase ?? "Not ready"}{item.status?.queued ? ` · ${item.status.queued} queued` : ""}</small></span><ChevronRight size={18}/></button>)}{!bots.length && <div className="empty-result"><p>No bots yet. Describe a job below to create one.</p>{!data.enabled && <p>Bot creation is not configured on this server. You can still chat with Deck.</p>}</div>}</section>
-              <section className="results"><div className="section-heading"><h2>Recent results</h2></div>{results.map(({ bot, task }) => <button className="result-row" key={task.id} onClick={() => openBot(bot.bot_id)}><Check size={18}/><span><strong>{task.title}</strong><small>{names.get(bot.bot_id) ?? "Default bot"} · Open conversation</small></span><ChevronRight size={18}/></button>)}{!results.length && <p className="empty-result">Completed work will appear here</p>}</section>
+              <div className="section-heading"><h2>Your workspace</h2><Button className="text-button" disabled={!data.enabled || !fresh} onClick={() => { setDestination("new"); navigate("new"); }}><Plus size={18}/> New bot</Button></div>
+              {(waiting.length > 0 || attention.length > 0) && <section aria-label="Needs you" className="attention-list"><h2>Needs you</h2>{waiting.map(item => <Button className="attention" key={item.setup.id} onClick={() => openSetup(item)}><span><strong>{item.setup.draft.name}</strong><small>{item.setup.wait ? "Sign-in needs your help" : item.phase === "Investigate" ? "An outcome needs investigation" : "Setup attempts exhausted"}</small></span><ChevronRight size={18}/></Button>)}{attention.filter(bot => !waiting.some(item => item.setup.id === bot.bot_id)).map(bot => <Button className="attention" key={bot.bot_id} onClick={() => navigate(`bot/${encodeURIComponent(bot.bot_id)}?requests`)}><span><strong>{names.get(bot.bot_id) ?? "Default bot"}</strong><small>{describeBot(bot).label}</small></span><ChevronRight size={18}/></Button>)}</section>}
+              <section aria-label="Your bots" className="bot-list">{bots.map(item => <Button key={item.id} className="bot-list-row" onClick={() => item.row ? openSetup(item.row) : openBot(item.id)}><span className="bot-icon"><Mail size={18}/></span><span className="bot-row-copy"><strong>{item.name}</strong><span>{item.status?.working?.title ?? item.row?.setup.draft.instructions ?? "Ready for a task"}</span><small><span className="status-dot"/>{item.status ? describeBot(item.status).label : item.row?.phase === "Draft" ? "Review setup" : item.row?.phase ?? "Not ready"}{item.status?.queued ? ` · ${item.status.queued} queued` : ""}</small></span><ChevronRight size={18}/></Button>)}{!bots.length && <div className="empty-result"><p>No bots yet. Describe a job below to create one.</p>{!data.enabled && <p>Bot creation is not configured on this server. You can still chat with Deck.</p>}</div>}</section>
+              {results.length > 0 && <section className="results"><div className="section-heading"><h2>Recent results</h2></div>{results.map(({ bot, task }) => <Button className="result-row" key={task.id} onClick={() => openBot(bot.bot_id)}><Check size={18}/><span><strong>{task.title}</strong><small>{names.get(bot.bot_id) ?? "Default bot"} · Open conversation</small></span><ChevronRight size={18}/></Button>)}{!results.length && <p className="empty-result">Completed work will appear here</p>}</section>}
             </>}
           </main>
-          <form className="compact-composer" onSubmit={event => { event.preventDefault(); void propose(); }}><div className="composer-context"><span>To Deck</span><select aria-label="Task destination" value={destination} onChange={event => setDestination(event.target.value)}><option value="new" disabled={!data.enabled}>Create a bot</option><option value="chat">Chat with Deck</option>{bots.filter(item => item.status).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div className="composer-input"><textarea maxLength={20000} rows={1} aria-label="Describe a job" placeholder={destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft("home")} onChange={event => put("home", event.target.value)}/><button className="send" aria-label="Continue" disabled={busy || !fresh || !draft("home").trim() || (destination === "new" && !data.enabled)}><ArrowUp size={18}/></button></div></form>
+          <form className="compact-composer" onSubmit={event => { event.preventDefault(); void propose(); }}><div className="composer-context"><span>To Deck</span><ChoiceSheet label="Task destination" value={destination} disabled={busy || !fresh} onChange={setDestination} options={[{ value: "new", label: "Create a bot", disabled: !data.enabled }, { value: "chat", label: "Chat with Deck" }, ...bots.filter(item => item.status).map(item => ({ value: item.id, label: item.name }))]}/></div><div className="composer-input"><Textarea maxLength={20000} rows={1} aria-label="Describe a job" placeholder={destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft("home")} onChange={event => put("home", event.target.value)}/><Button className="send" aria-label="Continue" disabled={busy || !fresh || !draft("home").trim() || (destination === "new" && !data.enabled)}><ArrowUp size={18}/></Button></div><p className="home-send-status" role="status">{busy ? destination === "new" ? "Preparing your setup…" : "Sending your task…" : ""}</p></form>
         </>}
         {page === "history" && <main className="content"><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button><div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" onClick={() => chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`)}><MessageCircle size={18}/><span>{chat.title || "Untitled conversation"}</span><ChevronRight size={18}/></button>)}</div></main>}
         {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <Chat key={route} id={id === "new" ? null : Number(id)} bot={false} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={chatId => { navigate(`chat/${chatId}`); }} refresh={data.refresh} scrolls={scrolls.current} scope={route}/>}

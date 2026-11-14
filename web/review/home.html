@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"><title>Deck Home fixture</title></head><body><div id="root"></div>
+<script>
+// Development-only fixture. All API traffic stays in memory. No real backend is used.
+const mode = new URLSearchParams(location.search).get('mode') || 'empty';
+const draft = {revision:1,name:'Morning mail',instructions:'Summarize the inbox each morning',model:'fixture',authority:'Full',resources:{cpus:2,memory_mib:1024,disk_gib:8},budget:{currency:'USD',exponent:2,period:'fixture',allowance:0,ceiling:0},credentials:[],task:null};
+const row = {version:1,chat_id:1,phase:'Draft',runtime_ready:false,error:null,checklist:[],setup:{id:'fixture-bot',draft,max_attempts:3,wait:null,steps:[]}};
+const ready = {...row,phase:'Ready',runtime_ready:true,setup:{...row.setup,draft:{...draft,name:'Morning mail and project updates with a deliberately long bot name'}}};
+const status = {bot_id:'fixture-bot',chat_id:1,computer:'saved',automation_paused:false,budget_hold:true,budget_reason:'Fixture hold',working:null,waiting:null,queued:0,tasks:[{id:'result-one',title:'A deliberately long completed result title with project decisions and next steps',state:'done',priority:1,detail:null,source:'owner'}],unresolved:0,idle_secs:0,idle_left_ms:null,pending_events:0,last_error:null,screen:{viewers:0,worker:false,captures:0,delivered:0,unchanged:0}};
+window.__homeFixture = {calls:[], rows:mode==='populated'?[row]:mode==='ready'?[ready]:[], fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}};
+window.fetch = async (input, init={}) => {
+  const path = typeof input==='string'?input:input.url;
+  const state = window.__homeFixture;
+  state.calls.push({path,method:init.method||'GET',body:init.body});
+  if(path==='/api/setups' && init.method==='POST'){
+    await new Promise(resolve=>{state.pending=resolve;});
+    state.created=true;state.rows=[{...row,setup:{...row.setup,draft:{...draft,instructions:JSON.parse(init.body).job}}}];
+    if(mode==='refresh-failure') state.fail=true;
+    return Response.json(state.rows[0]);
+  }
+  if(state.loading) await new Promise(resolve=>state.loads.push(resolve));
+  if(state.fail) return Response.json({error:'Fixture connection failure'},{status:503});
+  if(path==='/api/setup-options') return Response.json({enabled:mode!=='disabled',protected_input:false});
+  if(path==='/api/setups') return Response.json(state.rows);
+  if(path==='/api/chats') return Response.json([]);
+  if(path==='/api/bots/fixture-bot') return Response.json(status);
+  if(path==='/api/bots/fixture-bot/inbox') return Response.json([]);
+  if(path==='/api/bots/fixture-bot/secret-requests') return Response.json([]);
+  if(path==='/api/chats/1/messages' && init.method!=='POST') return Response.json([]);
+  if(path==='/api/chats/1/messages' && init.method==='POST'){await new Promise(resolve=>state.pending=resolve);return Response.json({kind:'queued',task_id:'fixture-task'});}
+  if(path==='/api/bot') return Response.json({error:'No default bot'},{status:404});
+  return Response.json({error:'Fixture blocks this endpoint'},{status:404});
+};
+window.EventSource = class {addEventListener(){} removeEventListener(){} close(){}};
+</script><script type="module" src="/src/experience/main.tsx"></script></body></html>

@@ -54,7 +54,7 @@ function App() {
       setHomeChat(true);
       setNotice(`Task queued for ${state.bots.find(item => item.id === destination)?.name}`);
     } else {
-      setProposal(current => ({ ...current, job: text })); setSetup("review"); setHomeChat(true);
+      navigated.current = true; setProposal(current => ({ ...current, job: text })); setSetup("review"); setHomeChat(true);
     }
     dispatch({ type: "draft", scope, text: "" });
   };

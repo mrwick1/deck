@@ -15,6 +15,7 @@ export function useWorkspace() {
   const [data, setData] = useState(empty);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [hasData, setHasData] = useState(false);
   const mounted = useRef(false);
   const pending = useRef<Promise<void> | null>(null);
   const refresh = useCallback(() => {
@@ -27,9 +28,9 @@ export function useWorkspace() {
         ]);
         const bots = await Promise.all(rows.filter(row => row.runtime_ready && row.setup.id !== legacy?.bot_id).map(row => api.getBot(row.setup.id)));
         if (legacy) bots.unshift(legacy);
-        if (mounted.current) { setData({ rows, chats, bots, enabled: options.enabled, protectedInput: options.protected_input === true }); setError(null); }
+        if (mounted.current) { setData({ rows, chats, bots, enabled: options.enabled, protectedInput: options.protected_input === true }); setError(null); setHasData(true); }
       } catch (e) {
-        if (mounted.current) setError(e instanceof api.ApiError && (e.status === 401 || e.status === 403) ? "Sign in to Deck to continue." : "Cannot refresh Deck. Showing the last received state.");
+        if (mounted.current) setError(e instanceof api.ApiError && (e.status === 401 || e.status === 403) ? "Sign in to Deck to continue." : "Cannot refresh Deck. Check your connection and try again.");
       } finally { if (mounted.current) setLoaded(true); pending.current = null; }
     })();
     pending.current = request;
@@ -43,5 +44,5 @@ export function useWorkspace() {
     void run();
     return () => { mounted.current = false; closed = true; clearTimeout(timer); };
   }, [refresh]);
-  return { ...data, loaded, error, refresh };
+  return { ...data, loaded, hasData, error, refresh };
 }
