@@ -675,7 +675,7 @@ def make_stack(a):
 
 
 def start_command(a):
-    return ["python3", str(Path(__file__).resolve()), "serve", "--base", a.base, "--deck", a.deck, "--out", a.out, "--wait"]
+    return ["python3", str(Path(__file__).resolve()), "serve", "--base", a.base, "--deck", a.deck, "--out", a.out]
 
 
 def main(argv=None):

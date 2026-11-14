@@ -20,7 +20,7 @@ Without `web/dist`, `cargo build` embeds a placeholder page.
 `bare-mcp` must be on `PATH`, or set `bare.command` in `deck.toml`. The agent starts it on the first browser tool call.
 Run `cargo test -- --ignored` to run the live tests. They start the real `bare-mcp`, so it must be on `PATH`.
 `tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
-A `[vm]` section in `deck.toml` gives the bot its own guest computer. See [docs/stage3-results.md](docs/stage3-results.md).
+A `[vm]` section in `deck.toml` gives the bot its own guest computer. Its network reaches only the test fixture by default. Set `[vm] internet = true` for real sites. This also allows reachable private services. Keep the setting unchanged when restoring a saved computer. See [docs/stage3-results.md](docs/stage3-results.md).
 The one-bot save command caps migration at 512 MiB/s. The CLI accepts `stop --bandwidth-mib 128` for the original cap. Concurrent saves and slow storage remain untested. See [docs/migration-bandwidth-results.md](docs/migration-bandwidth-results.md).
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
 Run `python3 evals/run.py` to score the agent on a fixed task set with the real model. See [evals/README.md](evals/README.md).

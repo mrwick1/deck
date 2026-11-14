@@ -80,6 +80,27 @@ class Helpers(unittest.TestCase):
         self.assertNotIn("-incoming", cmd)
         self.assertIn("defer", v.qemu_cmd(p, "run", 18080, incoming=True))
 
+    def test_internet_is_explicit_and_keeps_fixture_and_no_host_share(self):
+        p = v.Paths("/tmp/rt")
+        cmd = v.qemu_cmd(p, "run", 18080, internet=True)
+        net = cmd[cmd.index("-netdev") + 1]
+        self.assertIn("restrict=off", net)
+        self.assertIn("guestfwd=", net)
+        self.assertNotIn("hostfwd", net)
+        self.assertNotIn("-virtfs", cmd)
+
+    def test_restore_rejects_network_change_before_starting_vm(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            p.mk()
+            p.statefile.write_bytes(b"saved")
+            p.statemeta.write_text(json.dumps({"internet": False}))
+            with patch.object(v, "start_qemu") as start:
+                with self.assertRaisesRegex(SystemExit, "network"):
+                    v.restore_vm(p, 18080, internet=True)
+                start.assert_not_called()
+                self.assertEqual(p.statefile.read_bytes(), b"saved")
+
     def test_executor_port_is_a_private_unix_socket_in_run_mode_only(self):
         p = v.Paths("/tmp/rt")
         run = " ".join(v.qemu_cmd(p, "run", 18080))
