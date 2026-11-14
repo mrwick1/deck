@@ -10,11 +10,11 @@ Return Home during setup review to retain the proposal in this session. Continue
 
 The preview uses sample data. Do not enter credentials. It does not send messages, connect accounts or execute work. All state resets on reload. The offline control blocks the composer without discarding its draft.
 
-Motion uses the installed Motion dependency and honors reduced motion. Home and workspace transitions use opacity and translation. Tabs use a shared indicator. The composer and connection status reserve space. No token animation or forced scrolling runs.
+Motion uses the installed Motion dependency and honors reduced motion. Home and workspace transitions use opacity and translation. Tabs use a shared indicator. The composer stays in chat. Connection notices overlay the content without an empty strip. No token animation or forced scrolling runs.
 
 ## Open work
 
-Validate the journey in Bare on desktop and phone widths. Check keyboard focus, readable contrast, interrupted transitions and reduced motion. Measure layout shifts and frame delivery. Connect the prototype to the runtime only after design review.
+Validate the journey in Bare on desktop and phone widths. Check keyboard focus, readable contrast, interrupted transitions and reduced motion. Measure layout shifts and frame delivery. The authenticated implementation is at `/experience.html`. See [ui-experience-flow.md](ui-experience-flow.md).
 
 ## Verification
 
@@ -26,7 +26,7 @@ The owner approved refinement with [Unslop](https://github.com/heydamir/unslop),
 
 Keep the approved journey and calm layout. Give bot tasks priority over introductory copy. Use neutral surfaces, three text roles and a restrained green accent. Remove decorative sparkles and the fixed progress bar. Use task status consistently on cards and in workspaces. Keep the existing damped transitions and reduced-motion support.
 
-The mobile title is 28px. Metadata is at least 12px. Text inputs use 16px. The send control is 44px square. The checked text roles and primary button exceed 4.5:1 contrast on their intended surfaces. This calculation does not replace a complete accessibility review.
+The compact mobile title is 24px. Metadata is at least 12px. Text inputs use 16px. The send control is 44px square. The checked text roles and primary button exceed 4.5:1 contrast on their intended surfaces. This calculation does not replace a complete accessibility review.
 
 Type checking, all 51 web tests and the production build pass. Live mobile rendering, keyboard behavior, frame delivery and layout-shift measurements remain untested for this pass.
 

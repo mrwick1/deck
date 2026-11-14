@@ -155,12 +155,9 @@ export function useDeck(bot?: {
   );
   const running = view.run?.status === "running";
 
-  const onNew = useCallback(
-    async (m: AppendMessage) => {
-      const text = m.content
-        .map((p) => (p.type === "text" ? p.text : ""))
-        .join("")
-        .trim();
+  const sendText = useCallback(
+    async (input: string) => {
+      const text = input.trim();
       if (!text) return;
       try {
         if (chatId === null) {
@@ -203,6 +200,8 @@ export function useDeck(bot?: {
     },
     [chatId, bot?.chatId, bot?.mode, bot?.priority],
   );
+
+  const onNew = useCallback((m: AppendMessage) => sendText(m.content.map(p => p.type === "text" ? p.text : "").join("")), [sendText]);
 
   const onCancel = useCallback(async () => {
     const id = viewRef.current.run?.runId;
@@ -275,6 +274,10 @@ export function useDeck(bot?: {
   const title = chats.find((c) => c.id === chatId)?.title ?? "deck";
   return {
     runtime,
+    sendText,
+    loading,
+    items,
+    run: view.run,
     chatId,
     openHome: () => setChatId(null),
     openChat: setChatId,

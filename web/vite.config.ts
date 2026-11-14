@@ -26,12 +26,12 @@ export default defineConfig({
       },
       workbox: {
         // The API is never cached. Navigations to it go to the network.
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/(experience|prototype)\.html/],
         globPatterns: ['**/*.{js,css,html,svg,png}'],
       },
     }),
   ],
-  build: { rollupOptions: { input: { app: path.resolve(import.meta.dirname, 'index.html'), prototype: path.resolve(import.meta.dirname, 'prototype.html') } } },
+  build: { rollupOptions: { input: { app: path.resolve(import.meta.dirname, 'index.html'), prototype: path.resolve(import.meta.dirname, 'prototype.html'), experience: path.resolve(import.meta.dirname, 'experience.html') } } },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     proxy: {

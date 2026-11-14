@@ -714,3 +714,13 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Reason:** The owner approved the visual prototype and requested the design flow. Independent state permits review of navigation, owner waits and queued work without affecting the live runtime.
 
 **Boundary:** The prototype uses a sample mail workflow. It does not implement arbitrary job planning, real accounts, spending enforcement or cross-bot delegation. State lasts only for the current page session.
+
+## Connect the compact experience to the backend (2026-11-15)
+
+**Decision:** Add the authenticated redesign at `/experience.html`. Retain the original app at `/` and the sample preview at `/prototype.html`. Reuse setup review, chat streaming, protected input and bot control APIs. Keep API calls on the same origin. Exclude the separate entries from the original app's service-worker navigation fallback.
+
+**Layout:** Use compact bot rows and one workspace header. Show the composer only in chat. Put preview controls in a disclosure. Keep touch targets at least 44px. Honor reduced motion.
+
+**Reason:** The owner approved the journey and requested real backend connections after the design pass. The owner also identified wasted space in the prototype.
+
+**Boundary:** Publish only sample assets to the public preview. The authenticated interface requires the existing server and authentication. This change does not restart the server or run real-account work. Live phone motion and backend acceptance remain separate checks.

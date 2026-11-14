@@ -165,6 +165,7 @@ const taskAwareGroupBy = (
 };
 
 export type ThreadProps = {
+  hideComposer?: boolean | undefined;
   components?: ThreadComponents | undefined;
   autoFocus?: boolean | undefined;
 };
@@ -211,19 +212,21 @@ const ThreadHistorySkeleton: FC = () => (
 export const Thread: FC<ThreadProps> = ({
   components = EMPTY_COMPONENTS,
   autoFocus = true,
+  hideComposer = false,
 }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
+      <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} hideComposer={hideComposer} />
     </ThreadComponentsContext.Provider>
   );
 };
 
-const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
+const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean; hideComposer: boolean }> = ({
   isEmpty,
   autoFocus,
+  hideComposer,
 }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
@@ -267,7 +270,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             </ThreadPrimitive.Messages>
           </div>
 
-          <ThreadPrimitive.ViewportFooter
+          {!hideComposer && <ThreadPrimitive.ViewportFooter
             className={cn(
               "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 md:pb-6",
               !isEmpty &&
@@ -280,7 +283,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
-          </ThreadPrimitive.ViewportFooter>
+          </ThreadPrimitive.ViewportFooter>}
         </div>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>
