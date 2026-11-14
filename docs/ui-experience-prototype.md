@@ -15,3 +15,13 @@ Validate the journey in Bare on desktop and phone widths. Check keyboard focus, 
 ## Verification
 
 The journey reducer tests cover approval order and pause/failure holds. Run web type checking, tests and the production build. Browser rendering and real account behavior are separate acceptance gates.
+
+## Visual refinement
+
+The owner approved refinement with [Unslop](https://github.com/heydamir/unslop), created by Damir Sokolovsky. The guidance is licensed under CC BY 4.0.
+
+Keep the approved journey and calm layout. Give bot tasks priority over introductory copy. Use neutral surfaces, three text roles and a restrained green accent. Remove decorative sparkles and the fixed progress bar. Use task status consistently on cards and in workspaces. Keep the existing damped transitions and reduced-motion support.
+
+The mobile title is 28px. Metadata is at least 12px. Text inputs use 16px. The send control is 44px square. The checked text roles and primary button exceed 4.5:1 contrast on their intended surfaces. This calculation does not replace a complete accessibility review.
+
+Type checking, all 51 web tests and the production build pass. Live mobile rendering, keyboard behavior, frame delivery and layout-shift measurements remain untested for this pass.
