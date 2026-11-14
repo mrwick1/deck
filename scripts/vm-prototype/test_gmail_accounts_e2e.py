@@ -552,7 +552,7 @@ class OutputBoundary(unittest.TestCase):
     def test_switch_navigates_by_index_and_succeeds_only_when_identity_is_verified(self):
         env = FakeCallEnv([], (False, "INBOX private"), identity=[idprobe("Google Account: X (second.user@gmail.com)")])
         rc, out, err = self.run_cmd(env, "switch", "--to", "B", "--index", "1")
-        self.assertEqual(env.tools, [("open", {"url": "https://mail.google.com/mail/u/1/"})])
+        self.assertEqual(env.tools, [("step", {"steps": "goto https://mail.google.com/mail/u/1/", "compact": True})])
         self.assertEqual(json.loads(out), {"switched": True, "identity": "B", "host_class": "mailbox"})
         self.assertEqual(rc, 0)
         self.assertNotIn("INBOX", out + err)

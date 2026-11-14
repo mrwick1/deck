@@ -401,9 +401,9 @@ def cmd_switch(a):
     if not selector:
         print(json.dumps({"switched": False, "identity": "blocked", "host_class": "unknown"}))
         return 1
-    env.call("open", url=f"https://{MAILBOX_HOST}/mail/u/{a.index}/")  # the raw result is never shown
+    err, _ = env.call("step", steps=f"goto https://{MAILBOX_HOST}/mail/u/{a.index}/", compact=True)  # preserve the shared session; never print raw output
     r = identity_of(env, selector, accounts)
-    ok = r["identity"] == a.to
+    ok = not err and r["identity"] == a.to
     print(json.dumps({"switched": ok, **r}))
     return 0 if ok else 1
 

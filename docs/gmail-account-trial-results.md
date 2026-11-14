@@ -41,3 +41,8 @@ The account-switcher selector is not known. `up` takes it as `--account-control-
 ## Not tested
 
 Guest internet in the live VM, secret delivery, Google sign-in, the account-switcher selector, account switching, saved state and restore. The redaction is best effort and is not proven.
+
+
+## Parent review
+
+The parent reproduced all 51 helper tests with exit 0. Review found that account switching used `open`, which replaces the live browser session. A regression failed before the correction. Switching now uses `step goto` within the existing session and requires a successful call plus the expected active-account identity. All 51 tests pass after the correction. This remains offline helper evidence. No real Gmail account has been accessed.
