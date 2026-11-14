@@ -23,6 +23,8 @@ No live run has happened. This document is a plan, not a result.
 - A control API on another free loopback port. Each call needs the `X-Control-Token` header.
 
 No VM exists at start. Deck starts the VM only after the UI approves the setup.
+For an interactive evidence run, pass `--idle-secs 600`. This changes only the test configuration. Run the final guest-file check promptly after the post-completion restart, while QGA is available. The separate saved-wake harness covers the short-idle lifecycle. Keep the guest-file assertion unchanged; an unavailable guest is a failed check, not proof that its credential file is missing.
+
 `Stack` from `setup_e2e.py` owns every process. Its `cleanup` stops Deck, runs `vmproto.py kill` for each VM directory and checks the registered identities.
 
 ## Start command

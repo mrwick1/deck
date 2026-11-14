@@ -251,3 +251,9 @@ A separate minimal bare probe narrowed the failure. Timers and SHA-256 resolve o
 The owner approved the textarea design. Draft bare PR 500 contains the focused text-collection fix. All nine element tests and the full library suite pass: 1416 passed, six ignored. Strict formatting and clippy retain documented baseline failures.
 
 A private candidate combines that fix with draft bare PR 479. The minimal MCP check now resolves SHA-256, body text collection around a textarea, and a subsequent timer. The header-gated endpoint also returns 200. No shared browser installation changed. A fresh combined UI/VM run is active with this candidate. The owner-authorized load override remains; memory and exclusive VM checks stay active. All four UI gates and retained sanitized images are required. No acceptance result is available yet.
+
+## Final inspection timing
+
+The parent integrated the two-fix report and inspected the retained masked-field and private-viewer images. All four UI gates have supporting observations. The failed final file assertion did not establish missing guest credentials. The guest's saved-state metadata and absent QGA socket explain why the live inspection could not run. The assertion remains unchanged.
+
+The fresh interactive run uses the existing 600-second test idle setting. It must inspect the guest file promptly after the completion restart. The separate saved-wake result still covers short-idle behavior. Prior failed manifests remain unchanged. No production sleep setting changed.
