@@ -7,6 +7,7 @@ import { TooltipProvider } from "../components/ui/tooltip";
 import { WaitPanel } from "../components/SetupWait";
 import * as api from "../lib/api";
 import { describeBot } from "../lib/bot";
+import { HomeStart } from "./HomeStart";
 import { Chat } from "./Chat";
 import { Computer } from "./Computer";
 import { Requests, useRequests } from "./Requests";
@@ -42,16 +43,16 @@ function App() {
     catch (e) { setError(e instanceof Error ? e.message : "The action was not confirmed. Refresh before trying again."); }
     finally { guard.current = false; setBusy(false); }
   };
-  const propose = () => run(async () => {
+  const propose = (targetDestination = destination) => run(async () => {
     const job = draft("home").trim(); if (!job) return;
-    if (destination === "new") {
+    if (targetDestination === "new") {
       const row = await api.createSetup(job); await data.refresh(); put("home", ""); navigate(`setup/${encodeURIComponent(row.setup.id)}`);
-    } else if (destination === "chat") {
+    } else if (targetDestination === "chat") {
       put("chat/new", job); put("home", ""); navigate("chat/new");
     } else {
-      const target = destinationOptions(data.rows).find(item => item.id === destination) ?? data.bots.filter(item => item.bot_id === destination).map(item => ({ chatId: item.chat_id }))[0];
+      const target = destinationOptions(data.rows).find(item => item.id === targetDestination) ?? data.bots.filter(item => item.bot_id === targetDestination).map(item => ({ chatId: item.chat_id }))[0];
       if (!target) throw new Error("This bot is not ready. Refresh before sending.");
-      await api.sendMessage(target.chatId, job, { mode: "queue" }); put("home", ""); await data.refresh(); navigate(`bot/${encodeURIComponent(destination)}`);
+      await api.sendMessage(target.chatId, job, { mode: "queue" }); put("home", ""); await data.refresh(); navigate(`bot/${encodeURIComponent(targetDestination)}`);
     }
   });
   const split = route.indexOf("/");
@@ -67,13 +68,15 @@ function App() {
   const openBot = (botId: string) => navigate(`bot/${encodeURIComponent(botId)}`);
   const openSetup = (item: api.SetupRecord) => navigate(`${item.runtime_ready ? "bot" : "setup"}/${encodeURIComponent(item.setup.id)}`);
   const bots = [...data.rows.map(item => ({ id: item.setup.id, name: item.setup.draft.name, row: item, status: data.bots.find(bot => bot.bot_id === item.setup.id) })), ...data.bots.filter(bot => !names.has(bot.bot_id)).map(bot => ({ id: bot.bot_id, name: "Default bot", row: undefined, status: bot }))];
+  const firstHome = page === "home" && data.loaded && data.enabled && !bots.length;
   return <MotionConfig reducedMotion="user" transition={{ duration: .18, ease: [0.22, 1, 0.36, 1] }}><TooltipProvider><div className="shell compact experience">
     <aside className="rail"><button className="brand" onClick={() => navigate("home")}>deck</button><button aria-label="Home" onClick={() => navigate("home")}><House size={18}/></button><button aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button></aside>
     <div className="app">
-      {page !== "bot" && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back to home" onClick={() => navigate("home")}><ArrowLeft size={18}/></button><h1>{page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : "Chat with Deck"}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={() => { void data.refresh(); }}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
+      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back to home" onClick={() => navigate("home")}><ArrowLeft size={18}/></button><h1>{page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : "Chat with Deck"}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={() => { void data.refresh(); }}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
       {(data.error || error) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
       {!data.loaded ? <main className="content"><p role="status">Loading your workspace…</p></main> : <>
-        {(page === "home" || page === "new") && <>
+        {firstHome && <HomeStart draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh} busy={busy} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: () => { void data.refresh(); } }]} />}
+        {(page === "home" || page === "new") && !firstHome && <>
           <main className="content" key={page} ref={element => { if (element) element.scrollTop = scrolls.current.get(page) ?? 0; }} onScroll={event => scrolls.current.set(page, event.currentTarget.scrollTop)}>
             {page === "new" ? <section className="new-job"><h2>What should this bot do?</h2><p>Describe the job below. You’ll review the setup before a computer is created.</p><p className="fine-print">Do not put credentials in this description.</p></section> : <>
               <div className="section-heading"><h2>Your workspace</h2><button className="text-button" disabled={!data.enabled || !fresh} onClick={() => { setDestination("new"); navigate("new"); }}><Plus size={18}/> New bot</button></div>

@@ -4,6 +4,7 @@ import { AnimatePresence, motion, MotionConfig, type AnimationDefinition } from 
 import { ArrowUp, ArrowUpRight, ChevronLeft, Plus, House, Mail, Check, Monitor, MessageCircle, Activity, ArrowRight, Pause, Play, RotateCcw, Command } from "lucide-react";
 import { labels, type Action } from "./journey";
 import { flow, initialFlow, validProposal, type Proposal } from "./flow";
+import { HomeStart } from "../experience/HomeStart";
 import "./style.css";
 import "../experience/compact.css";
 
@@ -26,6 +27,7 @@ function App() {
   const navigated = useRef(false);
   const bot = state.bots.find(item => item.id === state.view);
   const workspace = !!bot;
+  const firstHome = !workspace && !homeChat && !state.bots.length && setup === "describe";
   const phase = bot?.phase ?? "idle";
   const scope = bot?.id ?? "home";
   const draft = state.drafts[scope] ?? "";
@@ -92,7 +94,7 @@ function App() {
   return <MotionConfig reducedMotion="user" transition={{ type: "spring", stiffness: 380, damping: 38 }}>
     <div className="shell compact">
       <aside className="rail"><button className="brand" onClick={() => { home(); setHomeChat(false); }} aria-label="Deck home"><Command size={24}/></button><button className={!workspace && !homeChat ? "selected" : ""} aria-label="Home" onClick={() => { home(); setHomeChat(false); }}><House size={18}/></button><button className={!workspace && homeChat ? "selected" : ""} aria-label="Chat with Deck" onClick={() => { home(); setHomeChat(true); }}><MessageCircle size={18}/></button><span className="rail-spacer"/><span className="avatar">You</span></aside>
-      <div className="app">
+      <div className="app">{firstHome ? <HomeStart sample draft={draft} setDraft={text => dispatch({ type: "draft", scope: "home", text })} submit={submit} disabled={offline} notice={offline ? "Offline · Your draft is kept" : notice} actions={[{ label: offline ? "Restore connection" : "Simulate offline", run: () => setOffline(!offline) }, { label: "About this preview", run: () => setNotice("Sample data only. Progress resets when you reload.") }]} /> : <>
         {!workspace && <header><button className="wordmark" onClick={() => { home(); setHomeChat(false); }}>deck<span> / {homeChat ? "Chat" : "Home"}</span></button><span className="preview-label">Prototype · sample data</span><button className="icon" aria-label="Reset preview" onClick={() => { dispatch({ type: "reset" }); setHomeChat(false); setProposal(blankProposal); setSetup("describe"); setHomeMessages([]); setNotice(""); setDestination("new"); scrollPositions.current = {}; setOffline(false); }}><RotateCcw size={18}/></button></header>}
         <div className="connection" role="status">{offline ? "Offline · Your draft and progress are kept here" : notice}</div>
         <AnimatePresence mode="wait" initial={false}>
@@ -134,7 +136,7 @@ function App() {
           </motion.main>}
         </AnimatePresence>
         <footer className="composer-area">{(!workspace || tab === "chat") && !(homeChat && setup === "review" && !workspace) && <form className="composer" onSubmit={e => { e.preventDefault(); submit(); }}><div className="composer-meta"><span>{bot ? `To ${bot.name}` : "To Deck"}</span>{bot ? <select aria-label="Message intent" value={mode} onChange={e => setMode(e.target.value as "guide" | "queue")}><option value="guide">Guide this task</option><option value="queue">Add a task</option></select> : <select aria-label="Task destination" value={destination} onChange={e => setDestination(e.target.value)}><option value="new">Create a bot</option>{state.bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div><div className="composer-input"><textarea aria-label={bot ? `Message ${bot.name}` : "Message Deck"} placeholder={bot ? mode === "queue" ? "Describe the next task" : "Guide this task" : destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft} rows={1} onChange={e => dispatch({ type: "draft", scope, text: e.target.value })}/><button className="send" aria-label="Send message" disabled={!draft.trim() || offline}><ArrowUp size={18}/></button></div></form>}<details className="preview-disclosure"><summary>Prototype · sample data · controls</summary><div className="preview-controls"><span>Try the journey</span><button onClick={() => setOffline(!offline)}>{offline ? "Restore connection" : "Go offline"}</button>{phase === "working" && <><button disabled={offline} onClick={() => act("fail")}>Simulate failure</button><button disabled={offline} onClick={() => act("finish")}>Finish task</button></>}<span className="local-only">Demo state resets on reload</span></div></details></footer>
-      </div>
+      </>}</div>
     </div>
   </MotionConfig>;
 }

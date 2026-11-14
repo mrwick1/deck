@@ -41,3 +41,9 @@ Build with `npm --prefix web run build`. Build the Deck binary after the web ass
 Type checking, 64 web tests and the production build pass. Rust formatting and Clippy checks pass. Seven new tests cover setup approval revisions, concurrent edits, failed writes, currency precision, ready destinations and HTTP authentication failures. The build retains a shared chat bundle above the Vite size warning threshold.
 
 Live API acceptance, phone keyboard behavior, visual layout, focus restoration and animation frame timing remain untested in this pass. The existing server and guest computers were not restarted. The public preview contains sample data only.
+
+## First-time Home components
+
+The sample and authenticated entries share `HomeStart`. It uses the existing shadcn Button and Textarea and a Radix dropdown menu. Suggestions fill an editable draft. Submission opens setup review. The empty screen omits duplicate creation actions, empty requests and empty results. A compact sample marker remains on the public preview.
+
+The full mobile redesign and its two requested review rounds are in progress. The first-time Home implementation passes type checking, 64 web tests and the web build. It has not yet passed the new screen review gate.

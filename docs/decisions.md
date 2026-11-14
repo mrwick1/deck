@@ -724,3 +724,11 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Reason:** The owner approved the journey and requested real backend connections after the design pass. The owner also identified wasted space in the prototype.
 
 **Boundary:** Publish only sample assets to the public preview. The authenticated interface requires the existing server and authentication. This change does not restart the server or run real-account work. Live phone motion and backend acceptance remain separate checks.
+
+## Review the complete mobile flow (2026-11-15)
+
+**Decision:** Use the existing shadcn/Radix controls, Vaul sheets, Motion transitions and assistant-ui chat renderer for the redesign. Start with mobile layouts. Cover every screen, input, selection, loading state and message-send transition. Retain reduced-motion support and real backend behavior.
+
+**Review gate:** The owner requested one GPT Sol Medium review and one Opus 5.5 review of every screen before design finalization. Record findings and fixes per screen. Do not claim native-device performance from viewport simulation.
+
+**Reason:** The owner made a fluid mobile experience the main priority and expanded the work from Home to the complete flow.
