@@ -189,3 +189,32 @@ Production support still needs a guest image whose `bare-mcp` matches the adapte
 ### Not tested
 
 Real Gmail, the deck server and host executor relay, a model, tool schemas, the provisioning route, memory use and performance with a single VM, and a reproducible build of the candidate.
+
+## Live attempt 4 (candidate source `6e2cbb7`): refused by the load guard
+
+Date: 2026-11-14.
+Attempt 3 stays as recorded above. It used the older candidate. It does not count for this one.
+
+### Setup
+
+The merge `git merge --ff-only 9445660` left no diff against that commit. The candidate was `bare-mcp` built from source `6e2cbb73ca749b5e567cfca87ed65fba08754307`. I checked its SHA-256 before use: `d9435503f412352c5d04dcd60f0ff48b4bf496bf48b12e2b9ac2d39ce0df831b`. It matched the required digest. The run used the frozen base `a90de2e085a7ad52` (mode `0444`, 1493565440 bytes), a new lock file, a new output directory and a free fixture port.
+
+```sh
+python3 scripts/vm-prototype/shared_profile_e2e.py --base <frozen base .qcow2 with sidecar> --out <new short private dir> \
+  --lock <new task-owned lock file> --fixture-port <free loopback port> \
+  --bare-candidate <private candidate path> --expect-bare-sha256 d9435503f412352c5d04dcd60f0ff48b4bf496bf48b12e2b9ac2d39ce0df831b
+```
+
+### Result
+
+Exit 3: `host pressure: load average 23.71 is above 8.0. Nothing was started.` The load guard (8.0) and memory guard (6144 MiB) were unchanged. I made one attempt and did not retry in a loop.
+
+No output directory, manifest, overlay, VM, fixture or browser was created. No gate ran. All 15 required gates are untested for this candidate. The candidate readiness, candidate install and one-session switching through browser restart and VM wake are untested.
+
+### Cleanup
+
+I removed the task-owned lock file and its directory. The shared lock, the other run and the frozen base were not touched. The base mode and size are unchanged. No owned process was left.
+
+### Not tested
+
+The live guest acceptance of this candidate, real Gmail, the deck server and relay, provisioning and performance. The load came from other work on this machine.

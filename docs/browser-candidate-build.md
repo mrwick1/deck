@@ -29,3 +29,5 @@ The parent independently verified the artifact digest and retained a private rea
 The worker ran bounded `initialize` and `tools/list` requests. The browser reported 20 tools. `open` exposes `state` and `file`. `save_state` and `ensure_session` expose `name` and `file`. No page or browser session opened.
 
 This candidate has not passed the live guest acceptance run. The earlier accepted binary has a different digest. Do not transfer its result to this candidate. One recorded build establishes source provenance; it does not prove bit-for-bit reproducibility. No shared binary or frozen image was updated. Actual Gmail remains untested.
+
+Live attempt 4 on 2026-11-14 was refused by the load guard (exit 3, load 23.71). Nothing started. The candidate is still not accepted. See [shared-profile-vm-results.md](shared-profile-vm-results.md).
