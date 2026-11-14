@@ -706,3 +706,11 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Reason:** The owner approved a new interface with fluid motion and stable layouts. A separate sample-data journey permits review before runtime integration.
 
 **Boundary:** The prototype makes no API requests. Account connection, owner approval, work and results are simulations. State resets on reload. Browser motion, accessibility and layout-shift acceptance remain unverified.
+
+## Prototype interaction flow (2026-11-14)
+
+**Decision:** Keep prototype state per bot. Give Home its own composer draft. Show the destination before sending work. Keep setup review separate from bot creation. Use explicit controls to advance simulated account and task events. Require an owner-entered demo ceiling without a monetary default.
+
+**Reason:** The owner approved the visual prototype and requested the design flow. Independent state permits review of navigation, owner waits and queued work without affecting the live runtime.
+
+**Boundary:** The prototype uses a sample mail workflow. It does not implement arbitrary job planning, real accounts, spending enforcement or cross-bot delegation. State lasts only for the current page session.
