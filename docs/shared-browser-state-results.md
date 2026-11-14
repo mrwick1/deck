@@ -27,6 +27,10 @@ git diff --check
 
 The default multi-account run skips the four live tests. The explicit live run skips none.
 
-## Limits
+## Later real-guest acceptance
+
+The pinned-candidate run passes all 15 required gates through the actual guest adapter. The parent checked the retained manifest, candidate digest and cleanup, and reproduced all 45 harness tests. See [the VM results](shared-profile-vm-results.md). The standard frozen image failed restore because its older browser rejects `open.file`. The accepted run changes only its private overlay. Production needs a compatible guest browser.
+
+## Limits of the original host checks
 
 These checks do not cover real Gmail, the full host relay, the guest executor, VM recovery, account identity enforcement or credential reload. The fixture uses navigation routes to select an account; it does not reproduce Gmail's account-switcher UI. Concurrent path replacement by a guest shell, ACLs and resource costs remain untested. This change is not a complete multi-account Gmail implementation. No deployment or shared browser update ran.
