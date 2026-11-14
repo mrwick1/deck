@@ -69,7 +69,7 @@ def handshake(rpc, d, wait=30):
 
 def missing_capabilities(tools):
     """Static identifiers (`tool` or `tool.property`) of the REQUIRED capabilities that `tools` lacks. Never schema text."""
-    by = {x.get("name"): x for x in tools if isinstance(x, dict)}
+    by = {x.get("name"): x for x in tools if isinstance(x, dict) and isinstance(x.get("name"), str)}
     gone = []
     for name, props in REQUIRED.items():
         schema = (by.get(name) or {}).get("inputSchema")

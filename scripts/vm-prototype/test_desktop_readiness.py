@@ -146,6 +146,9 @@ class Probe(unittest.TestCase):
         old = [tool("open", "url", "state"), *GOOD[1:]]
         self.incompatible(old, ["open.file"])
 
+    def test_malformed_tool_name_is_incompatible(self):
+        self.incompatible([{"name": ["open"]}], ["open", "save_state", "ensure_session"])
+
     def test_missing_tool_is_incompatible(self):
         self.incompatible([GOOD[0], GOOD[2]], ["save_state"])
 
