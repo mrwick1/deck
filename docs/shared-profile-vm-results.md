@@ -72,3 +72,71 @@ All gates are `not run`. This includes the source and adapter hashes, the single
 ### Limits
 
 No guest evidence exists yet. This is a synthetic fixture only. It makes no claim about Gmail, memory use or the full host route. Run again when the lock is free.
+
+## Live attempt 2 (source `d98fde4`): first real guest run, not accepted
+
+Date: 2026-11-14.
+Source: parent `shared-browser-state` at `d98fde4375dc882e7d9e78418645dd2a995c3ad6`, fast-forwarded from `44f0bff`. `git diff d98fde4 HEAD` was empty before this section.
+
+### Owner-authorized separate lock
+
+The owner said to bypass the shared VM lock for now. This run used the existing `--lock` flag with a new lock file outside Git. The shared lock was held by another end-to-end run. This task did not touch that lock or that run. Its VM and process were unchanged after this run.
+This permission did not waive the load guard, the memory guard, cleanup or base integrity.
+Limit: two VMs ran at the same time. This run makes no performance or memory claim. It is a functional check only.
+
+### Command
+
+```sh
+python3 scripts/vm-prototype/shared_profile_e2e.py --base <frozen base .qcow2 with sidecar> \
+  --out <new short private dir> --lock <new task-owned lock file> --fixture-port <free loopback port>
+```
+
+Exit 1 (not accepted). The offline suite ran first: 31 tests, 31 passed.
+
+### Collision checks
+
+- The fixture port had no listener. QEMU guest forwarding is per VM (`guestfwd` in user networking, one `socat` to the fixture port). It binds no host port.
+- The QEMU control sockets and the overlay sit in the new output directory. The other run uses a different directory.
+- The base is mode `0444`. Both runs only read it.
+- Guards at start: load average 4.3 (limit 8.0), about 16 GiB available (minimum 6 GiB).
+
+### Hashes
+
+- Guest adapter `bare-call` equals the candidate: `0a0a05d0a79722fa631dbd19291c74e31ce5c8f09c96ac568bbbb29cdefe64aa`.
+- Guest `bare-mcp`: `bc8d33dc325b5b534e73042a81e605a3190827ce77ff33088e0f94e187da7c17`.
+- Host `bare-mcp` (differs from the guest one): `18488a21c5ede585bd60980e2681ca46e72ad6acd340d468c4b019b9435d42bf`.
+- Harness: `024b650aa7587eaea376066423d2dca03cce79750e9b5f6c8569d7c9b1d73e9f`.
+- Base id `a90de2e085a7ad52`.
+
+### Gate results
+
+| Gate | Result |
+| --- | --- |
+| `base_frozen_and_verified` | pass |
+| `guest_adapter_hash_equals_candidate` | pass |
+| `both_accounts_signed_in_together` | pass (A, then A and B in one session) |
+| `alternating_identity_before_save` | pass (A, B, A, B) |
+| `one_bare_main_session_one_cookie_record` | pass |
+| `state_private_dir_and_file_0600` | pass |
+| `state_saved_with_cookie_record` | pass |
+| `mcp_restart_new_process` | pass (one process before, one after, none shared) |
+| `restore_from_disk_and_switch_both` | not run: the flow stopped |
+| `vm_wake_same_boot_and_profile` | not run |
+| `no_duplicate_fixture_effects` | not run |
+| `base_unchanged` | pass |
+| `no_owned_process_left` | pass, no survivors |
+| `acceptance_complete` | fail |
+
+### Failure
+
+After the restart, `open state=shared url=<fixture>` failed in the guest: `unknown argument "file": open takes downloads_dir, height, report, secrets_file, session, snapshot, state, timeout_ms, url, vars, width, window`.
+The cause is not the harness. The adapter `prepare()` adds `file` to `open` when `state` is set. The guest `bare-mcp` in the frozen base has no `file` argument on `open`. The host `bare-mcp` has it. The host-only tests passed because they use the host binary.
+No harness correction was made. A change to `ensure_session` or to the adapter would hide this mismatch. The gates stay unchanged.
+
+### Cleanup
+
+The harness stopped only its registered VM and fixture. The overlay was removed. The task-owned lock file was removed. The shared lock and the other run were not touched. The evidence directory (`manifest.json`) is kept outside Git.
+
+### Next step
+
+Provide a frozen base whose `bare-mcp` accepts `file` on `open`, or change the adapter and `bare` together. Then run again. Nothing here supports real Gmail.
