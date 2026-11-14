@@ -52,7 +52,7 @@ class FakeEnv:
 
     def base_ok(self):
         self.base_ok_calls += 1
-        return not ("base_changed" in self.faults and self.base_ok_calls > 1)
+        return "base_invalid" not in self.faults and not ("base_changed" in self.faults and self.base_ok_calls > 1)
 
     def host(self):
         return {}
@@ -218,6 +218,10 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.status("acceptance_complete"), "fail")
         if gate:
             self.assertEqual(self.status(gate), "fail", self.m["gates"])
+
+    def test_invalid_base_stops_before_any_launch(self):
+        self.assertRejected("base_invalid", gate="base_frozen_and_verified")
+        self.assertEqual(self.env.launches, 0)
 
     def test_success_path_passes_every_required_gate(self):
         self.assertEqual(self.go(), 0, self.m and self.m["gates"])

@@ -400,9 +400,9 @@ def execute(a, env, out):
     m.data["identity"] = {"head": env.head(), "base": {k: base[k] for k in ("id", "virtual_size", "mode")}, "candidate_adapter_sha256": candidate,
                           "harness_sha256": v.sha256_file(Path(__file__)), "guest_adapter_sha256": None, "bare_mcp_sha256": None, "fidelity": FIDELITY}
     m.data["host"] = {"start": env.host()}
-    m.gate("base_frozen_and_verified", PASS if base["mode"] == "0o444" and env.base_ok() else FAIL, f"mode {base['mode']}")
     left = []
     try:
+        e.need(m, "base_frozen_and_verified", base["mode"] == "0o444" and env.base_ok(), f"mode {base['mode']}")
         env.start_fixture()
         info = env.boot_guest()
         m.data["identity"].update(guest_adapter_sha256=info["adapter_sha256"], bare_mcp_sha256=info["bare_mcp_sha256"])
