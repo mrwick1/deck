@@ -41,3 +41,33 @@ A server rejection keeps the draft, reports the error beside the composer and fo
 The owner can keep editing during a request. The completion clears only the submitted text when it is unchanged. This preserves newer edits instead of locking the textarea. Suggestion replacement requires a choice. Ctrl+Enter and Cmd+Enter use the same guarded submission path. Enter alone keeps multiline input.
 
 At 412 × 820, 360 × 740, 320 × 640 and 412 × 450, measured Home controls remained at least 44px, input text remained 16px and the footer stayed inside the viewport. The heading used two lines without horizontal overflow. The viewport meta requests layout resize for mobile keyboards. A real phone keyboard remains untested. A fallback sizes the textarea where CSS field sizing is unsupported.
+
+## Final Home corrections awaiting browser checks
+
+The second review found two remaining problems. Draft replacement controls could appear below the visible scroll area. Lost-reply recovery did not refresh and could lose focus when Home changed layouts.
+
+The replacement group now scrolls into view and focuses Keep draft. Check workspace now calls the refresh action. Recovery controls sit inside the scrolling content. A layout effect restores focus after the Home layout changes. The populated composer also supports Ctrl+Enter and Cmd+Enter. Home preserves an existing new-chat draft.
+
+Type checking, all 64 web tests and the production build pass after these changes. The build retains its large shared-chunk warning. These checks do not verify the two rendered fixes.
+
+The required bare browser cannot run the fixture because its static Response.json method is missing. Tracking issue: https://github.com/mrwick1/bare/issues/549. Final Home verification remains open at 320 × 640 and 412 × 450. Do not treat the earlier preview measurements as verification of these corrections. Do not finalize Home or publish this version until these checks pass.
+
+## Measured results for the final corrections
+
+A regression test now checks the recovery placement in `web/src/experience/HomeStart.test.ts`. It renders `HomeStart` with `react-dom/server` and no DOM. It checks that the recovery node sits inside the `start-main` region. A temporary move of the node outside that region made the test fail. The file was restored after the check. The test does not check focus, scroll or layout.
+
+Checks run on this change: `npm --prefix web run check` exits 0. `npm --prefix web test` passes 66 tests. `npm --prefix web run build` exits 0 and keeps the shared-chunk size warning.
+
+The rendered checks did not run. In the `bare` browser, `Response.json` is `undefined`, so the fixture shows “Let’s reconnect” instead of Home. This matches [bare#549](https://github.com/mrwick1/bare/issues/549). No shim or other browser was used. These rendered checks remain open at 320 × 640 and 412 × 450: prompt visibility, Keep draft focus, one POST after a lost reply, returned setup visibility, Check workspace reads, focus outside BODY, composer use and the duplicate-create block.
+
+Open risk to verify rendered: the Check workspace button is disabled while `data.refreshing` is true. A focused button that becomes disabled may drop focus to BODY. The focus effect does not run again when only `refreshing` changes. This is a hypothesis, not a measured result.
+
+## Final rendered checks with the isolated browser fix
+
+The isolated bare build at commit 0a0bdca0 implements Response.json. It loads the fixture without a shim. This supersedes the browser block above.
+
+At 320 × 640 and 412 × 450, the replacement group scrolls into the main viewport and Keep draft receives focus. Keeping the draft preserves its text and focuses the textarea. At 320px the group bottom differs from the main bottom by 0.36px; its controls remain visible.
+
+The lost-reply fixture sends one POST, shows one returned setup row and keeps creation disabled. The textarea retains focus after the layout switch. Check workspace triggers four reads. The first check reproduced focus loss when that button was disabled. It now uses aria-disabled with an activation guard. Repeating the check at both sizes retains button focus. The scrolling content has 406px and 216px of height respectively. The composer ends at the viewport bottom in both cases.
+
+Type checking and all 66 web tests pass. These checks close the two remaining Home findings. They do not establish physical phone behavior, frame pacing, screen-reader output or real backend acceptance. The browser fix is proposed in bare pull request 556; the shared browser service is unchanged.

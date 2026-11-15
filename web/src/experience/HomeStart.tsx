@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { DropdownMenu } from "radix-ui";
 import { ArrowUp, ArrowUpRight, Menu } from "lucide-react";
@@ -12,9 +12,9 @@ const suggestions = [
   ["Watch a website", "Check a website I choose and tell me when something important changes."],
 ];
 
-export function HomeStart({ draft, setDraft, submit, disabled, busy = false, sample = false, notice, noticeIsError = false, retry, retryBusy = false, actions }: {
+export function HomeStart({ draft, setDraft, submit, disabled, busy = false, sample = false, notice, noticeIsError = false, retry, retryBusy = false, recovery, actions }: {
   draft: string; setDraft: (value: string) => void; submit: () => void;
-  disabled: boolean; busy?: boolean; sample?: boolean; notice?: string; noticeIsError?: boolean; retry?: () => void; retryBusy?: boolean;
+  disabled: boolean; busy?: boolean; sample?: boolean; notice?: string; noticeIsError?: boolean; retry?: () => void; retryBusy?: boolean; recovery?: ReactNode;
   actions: { label: string; run: () => void }[];
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -26,6 +26,13 @@ export function HomeStart({ draft, setDraft, submit, disabled, busy = false, sam
     element.style.height = `${Math.min(136, Math.max(44, element.scrollHeight))}px`;
   }, [draft]);
   const [replaceIdea, setReplaceIdea] = useState<string | null>(null);
+  const replacement = useRef<HTMLDivElement>(null);
+  const keepDraft = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (!replaceIdea) return;
+    keepDraft.current?.focus({ preventScroll: true });
+    replacement.current?.scrollIntoView({ block: "nearest", behavior: "instant" });
+  }, [replaceIdea]);
   useEffect(() => { if (noticeIsError) input.current?.focus(); }, [notice, noticeIsError]);
   const useIdea = (text: string) => {
     setDraft(text);
@@ -40,7 +47,8 @@ export function HomeStart({ draft, setDraft, submit, disabled, busy = false, sam
     </header>
     <motion.main className="start-main" initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .18 }}> <h1>What would you like your bot to do?</h1><p>Give it a job. Review the setup before it starts.</p>
       <section className="start-suggestions" aria-label="Example jobs"><span>Try an idea</span>{suggestions.map(([label, text]) => <Button key={label} variant="outline" className="start-suggestion" disabled={disabled || busy} onClick={() => { if (draft.trim()) setReplaceIdea(text); else { useIdea(text); } }}>{label}<ArrowUpRight size={18}/></Button>)}</section>
-      {replaceIdea && <div className="replace-idea" role="group" aria-label="Replace your draft"><p>Replace your current draft with this idea?</p><Button variant="outline" onClick={() => setReplaceIdea(null)}>Keep draft</Button><Button variant="outline" onClick={() => { useIdea(replaceIdea); setReplaceIdea(null); }}>Use idea</Button></div>}
+      {replaceIdea && <div ref={replacement} className="replace-idea" role="group" aria-label="Replace your draft"><p>Replace your current draft with this idea?</p><Button ref={keepDraft} variant="outline" onClick={() => { setReplaceIdea(null); input.current?.focus(); }}>Keep draft</Button><Button variant="outline" onClick={() => { useIdea(replaceIdea); setReplaceIdea(null); }}>Use idea</Button></div>}
+      {recovery}
       {sample && <p className="start-note">Sample mail workflow. No accounts connect or work runs here.</p>}
     </motion.main>
     <footer className="start-footer">
