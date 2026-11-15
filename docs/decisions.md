@@ -774,3 +774,9 @@ A read that finds another revision clears the own-write expectation and opens co
 **Decision:** Back restores the list scroll and the opened row's focus. Explicit navigation to the list starts at the top. Existing chat headers use the known title. Rows wrap long titles and identify Deck or the bot. Empty and stale lists explain their state. Stale rows remain readable; sending requires reconnection.
 
 **Reason:** Both reviewers measured panel overflow and lost return position. The server sorts by newest creation, so the UI states that order without inventing last-activity data.
+
+## Isolate late setup feedback (2026-11-15)
+
+**Decision:** An unmounted protected-input form emits no success notification. A delivery notification names its label. Challenge controls stay visibly pending until their reconciliation read finishes. Refresh status does not erase control errors.
+
+**Reason:** Second-round checks reproduced stale success notifications, disappearing action errors and controls that looked enabled while their guard was still locked. Exhausted-form spacing now uses its own class; a direct-child selector also matched draft review.

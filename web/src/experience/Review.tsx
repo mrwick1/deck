@@ -183,7 +183,7 @@ export function Recovery({ entry, discard }: { entry: Entry; discard: () => void
   };
   return <section className="review-recovery" aria-labelledby="recovery-title">
     <h3 id="recovery-title" tabIndex={-1}>Your local draft is kept here</h3>
-    <p>This setup moved on elsewhere{left ? ` and is now ${PHASE_TEXT[left.phase]}` : ""}. It can no longer be edited here, so Save and Approve are off. {uncertain ? "A write from this screen was never confirmed, so these edits may or may not be on the server. " : "Changes made after your last confirmed save were not submitted from this screen. "}The text below is kept so you can copy it. See the setup progress below.</p>
+    <p>This setup moved on elsewhere{left ? ` and is now ${PHASE_TEXT[left.phase]}` : ""}. It can no longer be edited here, so Save and Approve are off. {uncertain ? "A write from this screen was never confirmed, so these edits may or may not be on the server. " : "Changes made after your last confirmed save were not submitted from this screen. "}The text below is kept so you can copy it. See the setup progress above.</p>
     <div className="review-recovery-fields">
       {shown.map(([key, label, long]) => <div className="review-field" key={key}><label htmlFor={`recovery-${key}`}>{label}</label>{long ? <Textarea id={`recovery-${key}`} readOnly rows={Math.min(6, Math.max(2, fields[key].toString().split("\n").length))} value={fields[key].toString()}/> : <Input id={`recovery-${key}`} readOnly value={fields[key].toString()}/>}</div>)}
       <p className="fine-print">Authority: {fields.restricted ? "only the listed actions" : "full authority for the job"}.</p>

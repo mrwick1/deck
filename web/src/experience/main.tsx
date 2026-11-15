@@ -180,7 +180,8 @@ function Setup({ row, data, openBot, disabled, editors }: { row: api.SetupRecord
   const [attempts, setAttempts] = useState(String(row.setup.max_attempts + 1)); const [attemptsError, setAttemptsError] = useState("");
   const [asked, setAsked] = useState(false); const [refreshNote, setRefreshNote] = useState("");
   const guard = useRef({ busy: false }), limit = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (asked && !data.refreshing) { setAsked(false); setNote(null); setRefreshNote(data.error ? "Refresh failed. Showing the last known progress." : "Progress is up to date."); } }, [asked, data.refreshing, data.error]);
+  useEffect(() => { if (asked && !data.refreshing) { setAsked(false); setNote(previous => previous?.error ? previous : null); setRefreshNote(data.error ? "Refresh failed. Showing the last known progress." : "Progress is up to date."); } }, [asked, data.refreshing, data.error]);
+  useEffect(() => { if (!data.error) setRefreshNote(previous => previous.startsWith("Refresh failed.") ? "Connection restored. Progress is up to date." : previous); }, [data.error]);
   const control = (command: unknown, working: string, done: string) => disabled ? Promise.resolve(false) : guarded(guard.current, async () => {
     setPending(working); setNote(null); setRefreshNote("");
     try { await api.controlSetup(row.setup.id, row.version, command); setNote({ text: done, error: false }); await data.refresh(); }
@@ -196,7 +197,7 @@ function Setup({ row, data, openBot, disabled, editors }: { row: api.SetupRecord
     {note?.error && <p className="error-note" role="alert">{note.text}</p>}
     {row.setup.wait && <fieldset disabled={disabled}><WaitPanel row={row} protectedInput={data.protectedInput} refresh={data.refresh}/></fieldset>}
     {row.phase === "Investigate" && <section aria-label="Unknown outcome"><p>The last step has an unknown outcome. Deck cannot resolve it here yet. Check the outside service for what happened. No automatic retry is offered.</p>{steps.length > 0 && <ul className="setup-lines">{steps.map(line => <li key={line}>{line}</li>)}</ul>}</section>}
-    {row.phase === "Exhausted" && <form noValidate onSubmit={event => {
+    {row.phase === "Exhausted" && <form className="setup-attempts" noValidate onSubmit={event => {
       event.preventDefault();
       const result = checkAttempts(attempts, row.setup.max_attempts);
       if (!result.ok) { setAttemptsError(result.message); limit.current?.focus(); return; }

@@ -11,17 +11,18 @@ const now = () => Math.floor(Date.now() / 1000);
 function SecretForm({ id, label, send, done, onDone }: { id: string; label: string; send: (value: string) => Promise<void>; done: string; onDone: () => Promise<void> }) {
   const input = useRef<HTMLInputElement>(null);
   const guard = useRef({ busy: false });
+  const mounted = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clear = () => { if (input.current) input.current.value = ""; };
-  useEffect(() => { const node = input.current; return () => { if (node) node.value = ""; }; }, []);
+  useEffect(() => { mounted.current = true; const node = input.current; return () => { mounted.current = false; if (node) node.value = ""; }; }, []);
   const submit = async () => {
     if (guard.current.busy) return;
     setBusy(true);
     const r = await deliverSecret({ read: () => input.current?.value ?? "", clear, guard: guard.current, send });
-    if (r.ok === false && r.duplicate) return;
+    if (!mounted.current || (r.ok === false && r.duplicate)) return;
     setBusy(false);
-    if (r.ok) { setError(null); toast.success(done); await onDone().catch(() => {}); }
+    if (r.ok) { setError(null); toast.success(`${label}: ${done}`); await onDone().catch(() => {}); }
     else { setError(r.message); await onDone().catch(() => {}); }
   };
   return <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); if (!busy) submit(); }} onKeyDown={e => { if (e.key === "Escape") clear(); }}>
@@ -45,17 +46,17 @@ export function WaitPanel({ row, protectedInput, refresh }: { row: api.SetupReco
   if (!wait) return null;
   const view = describeWait(wait, protectedInput, tick);
   const label = typeof wait.kind === "object" && "Credential" in wait.kind ? wait.kind.Credential.label : "";
-  const rid = wait.request_id, shown = outcome?.rid === rid ? outcome : null, locked = shown?.pending === true;
+  const rid = wait.request_id, shown = outcome?.rid === rid ? outcome : null, locked = outcome?.pending === true;
   const answer = (decision: api.ChallengeDecision) => guarded(guard.current, async () => {
     setOutcome({ rid, pending: true, text: decision === "completed" ? "Sending your answer…" : "Cancelling this request…", error: false });
     try {
       await api.respondChallenge(row.setup.id, row.version, rid, decision);
-      setOutcome({ rid, pending: false, text: decision === "completed" ? "Answer sent. Waiting for verification." : "Cancel sent.", error: false });
+      setOutcome({ rid, pending: true, text: decision === "completed" ? "Answer sent. Waiting for verification." : "Cancel sent.", error: false });
       await refresh();
     } catch (e) {
-      setOutcome({ rid, pending: false, text: `${(e as Error).message || "The answer was not confirmed."} Refresh before trying again.`, error: true });
+      setOutcome({ rid, pending: true, text: `${((e as Error).message || "The answer was not confirmed").replace(/[.!?]$/, "")}. Refresh before trying again.`, error: true });
       await refresh().catch(() => {});
-    }
+    } finally { setOutcome(previous => previous?.rid === rid ? { ...previous, pending: false } : previous); }
   });
   const left = wait.expires_at != null ? Math.max(0, wait.expires_at - tick) : null;
   return <section aria-label={`Setup request for ${row.setup.draft.name}`} className="wait-panel bg-muted/40 flex min-w-0 flex-col gap-2 rounded-lg border p-3 [overflow-wrap:anywhere]">
@@ -65,6 +66,7 @@ export function WaitPanel({ row, protectedInput, refresh }: { row: api.SetupReco
     {/* Keyed by request, so a replacement request starts with an empty field. */}
     {view.mode === "secret" && <SecretForm key={wait.request_id} id={wait.request_id} label={label} done="Delivered. Setup is continuing." send={v => api.submitSecret(row.setup.id, row.version, wait.request_id, v)} onDone={refresh} />}
     {view.mode === "challenge" && <div className="wait-actions flex flex-wrap gap-2"><Button size="sm" aria-disabled={locked} onClick={() => { void answer("completed"); }}>I completed it</Button><Button size="sm" variant="outline" aria-disabled={locked} onClick={() => { void answer("cancel"); }}>Cancel this request</Button></div>}
+    {view.mode === "challenge" && locked && !shown && <p role="status">Finishing the previous response…</p>}
     {view.mode === "challenge" && shown && <p role={shown.error ? "alert" : "status"} className={shown.error ? "text-sm text-red-500" : "text-muted-foreground text-xs"}>{shown.text}</p>}
     {(view.mode === "expired" || view.mode === "pending") && <Button size="sm" variant="outline" className="self-start" onClick={() => refresh().catch(e => toast.error((e as Error).message))}>Refresh</Button>}
   </section>;

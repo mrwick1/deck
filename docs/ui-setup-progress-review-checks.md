@@ -62,3 +62,21 @@ After the fix, all ten tests in `setup-progress.test.ts` pass.
 The parent read the diff and independently ran type checking, all 173 tests, the build and the whitespace check. All passed. The build retains the shared-chunk warning.
 The parent narrowed the new form spacing selector to direct progress forms. It must not override the accepted draft review form.
 The copied-stub red tests are not execution against the old components. Browser evidence above comes from the implementation agent. Independent round two checks remain required.
+
+## Round two corrections and parent evidence
+
+Both requested second-round reviews completed. Sol found late secret success after replacement, loss of control errors on refresh, and enabled-looking challenge controls during reconciliation. Opus found draft-form CSS leakage and smaller copy/state issues.
+
+The first parent CSS correction was insufficient: the draft form is also a direct child. The final rule targets the Exhausted form's setup-attempts class.
+The parent measured draft gap 14px and margin 0 at 412×820. At 1280×800 the gap is 14px and the form is centered with 188.5px side margins.
+
+Secret forms suppress notifications after unmount. Confirmed delivery text names the credential label.
+The parent held an old secret response, replaced the request, then returned 204. The new field remained empty and no toast appeared.
+Challenge actions keep pending true until refresh finishes. Before correction, the held-read probe returned aria-disabled false for both controls. After correction, both returned true with one POST.
+Control errors survive manual refresh. Before correction, only the server error remained after a failed refresh. After correction, both the server error and the control error remained.
+The parent ran 46 focused setup/wait/form tests; all passed. Type checking passed before the concurrent Requests edits.
+
+Recovery text now points above. A later successful poll clears the stale failed-refresh note. Challenge errors include sentence punctuation.
+The attempt field deliberately retains entered text; validation explains when the current limit has overtaken it.
+Focus when a resolved control disappears, physical input, screen readers, shared Requests integration, real backend and frame timing remain limits. The parent did not claim these were newly verified.
+The setup progress gate is accepted with these limits. No third review round was substituted for the two requested rounds.
