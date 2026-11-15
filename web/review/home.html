@@ -6,7 +6,7 @@ const draft = {revision:1,name:'Morning mail',instructions:'Summarize the inbox 
 const row = {version:1,chat_id:1,phase:'Draft',runtime_ready:false,error:null,checklist:[],setup:{id:'fixture-bot',draft,max_attempts:3,wait:null,steps:[]}};
 const ready = {...row,phase:'Ready',runtime_ready:true,setup:{...row.setup,draft:{...draft,name:'Morning mail and project updates with a deliberately long bot name'}}};
 const status = {bot_id:'fixture-bot',chat_id:1,computer:'saved',automation_paused:false,budget_hold:true,budget_reason:'Fixture hold',working:null,waiting:null,queued:0,tasks:[{id:'result-one',title:'A deliberately long completed result title with project decisions and next steps',state:'done',priority:1,detail:null,source:'owner'}],unresolved:0,idle_secs:0,idle_left_ms:null,pending_events:0,last_error:null,screen:{viewers:0,worker:false,captures:0,delivered:0,unchanged:0}};
-window.__homeFixture = {calls:[], rows:mode==='populated'?[row]:mode==='ready'?[ready]:[], fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}};
+window.__homeFixture = {calls:[], rows:mode==='populated'?[row]:mode==='ready'?[ready]:[], fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}, hold:false, write:null, releaseWrite(){this.writeGate?.();this.writeGate=null;}, bump(patch){const c=this.rows[0];this.rows[0]={...c,version:c.version+1,setup:{...c.setup,draft:{...c.setup.draft,...patch,revision:c.setup.draft.revision+1}}};}};
 window.fetch = async (input, init={}) => {
   const path = typeof input==='string'?input:input.url;
   const state = window.__homeFixture;
@@ -18,6 +18,19 @@ window.fetch = async (input, init={}) => {
     if(mode==='refresh-failure') state.fail=true;
     if(mode==='lost-reply') return Response.json({error:'The connection ended before confirmation'},{status:503});
     return Response.json(state.rows[0]);
+  }
+  // Setup review writes. state.hold pauses a write. state.write is 'reject', 'reject-approve', 'lost' (applied, reply lost) or 'lost-unapplied'. bump(patch) acts as another client.
+  const write=path.match(/^\/api\/setups\/fixture-bot(\/approve)?$/);
+  if(write && init.method==='POST'){
+    const body=JSON.parse(init.body), approve=!!write[1];
+    if(state.hold) await new Promise(resolve=>state.writeGate=resolve);
+    const current=state.rows[0];
+    if(state.write==='reject'||(approve&&state.write==='reject-approve')) return Response.json({error:approve?'resources exceed the configured limits':'This fixture rejects the draft'},{status:400});
+    if(state.write==='lost-unapplied') return Response.json({error:'The connection ended before confirmation'},{status:503});
+    if(body.version!==current.version||(approve&&body.revision!==current.setup.draft.revision)) return Response.json({error:'The setup changed'},{status:409});
+    state.rows[0]=approve?{...current,version:current.version+1,phase:'Provisioning'}:{...current,version:current.version+1,setup:{...current.setup,draft:{...body.draft,revision:current.setup.draft.revision+1}}};
+    if(state.write==='lost') return Response.json({error:'The connection ended before confirmation'},{status:503});
+    return new Response(null,{status:204});
   }
   if(state.loading) await new Promise(resolve=>state.loads.push(resolve));
   if(mode==='unauthorized') return Response.json({error:'Sign in required'},{status:401});

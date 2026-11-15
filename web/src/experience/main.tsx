@@ -17,6 +17,8 @@ import { Chat } from "./Chat";
 import { Computer } from "./Computer";
 import { Requests, useRequests } from "./Requests";
 import { Review } from "./Review";
+import { newEntry } from "./setup-editor";
+import { useSetupEditors } from "./useSetupEditors";
 import { useWorkspace } from "./useWorkspace";
 import { destinationOptions } from "./actions";
 import "../index.css";
@@ -47,6 +49,7 @@ function App() {
   const [acceptedSetups, setAcceptedSetups] = useState<api.SetupRecord[]>([]);
   const rows = [...data.rows, ...acceptedSetups.filter(row => !data.rows.some(saved => saved.setup.id === row.setup.id))];
   useEffect(() => { setAcceptedSetups(previous => previous.filter(row => !data.rows.some(saved => saved.setup.id === row.setup.id))); }, [data.rows]);
+  const editors = useSetupEditors(rows);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const scrolls = useRef(new Map<string, number>());
   const [destination, setDestination] = useState("new");
@@ -155,7 +158,7 @@ function App() {
 
         {page === "history" && <main className="content"><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button><div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" onClick={() => chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`)}><MessageCircle size={18}/><span>{chat.title || "Untitled conversation"}</span><ChevronRight size={18}/></button>)}</div></main>}
         {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <Chat key={route} id={id === "new" ? null : Number(id)} bot={false} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={chatId => { if (nav.route() === "chat/new") navigate(`chat/${chatId}`, { replace: true }); }} refresh={data.refresh} scrolls={scrolls.current} scope={route}/>}
-        {page === "setup" && (row ? <Setup key={`${row.setup.id}-${row.version}`} row={row} data={data} openBot={openBot} disabled={!fresh}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}
+        {page === "setup" && (row ? <Setup key={row.phase === "Draft" ? row.setup.id : `${row.setup.id}-${row.version}`} row={row} data={data} openBot={openBot} disabled={!fresh} editors={editors}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}
         {page === "bot" && <BotRoute key={id.split("?")[0]} id={id.split("?")[0]} initialTab={id.endsWith("?requests") ? "requests" : "chat"} data={data} back={back} draft={draft(`bot/${id.split("?")[0]}`)} putDraft={text => put(`bot/${id.split("?")[0]}`, text)} scrolls={scrolls.current} disabled={!fresh}/>}
         {!["home", "new", "history", "setup", "chat", "bot"].includes(page) && <main className="content"><p>This screen is unavailable.</p><button className="secondary" onClick={() => navigate("home", { replace: true })}>Go home</button></main>}
       </>
@@ -164,7 +167,7 @@ function App() {
   </div></TooltipProvider></MotionConfig>;
 }
 
-function Setup({ row, data, openBot, disabled }: { row: api.SetupRecord; data: ReturnType<typeof useWorkspace>; openBot: (id: string) => void; disabled: boolean }) {
+function Setup({ row, data, openBot, disabled, editors }: { row: api.SetupRecord; data: ReturnType<typeof useWorkspace>; openBot: (id: string) => void; disabled: boolean; editors: ReturnType<typeof useSetupEditors> }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [attempts, setAttempts] = useState(String(row.setup.max_attempts + 1));
   const guard = useRef(false);
   const control = async (command: unknown) => {
@@ -173,7 +176,7 @@ function Setup({ row, data, openBot, disabled }: { row: api.SetupRecord; data: R
     catch (e) { setError(e instanceof Error ? e.message : "Setup change was not confirmed."); }
     finally { guard.current = false; setBusy(false); }
   };
-  return <main className="content setup-view"><h2>{row.setup.draft.name}</h2>{row.phase === "Draft" ? <Review row={row} disabled={disabled} refresh={data.refresh}/> : <>
+  return <main className="content setup-view"><h2>{row.setup.draft.name}</h2>{row.phase === "Draft" ? <Review row={row} entry={editors.entries[row.setup.id] ?? newEntry(row)} patch={editors.patch} guard={editors.guard} disabled={disabled} refresh={data.refresh}/> : <>
     <p>{row.runtime_ready ? "Your bot is ready" : row.phase === "Ready" ? "Preparing the runtime" : row.phase}</p><ul className="setup-checklist">{row.checklist.map(item => <li key={item.label}><span>{item.done ? <Check size={18}/> : "·"}</span>{item.label}</li>)}</ul>
     {(row.error || error) && <p className="error-note" role="alert">{row.error ?? error}</p>}
     <fieldset disabled={disabled || busy}>{row.setup.wait && <WaitPanel row={row} protectedInput={data.protectedInput} refresh={data.refresh}/>}</fieldset>
