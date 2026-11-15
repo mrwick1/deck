@@ -732,3 +732,11 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Review gate:** The owner requested two rounds for each screen. GPT Sol Medium and Opus 5.5 both review each round. Exchange their first-round feedback before the second round. Complete Home before mobile navigation, mobile use and the remaining screens. Record findings and fixes per screen. Do not claim native-device performance from viewport simulation.
 
 **Reason:** The owner made a fluid mobile experience the main priority and expanded the work from Home to the complete flow.
+
+## Track depth for in-app Back and animate keyed route bodies (2026-11-15)
+
+**Decision:** Store a depth number in each history entry. Header Back calls `history.back()` when the depth is above zero. At depth zero it replaces the entry with Home and never leaves the app. Navigating to the current route replaces the entry. A newly created chat replaces `chat/new`. Render each route (header, notices and body) as one keyed Motion unit in `AnimatePresence` with `mode="wait"`. The outgoing unit is `inert`. Reduced motion skips entrance and exit. Focus moves to the heading when the new unit mounts. A cold load shows a route-shaped shell with the correct title, Back button and skeleton. Only chat routes and New bot show a composer skeleton. Headers are 64px. The bot controls use the Radix `DropdownMenu`. Tab scroll restores in a layout effect keyed to the tab. Both entry pages use `viewport-fit=cover`, and `.app` applies the safe-area insets once.
+
+**Reason:** Two reviewers found that Back pushed Home and looped, cold deep links showed the Home skeleton, Home and other headers differed by 4px, and routes had inconsistent or missing exits. The plain `details` menu had no outside-click, Escape or focus handling. The tab scroll ref wrote on every poll render.
+
+**Boundary:** Unit tests cover the navigation outcomes against a fake history. They do not cover React rendering. No frame smoothness, safe-area, physical keyboard or touch result is measured. See [ui-navigation-review-checks.md](ui-navigation-review-checks.md).
