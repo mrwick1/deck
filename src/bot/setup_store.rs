@@ -178,6 +178,7 @@ mod tests {
                 ceiling: 100,
             }),
             credentials: vec![],
+            max_steps: None,
             task: Some("Read the supplied fixture".into()),
         }
     }

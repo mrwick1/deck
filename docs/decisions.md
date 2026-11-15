@@ -698,3 +698,9 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 ### 2026-11-14: keep interactive acceptance open until explicit stop
 
 The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
+
+## D67. Let each bot set its own model-call limit (2026-11-15)
+
+**Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.
+
+**Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.

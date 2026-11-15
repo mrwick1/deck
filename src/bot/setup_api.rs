@@ -137,6 +137,7 @@ async fn create(
                 ceiling: p.accounting.ceiling,
             }),
             credentials: vec![],
+            max_steps: None,
             task: None,
         },
     )
@@ -176,6 +177,16 @@ async fn edit(
         return Err(error(
             StatusCode::BAD_REQUEST,
             "Setup text exceeds its limit",
+        ));
+    }
+    if body
+        .draft
+        .max_steps
+        .is_some_and(|n| !(1..=200).contains(&n))
+    {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "Step limit must be 1 to 200",
         ));
     }
     row.setup
@@ -765,6 +776,42 @@ print(rec)
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         )
+    }
+
+    #[tokio::test]
+    async fn a_step_limit_outside_1_to_200_is_not_saved() {
+        let (app, store, _dir, _) = app();
+        let (_, row) = request(
+            &app,
+            "POST",
+            "/api/setups",
+            json!({"job":"Use fixture"}),
+            true,
+        )
+        .await;
+        let id = row["setup"]["id"].as_str().unwrap().to_owned();
+        for bad in [0, 201] {
+            let mut draft = row["setup"]["draft"].clone();
+            draft["max_steps"] = json!(bad);
+            let edit = json!({"version":1,"draft":draft});
+            assert_eq!(
+                request(&app, "POST", &format!("/api/setups/{id}"), edit, true)
+                    .await
+                    .0,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            store
+                .setup_record(&id)
+                .await
+                .unwrap()
+                .unwrap()
+                .setup
+                .draft
+                .max_steps,
+            None
+        );
     }
 
     #[tokio::test]
