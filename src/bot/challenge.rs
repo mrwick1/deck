@@ -401,6 +401,7 @@ mod tests {
                 budget: None,
                 credentials,
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();

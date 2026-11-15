@@ -138,6 +138,7 @@ async fn create(
             }),
             credentials: vec![],
             task: None,
+            schedule: None,
         },
     )
     .map_err(conflict)?;

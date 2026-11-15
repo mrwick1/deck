@@ -69,6 +69,22 @@ async fn main() -> anyhow::Result<()> {
     if let Some(s) = &setups {
         s.start();
     }
+    if let Some(bot) = bot.clone() {
+        let store = store.clone();
+        tokio::spawn(async move {
+            loop {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64);
+                match store.schedule_tick(now).await {
+                    Ok(0) => {}
+                    Ok(_) => bot.kick(),
+                    Err(e) => tracing::error!("schedule tick failed: {e:#}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        });
+    }
     let app = api::router_with_setups(config.clone(), store, agent, bot.clone(), setups);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!("listening on {}", listener.local_addr()?);

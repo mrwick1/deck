@@ -843,6 +843,7 @@ mod tests {
                 budget: None,
                 credentials: vec![],
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();

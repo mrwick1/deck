@@ -13,6 +13,7 @@ pub mod db;
 pub mod events;
 pub mod hub;
 pub mod provisioning;
+pub mod schedule;
 pub mod screen;
 pub mod secret_requests_api;
 pub mod secrets;
@@ -2152,6 +2153,7 @@ mod tests {
                 budget: None,
                 credentials: vec![],
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();

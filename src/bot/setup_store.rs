@@ -179,6 +179,7 @@ mod tests {
             }),
             credentials: vec![],
             task: Some("Read the supplied fixture".into()),
+            schedule: None,
         }
     }
 

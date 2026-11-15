@@ -341,6 +341,7 @@ mod tests {
                 }),
                 credentials: vec![],
                 task: Some("Read fixture".into()),
+                schedule: None,
             },
         )
         .unwrap();
@@ -435,6 +436,7 @@ mod tests {
                 }),
                 credentials: vec![],
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();
@@ -513,6 +515,7 @@ mod tests {
             }),
             credentials: vec![],
             task: None,
+            schedule: None,
         }
     }
 

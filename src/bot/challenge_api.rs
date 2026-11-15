@@ -201,6 +201,7 @@ mod tests {
                 }),
                 credentials: vec![],
                 task: Some("Sign in to the fixture".into()),
+                schedule: None,
             },
         )
         .unwrap();
