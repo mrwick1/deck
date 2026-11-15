@@ -1,4 +1,4 @@
-//! Daily schedules for ready bots (D67).
+//! Daily schedules for ready bots (D68).
 
 use crate::store::{Store, rfc3339};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
