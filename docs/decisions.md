@@ -780,3 +780,37 @@ A read that finds another revision clears the own-write expectation and opens co
 **Decision:** An unmounted protected-input form emits no success notification. A delivery notification names its label. Challenge controls stay visibly pending until their reconciliation read finishes. Refresh status does not erase control errors.
 
 **Reason:** Second-round checks reproduced stale success notifications, disappearing action errors and controls that looked enabled while their guard was still locked. Exhausted-form spacing now uses its own class; a direct-child selector also matched draft review.
+
+## Keep request responses across tab changes (2026-11-15)
+
+**Decision:** The bot workspace owns inbox operation state and shared challenge response state. A forced reconciliation read starts after older reads settle. A request that may have applied stays locked until the owner checks and reviews it. Protected values remain in DOM fields and never enter the operation store. Shared request panels join the removal-focus sequence.
+
+**Reason:** Reviews reproduced duplicate writes after stale reads and tab changes. A component-local challenge guard did not survive a tab change even after inbox guards moved into the workspace.
+
+**Boundary:** Several server actions have no version or idempotency key. A read cannot prove that a returning hold is the same hold. The client does not automatically replay writes.
+
+Requests state belongs above the route, not only above its tabs. Activity task actions use the same store and task identity. This prevents a route return or a second screen from bypassing an unknown response.
+
+## Recover screen reads and explain workspace actions (2026-11-15)
+
+**Decision:** Retry a failed frame read three times with increasing delays. Then offer Retry. Clear frames on privacy responses and stream errors. A stopped stream offers Reconnect. Preload each image and handle decode failure before showing it. Keep the frame area bounded.
+
+**Reason:** An unchanged desktop emits no new frame event. The old viewer could claim reconnection without scheduling recovery. Invalid images also cleared all status.
+
+**Decision:** Activity uses exact budget formatting and offers Open conversation on completed work. Queued and held tasks can change priority. Task and computer actions show pending and accepted feedback. A compact connection note sits below the bot tabs.
+
+**Boundary:** Results open the conversation, not a task-specific message. Home says Completed results because tasks have no completion timestamp. Request acceptance does not prove the computer has reached a new state. Physical motion and real-backend acceptance remain unverified.
+
+## 2026-11-15: Keep a pending question before its reply
+
+**Decision:** Merge the pending user message into stored history before adding live run output. Use the same message order before and after send confirmation.
+
+**Reason:** An early streamed reply previously displaced the pending question and changed its positional message ID. The regression test failed with assistant-before-user order, then passed after the merge changed.
+
+## 2026-11-15: Keep chat sessions above route views
+
+**Decision:** Keep Deck and visited bot chat controllers mounted above route views. Render their views through portal slots. Retain unconfirmed sends by conversation and keep unknown conversation creation separate. Never replay an ambiguous write automatically.
+
+**Reason:** Route remounts discarded pending guards, live output and recovery text. A new conversation must keep later typing when its first send returns an ID. Acknowledging one conversation must not discard another held message.
+
+**Boundary:** State lasts for the current application session. It does not survive a full page reload. Matching stored text is evidence, not proof of delivery. A lost create response can leave an empty conversation whose ID is unknown to the client.

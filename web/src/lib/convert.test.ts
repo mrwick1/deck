@@ -59,4 +59,35 @@ describe("toThreadMessages", () => {
       error: "boom",
     });
   });
+
+  it("shows a failed run that has no output", () => {
+    const msgs = toThreadMessages([{ kind: "user", text: "x" }], {
+      items: [],
+      status: "failed",
+      error: "boom",
+    });
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "The run failed: boom" }],
+      status: { type: "incomplete", reason: "error", error: "boom" },
+    });
+  });
+
+  it("shows a cancelled run that has no output", () => {
+    const msgs = toThreadMessages([{ kind: "user", text: "x" }], {
+      items: [],
+      status: "cancelled",
+    });
+    expect(msgs[1]).toMatchObject({
+      content: [{ type: "text", text: "The run was cancelled." }],
+      status: { type: "incomplete", reason: "cancelled" },
+    });
+  });
+
+  it("adds nothing for an empty finished run or a running one", () => {
+    const u = [{ kind: "user" as const, text: "x" }];
+    expect(toThreadMessages(u, { items: [], status: "done" })).toHaveLength(1);
+    expect(toThreadMessages(u, { items: [], status: "running" })).toHaveLength(1);
+  });
 });

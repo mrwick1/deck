@@ -13,9 +13,11 @@ import { Textarea } from "../components/ui/textarea";
 import { ChoiceSheet } from "./ChoiceSheet";
 import { HomeStart, HomeLoading, RouteLoading } from "./HomeStart";
 import { createNavigation } from "./navigation";
-import { Chat } from "./Chat";
+import { BotChatHost, ChatHost } from "./Chat";
+import { moveDraft } from "./chat-flow";
 import { Computer } from "./Computer";
-import { Requests, useRequests } from "./Requests";
+import { Requests, RequestsProvider, useRequests } from "./Requests";
+import { money, taskKey } from "./requests-store";
 import { Recovery, Review } from "./Review";
 import { hasUnsaved, isBusy, newEntry } from "./setup-editor";
 import { checkAttempts, resumeBlock, setupHeading, setupKey, stepLines } from "./setup-progress";
@@ -44,6 +46,8 @@ function RouteUnit({ children, route }: { children: ReactNode; route: string }) 
   }, []);
   return <motion.div ref={unit} data-route={route} className="route-unit" inert={!present} initial={reduced ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={reduced ? undefined : { opacity: 0, transition: { duration: .1 } }}>{children}</motion.div>;
 }
+type BotChatSlot = { slot: HTMLElement | null; hidden: boolean };
+type SetBotChatSlot = (id: string, change: Partial<BotChatSlot>) => void;
 function App() {
   const data = useWorkspace();
   const [route, setRoute] = useState(readRoute);
@@ -72,6 +76,16 @@ function App() {
   }, back = nav.back;
   const draft = (key: string) => drafts[key] ?? "";
   const put = (key: string, value: string) => { if (key === "home") setRefreshMessage(""); setDrafts(previous => ({ ...previous, [key]: value })); };
+  const update = useCallback((key: string, change: (current: string) => string) => setDrafts(previous => ({ ...previous, [key]: change(previous[key] ?? "") })), []);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [botSlots, setBotSlots] = useState<Record<string, BotChatSlot>>({});
+  const hostBot = useCallback<SetBotChatSlot>((id, change) => setBotSlots(previous => {
+    const old = previous[id] ?? { slot: null, hidden: true };
+    const next = { ...old, ...change };
+    return previous[id] && old.slot === next.slot && old.hidden === next.hidden ? previous : { ...previous, [id]: next };
+  }), []);
+  const [created, setCreated] = useState<Record<number, string>>({});
+  const chatHosted = useRef(false);
   const fresh = data.hasData && !data.error;
   const run = async (action: () => Promise<void>) => {
     if (guard.current || !fresh) return;
@@ -122,6 +136,7 @@ function App() {
   let id = "";
   try { id = split < 0 ? "" : decodeURIComponent(route.slice(split + 1)); } catch { id = ""; }
   const homeContent = useCallback((element: HTMLElement | null) => { if (element) element.scrollTop = scrolls.current.get(page) ?? 0; }, [page]);
+  if (page === "chat") chatHosted.current = true;
   const routeKey = page === "chat" ? "chat" : route.split("?")[0];
   const row = rows.find(item => item.setup.id === id);
   const status = data.bots.find(item => item.bot_id === id);
@@ -137,7 +152,7 @@ function App() {
   const firstHome = page === "home" && data.hasData && data.enabled && !bots.length;
   const recovery = uncertainCreate ? <section className="uncertain-create" aria-label="Check the previous setup"><p>The last request may have created a setup. Check your workspace before starting another.</p><Button variant="outline" aria-disabled={data.refreshing} onClick={() => { if (!data.refreshing) refreshWorkspace(); }}>Check workspace</Button><Button variant="outline" disabled={!fresh || data.refreshing} onClick={() => { setUncertainCreate(false); setError(""); }}>I checked — allow a new setup</Button></section> : null;
   useLayoutEffect(() => {
-    if (!uncertainCreate || !["home", "new"].includes(page)) return;
+    if (!uncertainCreate || !["home", "new", "bot"].includes(page)) return;
     const target = Array.from(document.querySelectorAll<HTMLElement>(".route-unit")).find(unit => unit.dataset.route === routeKey && !unit.hasAttribute("inert"))?.querySelector<HTMLElement>(".bot-list-row, textarea");
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ block: "nearest", behavior: "instant" });
@@ -145,9 +160,9 @@ function App() {
   return <MotionConfig reducedMotion="user" transition={{ duration: .18, ease: [0.22, 1, 0.36, 1] }}><TooltipProvider><div className="shell compact experience">
     <aside className="rail"><button className="brand" onClick={() => navigate("home")}>deck</button><button aria-label="Home" onClick={() => navigate("home")}><House size={18}/></button><button aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button></aside>
     <div className="app">
-      {!data.hasData ? (page === "home" ? <HomeLoading error={data.error} retry={() => { void data.refresh(); }}/> : <RouteLoading title={headerTitle(page)} back={back} error={data.error} retry={() => { void data.refresh(); }} composer={page === "chat" || page === "new"}/>) : <AnimatePresence mode="wait" initial={false}><RouteUnit key={routeKey} route={routeKey}>
-      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>{page === "chat" && id !== "new" ? data.chats.find(chat => chat.id === Number(id))?.title || "Untitled conversation" : headerTitle(page, row)}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
-      {(!["home", "new"].includes(page) && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
+      {!data.hasData ? (page === "home" ? <HomeLoading error={data.error} retry={() => { void data.refresh(); }}/> : <RouteLoading title={page === "chat" && id !== "new" ? "Conversation" : headerTitle(page)} back={back} error={data.error} retry={() => { void data.refresh(); }} composer={page === "chat" || page === "new"}/>) : <AnimatePresence mode="wait" initial={false}><RouteUnit key={routeKey} route={routeKey}>
+      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>{page === "chat" && id !== "new" ? data.chats.find(chat => chat.id === Number(id))?.title || created[Number(id)] || "Untitled conversation" : headerTitle(page, row)}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
+      {(!["home", "new", "bot"].includes(page) && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
       <>
         {firstHome && <HomeStart enter={false} draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh || uncertainCreate} busy={busy} recovery={recovery} notice={homeFeedback} noticeIsError={!!error} retry={refreshWorkspace} retryBusy={data.refreshing} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: refreshWorkspace }]} />}
         {(page === "home" || page === "new") && !firstHome && <>
@@ -157,19 +172,21 @@ function App() {
               <div className="section-heading"><h2>Your workspace</h2><Button className="text-button" disabled={!data.enabled || !fresh} onClick={() => { setDestination("new"); navigate("new"); }}><Plus size={18}/> New bot</Button></div>
               {(waiting.length > 0 || attention.length > 0) && <section aria-label="Needs you" className="attention-list"><h2>Needs you</h2>{waiting.map(item => <Button className="attention" key={item.setup.id} onClick={() => openSetup(item)}><span><strong>{item.setup.draft.name}</strong><small>{item.setup.wait ? "Sign-in needs your help" : item.phase === "Investigate" ? "An outcome needs investigation" : "Setup attempts exhausted"}</small></span><ChevronRight size={18}/></Button>)}{attention.filter(bot => !waiting.some(item => item.setup.id === bot.bot_id)).map(bot => <Button className="attention" key={bot.bot_id} onClick={() => navigate(`bot/${encodeURIComponent(bot.bot_id)}?requests`)}><span><strong>{names.get(bot.bot_id) ?? "Default bot"}</strong><small>{describeBot(bot).label}</small></span><ChevronRight size={18}/></Button>)}</section>}
               <section aria-label="Your bots" className="bot-list">{bots.map(item => <Button key={item.id} className="bot-list-row" onClick={() => item.row ? openSetup(item.row) : openBot(item.id)}><span className="bot-icon"><Mail size={18}/></span><span className="bot-row-copy"><strong>{item.name}</strong><span>{item.status?.working?.title ?? item.row?.setup.draft.instructions ?? "Ready for a task"}</span><small><span className="status-dot"/>{item.status ? describeBot(item.status).label : item.row?.phase === "Draft" ? "Review setup" : item.row?.phase ?? "Not ready"}{item.status?.queued ? ` · ${item.status.queued} queued` : ""}</small></span><ChevronRight size={18}/></Button>)}{!bots.length && <div className="empty-result"><p>No bots yet. Describe a job below to create one.</p>{!data.enabled && <p>Bot creation is not configured on this server. You can still chat with Deck.</p>}</div>}</section>
-              {results.length > 0 && <section className="results"><div className="section-heading"><h2>Recent results</h2></div>{results.map(({ bot, task }) => <Button className="result-row" key={task.id} onClick={() => openBot(bot.bot_id)}><Check size={18}/><span><strong>{task.title}</strong><small>{names.get(bot.bot_id) ?? "Default bot"} · Open conversation</small></span><ChevronRight size={18}/></Button>)}{!results.length && <p className="empty-result">Completed work will appear here</p>}</section>}
+              {results.length > 0 && <section className="results"><div className="section-heading"><h2>Completed results</h2></div>{results.map(({ bot, task }) => <Button className="result-row" key={task.id} onClick={() => openBot(bot.bot_id)}><Check size={18}/><span><strong>{task.title}</strong><small>{names.get(bot.bot_id) ?? "Default bot"} · Open conversation</small></span><ChevronRight size={18}/></Button>)}{!results.length && <p className="empty-result">Completed work will appear here</p>}</section>}
             </>}
           </main>
           <form className="compact-composer" onSubmit={event => { event.preventDefault(); void propose(); }}><div className="composer-context"><span>To Deck</span><ChoiceSheet label="Task destination" value={destination} disabled={busy || !fresh} onChange={setDestination} options={[{ value: "new", label: "Create a bot", disabled: !data.enabled }, { value: "chat", label: "Chat with Deck" }, ...bots.filter(item => item.status).map(item => ({ value: item.id, label: item.name }))]}/></div><div className="composer-input"><Textarea maxLength={20000} rows={1} aria-label="Describe a job" placeholder={destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft("home")} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} onChange={event => put("home", event.target.value)}/><Button className="send" aria-label="Continue" disabled={busy || !fresh || !draft("home").trim() || (destination === "new" && (!data.enabled || uncertainCreate))}><ArrowUp size={18}/></Button></div><div className="home-send-status"><span role={error ? "alert" : "status"}>{busy ? destination === "new" ? "Preparing your setup…" : "Sending your task…" : homeFeedback}</span>{(data.error || error) && <Button type="button" variant="ghost" disabled={data.refreshing} onClick={refreshWorkspace}>Refresh</Button>}</div></form>
         </>}
 
-        {page === "history" && <main className="content" ref={homeContent} onScroll={event => scrolls.current.set("history", event.currentTarget.scrollTop)}><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button>{!fresh && <p className="fine-print">Showing the last known list. You can read conversations; sending resumes when Deck reconnects.</p>}{!data.chats.length && <p className="empty-result">No conversations yet. Start one with Deck.</p>}<div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" data-return-focus={historySelection.current === chat.id ? "true" : undefined} onClick={() => { historySelection.current = chat.id; chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`); }}><MessageCircle size={18}/><span className="conversation-copy"><strong>{chat.title || "Untitled conversation"}</strong><small>{chat.bot_id ? names.get(chat.bot_id) || "Bot conversation" : "Deck"}</small></span><ChevronRight size={18}/></button>)}</div>{data.chats.length > 0 && <p className="fine-print">Newest conversations first.</p>}</main>}
-        {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <Chat key={route} id={id === "new" ? null : Number(id)} bot={false} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={chatId => { if (nav.route() === "chat/new") navigate(`chat/${chatId}`, { replace: true }); }} refresh={data.refresh} scrolls={scrolls.current} scope={route}/>}
+        {page === "history" && <main className="content" ref={homeContent} onScroll={event => scrolls.current.set("history", event.currentTarget.scrollTop)}><button className="primary" onClick={() => { historySelection.current = null; navigate("chat/new"); }}><Plus size={18}/> New conversation</button>{!fresh && <p className="fine-print">Showing the last known list. You can read conversations; sending resumes when Deck reconnects.</p>}{!data.chats.length && <p className="empty-result">No conversations yet. Start one with Deck.</p>}<div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" data-return-focus={historySelection.current === chat.id ? "true" : undefined} onClick={() => { historySelection.current = chat.id; chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`); }}><MessageCircle size={18}/><span className="conversation-copy"><strong>{chat.title || "Untitled conversation"}</strong><small>{chat.bot_id ? names.get(chat.bot_id) || "Bot conversation" : "Deck"}</small></span><ChevronRight size={18}/></button>)}</div>{data.chats.length > 0 && <p className="fine-print">Newest conversations first.</p>}</main>}
+        {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <div className="chat-slot" ref={setSlot}/>}
         {page === "setup" && (row ? <Setup key={setupKey(row)} row={row} data={data} openBot={openBot} disabled={!fresh} editors={editors}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}
-        {page === "bot" && <BotRoute key={id.split("?")[0]} id={id.split("?")[0]} initialTab={id.endsWith("?requests") ? "requests" : "chat"} data={data} back={back} draft={draft(`bot/${id.split("?")[0]}`)} putDraft={text => put(`bot/${id.split("?")[0]}`, text)} scrolls={scrolls.current} disabled={!fresh}/>}
+        {page === "bot" && <BotRoute key={id.split("?")[0]} id={id.split("?")[0]} initialTab={id.endsWith("?requests") ? "requests" : "chat"} data={data} back={back} hostChat={hostBot} scrolls={scrolls.current} disabled={!fresh}/>}
         {!["home", "new", "history", "setup", "chat", "bot"].includes(page) && <main className="content"><p>This screen is unavailable.</p><button className="secondary" onClick={() => navigate("home", { replace: true })}>Go home</button></main>}
       </>
     </RouteUnit></AnimatePresence>}
+    {Object.entries(botSlots).map(([botId, target]) => <BotChatHost key={botId} id={data.bots.find(bot => bot.bot_id === botId)?.chat_id ?? null} name={names.get(botId) ?? "Bot"} slot={target.slot} hidden={target.hidden} disabled={!fresh} draft={draft(`bot/${botId}`)} setDraft={text => put(`bot/${botId}`, text)} putDraft={(_key, change) => update(`bot/${botId}`, change)} refresh={data.refresh} scrolls={scrolls.current} scope={`bot/${botId}`}/>)}
+    {chatHosted.current && <ChatHost routeId={page === "chat" && /^\d+$/.test(id) ? Number(id) : null} route={page === "chat" && (id === "new" || /^\d+$/.test(id)) ? route : ""} slot={page === "chat" ? slot : null} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={(chatId, title) => { setDrafts(previous => moveDraft(previous, chatId)); setCreated(previous => ({ ...previous, [chatId]: title })); if (nav.route() === "chat/new") navigate(`chat/${chatId}`, { replace: true }); }} refresh={data.refresh} scrolls={scrolls.current} putDraft={update}/>}
     </div><Toaster position="top-center" richColors/>
   </div></TooltipProvider></MotionConfig>;
 }
@@ -211,12 +228,15 @@ function Setup({ row, data, openBot, disabled, editors }: { row: api.SetupRecord
   </>}</main>;
 }
 
-function BotRoute({ id, initialTab, data, back, draft, putDraft, scrolls, disabled }: { id: string; initialTab: string; data: ReturnType<typeof useWorkspace>; back: () => void; draft: string; putDraft: (text: string) => void; scrolls: Map<string, number>; disabled: boolean }) {
+function BotRoute({ id, initialTab, data, back, hostChat, scrolls, disabled }: { id: string; initialTab: string; data: ReturnType<typeof useWorkspace>; back: () => void; hostChat: SetBotChatSlot; scrolls: Map<string, number>; disabled: boolean }) {
   const row = data.rows.find(item => item.setup.id === id), status = data.bots.find(item => item.bot_id === id);
-  return status ? <BotWorkspace id={id} initialTab={initialTab} row={row} status={status} data={data} back={back} draft={draft} putDraft={putDraft} scrolls={scrolls} disabled={disabled}/> : <><header className="experience-header"><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>Bot</h1></header><main className="content"><p>This bot’s runtime is not ready. Open its setup from Home.</p></main></>;
+  return status ? <BotWorkspace id={id} initialTab={initialTab} row={row} status={status} data={data} back={back} hostChat={hostChat} scrolls={scrolls} disabled={disabled}/> : <><header className="experience-header"><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>Bot</h1></header><main className="content"><p>This bot’s runtime is not ready. Open its setup from Home.</p></main></>;
 }
-function BotWorkspace({ id, initialTab, row, status, data, back, draft, putDraft, scrolls, disabled }: { id: string; initialTab: string; row?: api.SetupRecord; status: api.BotStatus; data: ReturnType<typeof useWorkspace>; back: () => void; draft: string; putDraft: (text: string) => void; scrolls: Map<string, number>; disabled: boolean }) {
+function BotWorkspace({ id, initialTab, row, status, data, back, hostChat, scrolls, disabled }: { id: string; initialTab: string; row?: api.SetupRecord; status: api.BotStatus; data: ReturnType<typeof useWorkspace>; back: () => void; hostChat: SetBotChatSlot; scrolls: Map<string, number>; disabled: boolean }) {
   const [tab, setTab] = useState(initialTab);
+  const openTab = (next: string) => { setTab(next); requestAnimationFrame(() => document.getElementById(`workspace-tab-${next}`)?.focus()); };
+  const chatSlot = useCallback((slot: HTMLDivElement | null) => hostChat(id, { slot }), [id, hostChat]);
+  useEffect(() => hostChat(id, { hidden: tab !== "chat" }), [id, tab, hostChat]);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [tab]);
   useEffect(() => setTab(initialTab), [initialTab]);
@@ -225,34 +245,62 @@ function BotWorkspace({ id, initialTab, row, status, data, back, draft, putDraft
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const guard = useRef(false);
   const requests = useRequests(id);
+  const [noticeTab, setNoticeTab] = useState(initialTab);
+  const feedbackContext = useRef<{ key: string; value: string } | null>(null);
+  const feedbackValue = (key: string) => key === "computer" ? status.computer : JSON.stringify(status.tasks.find(task => task.id === key));
+  useEffect(() => {
+    const context = feedbackContext.current;
+    if (!busy && context && context.value !== feedbackValue(context.key)) { setError(""); feedbackContext.current = null; }
+  }, [busy, status.computer, status.tasks]);
+  useEffect(() => { if (!notice || busy) return; const timer = setTimeout(() => setNotice(""), 5000); return () => clearTimeout(timer); }, [notice, busy]);
   const name = titleFor(row, status);
   const tabs = ["chat", "activity", "requests", "computer"];
   const count = requests.items.length + requests.secrets.length + (row?.setup.wait ? 1 : 0);
-  const run = async (action: () => Promise<unknown>) => {
+  const run = async (action: () => Promise<unknown>, pending = "Sending request…", confirmed?: string, context?: string) => {
     if (guard.current || disabled) return;
-    guard.current = true; setBusy(true); setError(""); setNotice("");
-    try { await action(); await data.refresh(); await requests.refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "The action was not confirmed."); }
+    guard.current = true; setBusy(true); setError(""); setNotice(pending); setNoticeTab(tab);
+    feedbackContext.current = context ? { key: context, value: feedbackValue(context) } : null;
+    try { await action(); if (confirmed) setNotice(confirmed); await data.refresh(); await requests.refresh(); }
+    catch (e) { setNotice(""); setError(!(e instanceof api.ApiError) || e.status === 0 || e.status >= 500 ? "The response was not confirmed. The request may have applied. Refresh status before trying again." : e.message); }
     finally { guard.current = false; setBusy(false); }
+  };
+  const taskBlocked = (taskId: string) => disabled || busy || !requests.loaded || !!requests.error || requests.view.ops.has(taskKey(taskId)) || requests.view.review.has(taskKey(taskId));
+  const taskFocus = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const old = taskFocus.current;
+    if (!old) return;
+    if (tab !== "activity" || (document.activeElement !== old && document.activeElement !== document.body)) { taskFocus.current = null; return; }
+    if (!old.isConnected) {
+      const target = tabContent.current?.querySelector<HTMLElement>("h2");
+      if (target) { target.tabIndex = -1; target.focus({ preventScroll: true }); }
+      taskFocus.current = null;
+    }
+  }, [status.tasks, tab]);
+  const respondTask = async (taskId: string, label: string, action: () => Promise<unknown>) => {
+    if (taskBlocked(taskId)) return;
+    taskFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    await requests.store.perform({ identity: taskKey(taskId), label }, action);
+    await data.refresh();
   };
   const privateScreen = !!row?.setup.wait || !!requests.secrets.length || !!requests.error || !requests.loaded;
   const queued = status.tasks.filter(task => ["queued", "held", "waiting"].includes(task.state));
   return <div className="bot-workspace">
     <header className="experience-header"><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><div className="header-title"><h1>{name}</h1><p role="status">{describeBot(status).label}</p></div><DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}><DropdownMenu.Trigger asChild><button className="icon" aria-label="Bot controls"><MoreHorizontal size={20}/></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="start-menu bot-menu" align="end" sideOffset={8} collisionPadding={12}>
-      <DropdownMenu.Item className="start-menu-item" disabled={disabled || busy} onSelect={() => { void run(() => api.botPause(!status.automation_paused, id)); }}>{status.automation_paused ? "Resume automation" : "Pause automation"}</DropdownMenu.Item>
+      <DropdownMenu.Item className="start-menu-item" disabled={disabled || busy} onSelect={() => { void run(() => api.botPause(!status.automation_paused, id), status.automation_paused ? "Requesting resume…" : "Requesting pause…", status.automation_paused ? "Resume requested." : "Pause requested."); }}>{status.automation_paused ? "Resume automation" : "Pause automation"}</DropdownMenu.Item>
       <DropdownMenu.Label className="menu-note">Pause prevents new tasks. Current work can continue.</DropdownMenu.Label>
       <DropdownMenu.Item className="start-menu-item" disabled={disabled || busy} onSelect={() => { void run(async () => { const result = await api.botStop(id); setNotice(result.unconfirmed.length ? `Stop requested. ${result.unconfirmed.length} command outcomes remain unconfirmed. Check Requests.` : "Stop confirmed"); }); }}>Stop work</DropdownMenu.Item>
-      <DropdownMenu.Item className="start-menu-item" disabled={disabled || busy || status.computer === "waking" || status.computer === "saving"} onSelect={() => { void run(() => status.computer === "awake" ? api.botSleep(id) : api.botWake(id)); }}>{status.computer === "awake" ? "Sleep computer" : "Wake computer"}</DropdownMenu.Item>
+      <DropdownMenu.Item className="start-menu-item" disabled={disabled || busy || status.computer === "waking" || status.computer === "saving"} onSelect={() => { void run(() => status.computer === "awake" ? api.botSleep(id) : api.botWake(id), status.computer === "awake" ? "Requesting sleep…" : "Requesting wake…", status.computer === "awake" ? "Sleep requested." : "Wake requested.", "computer"); }}>{status.computer === "awake" ? "Sleep computer" : "Wake computer"}</DropdownMenu.Item>
     </DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></header>
     <div className="workspace-tabs" role="tablist" aria-label="Bot workspace">{tabs.map((value, index) => <button key={value} id={`workspace-tab-${value}`} role="tab" aria-selected={tab === value} aria-controls={`workspace-panel-${value}`} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={event => { const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1; if (next >= 0) { event.preventDefault(); setTab(tabs[next]); document.getElementById(`workspace-tab-${tabs[next]}`)?.focus(); } }}>{value}{value === "requests" && count > 0 && <span>{count}</span>}{tab === value && <motion.span layoutId="active-workspace-tab" className="tab-underline"/>}</button>)}</div>
-    {(notice || error) && <p className={error ? "error-note" : "inline-status"} role={error ? "alert" : "status"}>{error || notice}</p>}
-    {count > 0 && tab === "chat" && <button className="request-banner" onClick={() => setTab("requests")}>{count} request{count === 1 ? "" : "s"} need your attention <ChevronRight size={18}/></button>}
-    <div className="chat-tab" role="tabpanel" id="workspace-panel-chat" aria-labelledby="workspace-tab-chat" hidden={tab !== "chat"}><Chat id={status.chat_id} bot name={name} draft={draft} setDraft={putDraft} disabled={disabled} hidden={tab !== "chat"} onCreated={() => {}} refresh={data.refresh} scrolls={scrolls} scope={`bot/${id}`}/></div>
+    {data.error && <p className="workspace-connection" role="alert">Connection lost. Showing saved status.<button className="text-button" onClick={() => { void data.refresh(); }}>Refresh</button></p>}
+    {tab === noticeTab && (notice || error) && <p className={error ? "error-note" : "inline-status"} role={error ? "alert" : "status"}>{error || notice}</p>}
+    {count > 0 && tab === "chat" && <button className="request-banner" onClick={() => openTab("requests")}>{count} request{count === 1 ? "" : "s"} need your attention <ChevronRight size={18}/></button>}
+    <div ref={chatSlot} className="chat-tab" role="tabpanel" id="workspace-panel-chat" aria-labelledby="workspace-tab-chat" hidden={tab !== "chat"}/>
     {tab !== "chat" && <main key={tab} className="content" role="tabpanel" id={`workspace-panel-${tab}`} aria-labelledby={`workspace-tab-${tab}`} tabIndex={0} ref={tabContent} onScroll={event => scrolls.set(`${id}/${tab}`, event.currentTarget.scrollTop)}>
-      {tab === "activity" && <><h2>Tasks</h2>{!status.tasks.length && <p className="empty-result">No tasks yet</p>}<ul className="task-list">{status.tasks.map(task => <li key={task.id}><div><strong>{task.title}</strong><span className="task-state">{task.state}</span></div>{task.detail && <p>{task.detail}</p>}{["queued", "held", "failed", "waiting"].includes(task.state) && <div className="task-controls">{task.state === "held" && <button className="text-button" disabled={disabled || busy} onClick={() => { void run(() => api.botRetryTask(task.id, id)); }}>Retry</button>}{task.state !== "failed" && <button className="text-button" disabled={disabled || busy} onClick={() => { void run(() => api.botCancelTask(task.id, id)); }}>Cancel</button>}{task.state === "queued" && <select aria-label={`Priority for ${task.title}`} value={task.priority} disabled={disabled || busy} onChange={event => { void run(() => api.botPriority(task.id, Number(event.target.value), id)); }}><option value={0}>Low priority</option><option value={1}>Normal priority</option><option value={2}>High priority</option></select>}</div>}</li>)}</ul>{queued.length > 0 && <p className="fine-print">Queued work starts only when the server’s pause, permission and spending checks allow it.</p>}{row && <details className="advanced"><summary>Approved setup</summary><p>{row.setup.draft.instructions}</p><p>{row.setup.draft.authority === "Full" ? "Full authority within this job" : row.setup.draft.authority.Restricted.join(", ") || "No actions granted"}</p>{row.setup.draft.budget && <p>Reviewed ceiling: {(row.setup.draft.budget.ceiling / 10 ** row.setup.draft.budget.exponent).toFixed(row.setup.draft.budget.exponent)} {row.setup.draft.budget.currency}</p>}</details>}</>}
+      {tab === "activity" && <><h2>Tasks</h2><p className="activity-response" role="status">{requests.view.notice.tone === "error" && !requests.view.ops.size && !status.tasks.some(task => ["queued", "held", "waiting"].includes(task.state) && requests.view.failures.has(taskKey(task.id))) ? "" : requests.view.notice.text}</p>{!status.tasks.length && <p className="empty-result">No tasks yet</p>}<ul className="task-list">{status.tasks.map(task => <li key={task.id}><div><strong>{task.title}</strong><span className="task-state">{{ queued: "Queued", held: "On hold", waiting: "Waiting", running: "Working", done: "Completed", failed: "Failed", cancelled: "Cancelled" }[task.state] ?? task.state}</span></div>{task.detail && <p>{task.detail}</p>}{requests.view.ops.get(taskKey(task.id)) && <p role="status">{requests.view.ops.get(taskKey(task.id))!.message}</p>}{["queued", "held", "waiting"].includes(task.state) && requests.view.failures.get(taskKey(task.id)) && <p role="alert">{requests.view.failures.get(taskKey(task.id))}</p>}{(requests.view.ops.has(taskKey(task.id)) || requests.view.review.has(taskKey(task.id))) && <button className="text-button" onClick={() => openTab("requests")}>Review response in Requests</button>}{["queued", "held", "waiting"].includes(task.state) && <div className="task-controls">{task.state === "held" && <button className="text-button" aria-disabled={taskBlocked(task.id)} onClick={() => { void respondTask(task.id, `Retry ${task.title}`, () => api.botRetryTask(task.id, id)); }}>Retry</button>}{task.state !== "failed" && <button className="text-button" aria-disabled={taskBlocked(task.id)} onClick={() => { void respondTask(task.id, `Cancel ${task.title}`, () => api.botCancelTask(task.id, id)); }}>Cancel</button>}{["queued", "held"].includes(task.state) && <select aria-label={`Priority for ${task.title}`} value={task.priority} aria-disabled={taskBlocked(task.id)} onChange={event => { if (taskBlocked(task.id)) return; void run(() => api.botPriority(task.id, Number(event.target.value), id), `Updating priority for ${task.title}…`, `Priority change accepted for ${task.title}.`, task.id); }}><option value={0}>Low priority</option><option value={1}>Normal priority</option><option value={2}>High priority</option></select>}</div>}{task.state === "done" && <button className="text-button" onClick={() => openTab("chat")}>Open conversation</button>}</li>)}</ul>{queued.length > 0 && <p className="fine-print">Queued work starts only when the server’s pause, permission and spending checks allow it.</p>}{row && <details className="advanced"><summary>Approved setup</summary><p>{row.setup.draft.instructions}</p><p>{row.setup.draft.authority === "Full" ? "Full authority within this job" : row.setup.draft.authority.Restricted.join(", ") || "No actions granted"}</p>{row.setup.draft.budget && <p>Reviewed ceiling: {money(row.setup.draft.budget.ceiling, row.setup.draft.budget.exponent, row.setup.draft.budget.currency) ?? "Unavailable"}. Allowance: {money(row.setup.draft.budget.allowance, row.setup.draft.budget.exponent, row.setup.draft.budget.currency) ?? "Unavailable"} per {row.setup.draft.budget.period}.</p>}</details>}</>}
       {tab === "requests" && <Requests id={id} row={row} protectedInput={data.protectedInput} requests={requests} disabled={disabled} refresh={data.refresh}/>}
-      {tab === "computer" && <><div className="computer-toolbar"><span>{status.computer}</span><button className="secondary" disabled={disabled || busy || status.computer === "saving" || status.computer === "waking"} onClick={() => { void run(() => status.computer === "awake" ? api.botSleep(id) : api.botWake(id)); }}>{status.computer === "awake" ? "Sleep" : "Wake"}</button></div>{disabled ? <p className="empty-result">Refresh the connection before viewing the computer.</p> : privateScreen ? <div className="live-screen"><p>Screen hidden while sign-in or protected input needs attention</p><button className="secondary" onClick={() => setTab("requests")}>Open requests</button></div> : status.computer === "awake" ? <Computer key={id} id={id}/> : <div className="live-screen"><Monitor size={28}/><p>{status.computer === "saved" ? "The computer is asleep. Wake it to see the screen." : "Waiting for the computer to be ready"}</p></div>}</>}
+      {tab === "computer" && <><div className="computer-toolbar"><span>{{ saved: "Asleep", waking: "Waking up", awake: "Awake", saving: "Saving and sleeping", failed: "Computer needs attention" }[status.computer]}</span><button className="secondary" aria-disabled={disabled || busy || status.computer === "saving" || status.computer === "waking"} onClick={() => { if (status.computer === "saving" || status.computer === "waking") return; void run(() => status.computer === "awake" ? api.botSleep(id) : api.botWake(id), status.computer === "awake" ? "Requesting sleep…" : "Requesting wake…", status.computer === "awake" ? "Sleep requested." : "Wake requested.", "computer"); }}>{status.computer === "awake" ? "Sleep" : "Wake"}</button></div>{disabled ? <p className="empty-result">Refresh the connection before viewing the computer.</p> : privateScreen ? <div className="live-screen"><p>{!requests.loaded ? "Checking whether the screen can be shown…" : requests.error ? "Screen hidden because privacy status could not be checked." : "Screen hidden while sign-in or protected input needs attention"}</p><button className="secondary" onClick={() => openTab("requests")}>Open requests</button></div> : status.computer === "awake" ? <Computer key={id} id={id}/> : <div className="live-screen"><Monitor size={28}/><p>{status.computer === "saved" ? "The computer is asleep. Wake it to see the screen." : status.computer === "saving" ? "Saving the computer before it sleeps." : status.computer === "failed" ? "The computer could not start. You can request wake again." : "Waking the computer. The screen will appear when it is ready."}</p></div>}</>}
     </main>}
   </div>;
 }
-createRoot(document.getElementById("root")!).render(<StrictMode><App/></StrictMode>);
+createRoot(document.getElementById("root")!).render(<StrictMode><RequestsProvider><App/></RequestsProvider></StrictMode>);

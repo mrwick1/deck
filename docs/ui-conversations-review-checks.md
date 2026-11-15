@@ -29,3 +29,9 @@ An unbroken title stayed inside the panel: clientWidth and scrollWidth were both
 Opening Conversation 20 showed its title. Back focused its row and restored scrollTop 1788.
 The driver scrolled to activate that row, so this is evidence of nonzero restoration, not an exact comparison with its earlier 900px setting.
 An initial probe hit a toast from the fixture's unsupported history endpoint. The repeated probe used an isolated empty-history response and completed. All owned sessions closed.
+
+## Final round-two correction (2026-11-15)
+
+Both reviewers completed round two. The remaining selected-row defect is corrected: New conversation clears the previous row selection. A bare fixture run at 320×640 opened a row, returned, opened New conversation and returned again. Focus landed on the Conversations heading. The panel measured 305px for both client and scroll width. See `/tmp/deck-history-return-final.log` for local evidence.
+
+The list retains one return position, not one position per browser history entry. An explicit visit resets it. Returning to an older history entry after that visit does not recover its older position. Cold existing chats now use the neutral loading title “Conversation”. Physical input, screen-reader output and frame timing remain untested.

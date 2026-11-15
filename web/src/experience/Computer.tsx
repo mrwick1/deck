@@ -1,32 +1,41 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { botFrameUrl, botScreenUrl } from "../lib/api";
+import { createScreen, type ScreenState, type StreamLike } from "./computer-controller";
+import "./computer.css";
 
-/** Keep only confirmed PNG frames. Empty responses and disconnects clear the visible frame. */
+const first: ScreenState = { frame: null, phase: "waiting", message: "Waiting for the first frame" };
+
+/** Show the bot screen. The controller owns streams, retries and URLs; this file only draws its state. */
 export function Computer({ id }: { id: string }) {
-  const [frame, setFrame] = useState<string | null>(null);
-  const [message, setMessage] = useState("Waiting for the first frame");
+  const [state, setState] = useState(first);
+  const frame = useRef<HTMLDivElement>(null);
+  const screen = useRef<ReturnType<typeof createScreen>>(undefined);
   useEffect(() => {
-    let closed = false, version = 0;
-    let url: string | null = null;
-    let controller: AbortController | undefined;
-    const clear = () => { if (url) URL.revokeObjectURL(url); url = null; setFrame(null); };
-    const es = new EventSource(botScreenUrl(id));
-    es.addEventListener("frame", async event => {
-      const own = ++version;
-      controller?.abort(); controller = new AbortController();
-      try {
-        const { seq } = JSON.parse((event as MessageEvent).data);
-        const response = await fetch(botFrameUrl(seq, id), { signal: controller.signal, cache: "no-store" });
-        if (closed || own !== version) return;
-        if (response.status === 204) { clear(); setMessage("Screen unavailable or hidden for privacy"); return; }
-        if (!response.ok || !response.headers.get("content-type")?.startsWith("image/png")) throw new Error("Frame unavailable");
-        const blob = await response.blob();
-        if (closed || own !== version) return;
-        clear(); url = URL.createObjectURL(blob); setFrame(url); setMessage("");
-      } catch { if (!closed && own === version) { clear(); setMessage("Screen connection interrupted. Reconnecting…"); } }
-    });
-    es.onerror = () => { ++version; controller?.abort(); clear(); setMessage("Screen connection interrupted. Reconnecting…"); };
-    return () => { closed = true; ++version; es.close(); controller?.abort(); if (url) URL.revokeObjectURL(url); };
+    setState(first);
+    const s = createScreen({
+      openStream: () => new EventSource(botScreenUrl(id)) as unknown as StreamLike,
+      frameUrl: seq => botFrameUrl(seq, id),
+      fetch: (url, init) => fetch(url, init),
+      createObjectURL: blob => URL.createObjectURL(blob),
+      revokeObjectURL: url => URL.revokeObjectURL(url),
+      preload: (url, ok, fail) => {
+        const image = new Image();
+        image.onload = ok; image.onerror = fail; image.src = url;
+        return () => { image.onload = image.onerror = null; image.src = ""; };
+      },
+    }, setState);
+    screen.current = s;
+    return () => { s.stop(); screen.current = undefined; };
   }, [id]);
-  return <div className="live-screen">{frame ? <img src={frame} alt="Live screen of the bot computer"/> : <p role="status">{message}</p>}</div>;
+  const retry = state.phase === "failed" || state.phase === "stopped";
+  return (
+    <div className="computer-frame" ref={frame} tabIndex={-1} aria-label="Computer screen">
+      <p role="status" className={state.frame ? "sr-only" : undefined}>{state.message}</p>
+      {state.frame
+        ? <img src={state.frame} alt="Live screen of the bot computer" onError={() => screen.current?.imageError(state.frame!)}/>
+        : <>
+            {retry && <button type="button" className="computer-retry" onClick={() => { screen.current?.retry(); frame.current?.focus({ preventScroll: true }); }}>{state.phase === "stopped" ? "Reconnect" : "Retry"}</button>}
+          </>}
+    </div>
+  );
 }

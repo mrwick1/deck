@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
-import { deliverSecret, describeTaskSecret, describeWait, guarded, waitFor } from "@/lib/wait";
+import { challengeResponse, deliverSecret, describeTaskSecret, describeWait, guarded, waitFor } from "@/lib/wait";
 
 const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
 const now = () => Math.floor(Date.now() / 1000);
@@ -36,18 +36,21 @@ function SecretForm({ id, label, send, done, onDone }: { id: string; label: stri
 }
 
 /** The pending owner request of one setup. It always posts to that setup's own route. */
-export function WaitPanel({ row, protectedInput, refresh }: { row: api.SetupRecord; protectedInput: boolean; refresh: () => Promise<void> }) {
+export function WaitPanel({ row, protectedInput, refresh, response }: { row: api.SetupRecord; protectedInput: boolean; refresh: () => Promise<void>; response?: ReturnType<typeof challengeResponse> }) {
   const wait = row.setup.wait;
   const [tick, setTick] = useState(now());
   // The guard is synchronous and survives row revisions. The outcome names its request, so a replacement never shows an old result.
-  const guard = useRef({ busy: false });
-  const [outcome, setOutcome] = useState<{ rid: string; pending: boolean; text: string; error: boolean } | null>(null);
+  const local = useRef<ReturnType<typeof challengeResponse> | null>(null);
+  if (!local.current) local.current = challengeResponse();
+  const state = response ?? local.current;
+  const outcome = useSyncExternalStore(state.subscribe, state.getSnapshot, state.getSnapshot);
+  const setOutcome = state.set;
   useEffect(() => { const t = setInterval(() => setTick(now()), 1000); return () => clearInterval(t); }, []);
   if (!wait) return null;
   const view = describeWait(wait, protectedInput, tick);
   const label = typeof wait.kind === "object" && "Credential" in wait.kind ? wait.kind.Credential.label : "";
   const rid = wait.request_id, shown = outcome?.rid === rid ? outcome : null, locked = outcome?.pending === true;
-  const answer = (decision: api.ChallengeDecision) => guarded(guard.current, async () => {
+  const answer = (decision: api.ChallengeDecision) => guarded(state.guard, async () => {
     setOutcome({ rid, pending: true, text: decision === "completed" ? "Sending your answer…" : "Cancelling this request…", error: false });
     try {
       await api.respondChallenge(row.setup.id, row.version, rid, decision);

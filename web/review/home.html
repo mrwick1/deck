@@ -11,7 +11,32 @@ const progress = m => { const wait = m==='setup-phone' ? {request_id:'req-1',kin
   const phase = wait ? 'Waiting' : m==='setup-investigate' ? 'Investigate' : m==='setup-exhausted' ? 'Exhausted' : 'Ready';
   const steps = m==='setup-investigate' ? [{step:'Allocate',status:'Done',last_error:null},{step:{Credential:'Mail'},status:'Unknown',last_error:'The service did not confirm <b>the</b> step'}] : [];
   return {...row,version:5,phase,error:m==='setup-exhausted'?'Step failed after 3 attempts':null,checklist:[{label:'Computer created',done:true},{label:'Sign in',done:false}],setup:{...row.setup,wait,steps}}; };
-window.__homeFixture = {calls:[], hits:{}, control:[], rows:mode==='populated'?[row]:mode==='ready'?[ready]:mode.startsWith('setup-')?[progress(mode)]:[], holdAct:false, releaseAct(){this.actGate?.();this.actGate=null;}, actFail:false, revise(){const c=this.rows[0];this.rows[0]={...c,version:c.version+1};}, fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}, hold:false, write:null, releaseWrite(){this.writeGate?.();this.writeGate=null;}, bump(patch){const c=this.rows[0];this.rows[0]={...c,version:c.version+1,setup:{...c.setup,draft:{...c.setup.draft,...patch,revision:c.setup.draft.revision+1}}};}};
+window.__homeFixture = {calls:[], hits:{}, control:[], rows:mode==='populated'?[row]:mode==='ready'||mode==='chat'?[ready]:mode.startsWith('setup-')?[progress(mode)]:[], holdAct:false, releaseAct(){this.actGate?.();this.actGate=null;}, actFail:false, revise(){const c=this.rows[0];this.rows[0]={...c,version:c.version+1};}, fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}, hold:false, write:null, releaseWrite(){this.writeGate?.();this.writeGate=null;}, bump(patch){const c=this.rows[0];this.rows[0]={...c,version:c.version+1,setup:{...c.setup,draft:{...c.setup.draft,...patch,revision:c.setup.draft.revision+1}}};}};
+// Chat fixture (mode=chat). In-memory only. Strict: an unknown chat is a 404. Modes are set from the page:
+// create: ok|hold|lost (answer lost, chat exists)|lost-unapplied|refuse. send: ok|hold|refuse|lost (stored, answer lost)|lost-unapplied.
+// history: ok|fail. release() frees held calls. emit(chatId,kind,data) pushes a stream event. posts/gets/es/cancels record the traffic.
+const mk=(id,role,t,k)=>({id:k,chat_id:id,role,content:JSON.stringify({role,content:t}),created_at:''});
+const chat=window.__chatFake={posts:[],gets:[],es:[],cancels:[],create:'ok',send:'ok',history:'ok',gates:[],nextId:7,msgs:{3:Array.from({length:30},(_,k)=>mk(3,k%2?'assistant':'user','Synthetic message '+k+' with enough words to wrap across lines in a narrow phone viewport.',k))},list:mode==='chat'?[{id:3,title:'Earlier conversation',created_at:'',bot_id:null}]:[],
+  release(){this.gates.splice(0).forEach(resolve=>resolve());}, emit(id,kind,data,eid){this.es.filter(e=>e.id===id&&!e.closed).forEach(e=>(e.l[kind]||[]).forEach(f=>f({data:JSON.stringify(data),lastEventId:String(eid)})));}};
+const chatRoute = async (path, init) => {
+  const method=init.method||'GET', hold=()=>new Promise(resolve=>chat.gates.push(resolve));
+  if(path==='/api/chats'){ if(method!=='POST') return Response.json(chat.list);
+    chat.posts.push(path); if(chat.create==='hold') await hold();
+    if(chat.create==='refuse') return Response.json({error:'The title was refused'},{status:400});
+    if(chat.create==='lost-unapplied') return Response.json({error:'The connection ended'},{status:503});
+    const id=chat.nextId++; chat.msgs[id]=[]; chat.list.unshift({id,title:JSON.parse(init.body).title,created_at:'',bot_id:null});
+    return chat.create==='lost' ? Response.json({error:'The connection ended'},{status:503}) : Response.json(chat.list[0]); }
+  const m=path.match(/^\/api\/chats\/(\d+)\/messages$/);
+  if(m && chat.msgs[m[1]]){ const id=+m[1];
+    if(method==='GET'){ chat.gets.push(path); return chat.history==='fail' ? Response.json({error:'History is unavailable'},{status:503}) : Response.json(chat.msgs[id]); }
+    chat.posts.push(path); if(chat.send==='hold') await hold();
+    if(chat.send==='refuse') return Response.json({error:'The message was refused'},{status:400});
+    if(chat.send==='lost-unapplied') return Response.json({error:'The connection ended'},{status:503});
+    chat.msgs[id].push(mk(id,'user',JSON.parse(init.body).text,1000+chat.msgs[id].length));
+    return chat.send==='lost' ? Response.json({error:'The connection ended'},{status:503}) : Response.json({run_id:100+chat.posts.length,kind:'started'}); }
+  const c=path.match(/^\/api\/runs\/(\d+)\/cancel$/); if(c){ chat.cancels.push(+c[1]); return new Response(null,{status:204}); }
+  return null;
+};
 window.fetch = async (input, init={}) => {
   const path = typeof input==='string'?input:input.url;
   const state = window.__homeFixture;
@@ -51,12 +76,12 @@ window.fetch = async (input, init={}) => {
     else state.rows[0]={...c,version:c.version+1,setup:{...c.setup,wait:{...w,answered:true}}};
     return new Response(null,{status:204});
   }
+  const chatReply = await chatRoute(path, init); if(chatReply) return chatReply;
   if(state.loading) await new Promise(resolve=>state.loads.push(resolve));
   if(mode==='unauthorized') return Response.json({error:'Sign in required'},{status:401});
   if(state.fail) return Response.json({error:'Fixture connection failure'},{status:503});
   if(path==='/api/setup-options') return Response.json({enabled:mode!=='disabled',protected_input:mode==='setup-secret'});
   if(path==='/api/setups'){const snapshot=structuredClone(state.rows);if(state.holdRows) await new Promise(resolve=>state.releaseRows=resolve);return Response.json(snapshot);}
-  if(path==='/api/chats') return Response.json([]);
   if(path==='/api/bots/fixture-bot') return Response.json(status);
   if(path==='/api/bots/fixture-bot/inbox') return Response.json([]);
   if(path==='/api/bots/fixture-bot/secret-requests') return Response.json([]);
@@ -65,5 +90,5 @@ window.fetch = async (input, init={}) => {
   if(path==='/api/bot') return Response.json({error:'No default bot'},{status:404});
   return Response.json({error:'Fixture blocks this endpoint'},{status:404});
 };
-window.EventSource = class {addEventListener(){} removeEventListener(){} close(){}};
+window.EventSource = class {constructor(url){this.url=url;this.id=+(url.match(/chats\/(\d+)\/events/)||[])[1];this.l={};this.closed=false;chat.es.push(this);setTimeout(()=>this.onopen&&this.onopen(),0);}addEventListener(kind,fn){(this.l[kind]??=[]).push(fn);} removeEventListener(){} close(){this.closed=true;}};
 </script><script type="module" src="/src/experience/main.tsx"></script></body></html>

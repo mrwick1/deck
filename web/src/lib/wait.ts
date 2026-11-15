@@ -68,3 +68,20 @@ export async function guarded(guard: { busy: boolean }, run: () => Promise<void>
   try { await run(); } finally { guard.busy = false; }
   return true;
 }
+
+export type ChallengeOutcome = { rid: string; pending: boolean; text: string; error: boolean } | null;
+
+/** Holds response metadata only. The workspace can retain it while its request tab unmounts. */
+export function challengeResponse() {
+  let outcome: ChallengeOutcome = null;
+  const listeners = new Set<() => void>();
+  return {
+    guard: { busy: false },
+    getSnapshot: () => outcome,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    set: (update: ChallengeOutcome | ((previous: ChallengeOutcome) => ChallengeOutcome)) => {
+      outcome = typeof update === "function" ? update(outcome) : update;
+      listeners.forEach(listener => listener());
+    },
+  };
+}
