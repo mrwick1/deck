@@ -38,7 +38,7 @@ Use this list for round two of the navigation review. Each item names what the c
 
 ## Controls and scroll
 
-- The bot controls menu is a Radix `DropdownMenu`. Outside click, Escape and Tab close it. Focus returns to the trigger. Items are 44px. Evidence: Source. Render: Unverified. See bare issues 557, 558 and 559.
+- The bot controls menu is a Radix `DropdownMenu`. Escape closes it and returns focus to the trigger. Radix keeps Tab inside the menu. Outside-click dismissal remains unverified in bare. Items are 44px. Evidence: Source. Render: Unverified. See bare issues 557, 558 and 559.
 - Tab scroll restores in a layout effect keyed to the id and tab. Polls do not write `scrollTop`. Evidence: Source.
 - Home scroll restores through a callback ref keyed to the page.
 
@@ -61,3 +61,11 @@ At 412 × 450 in the isolated bare build, Home → Conversations → New convers
 The parent corrected recovery focus to exclude the outgoing route, added explicit menu dismissal when the bot tab changes, and scoped menu width CSS to the portal class. These corrections are source-checked. Type checking, all 74 tests and the production build pass. The build retains its shared-chunk size warning.
 
 Route transition frame pacing, physical keyboard behavior, safe areas and sheet motion remain unverified. The browser limitations in issues 557–559 remain separate from the navigation fixes.
+
+## Final fallback correction
+
+The not-ready bot route now retains the standard header and Bot heading. The previous fallback removed both after loading. In the fixture at 412 × 820, 320 × 640 and 412 × 450, the header measured 64px before and after loading. The loaded heading received focus. No horizontal overflow appeared. All sessions closed after the checks.
+
+The chat-created callback now replaces the route only while the current route remains chat/new. A late result during an exit cannot redirect from Conversations. This guard is source-checked; successful chat creation remains outside this navigation fixture.
+
+Both requested second-round reviews are complete. The remaining blocking finding was the bot fallback above, which the parent corrected and rechecked. Navigation is accepted with the browser and device limits recorded here. The full UI revamp remains in progress.
