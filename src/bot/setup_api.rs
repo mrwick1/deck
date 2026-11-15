@@ -855,6 +855,40 @@ print(rec)
         );
     }
 
+    #[tokio::test]
+    async fn renaming_a_draft_renames_its_setup_chat() {
+        let (app, _, _, _) = app();
+        let (status, row) = request(
+            &app,
+            "POST",
+            "/api/setups",
+            json!({"job":"Read fixture"}),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = row["setup"]["id"].as_str().unwrap();
+        let chat_id = row["chat_id"].as_i64().unwrap();
+        let mut draft = row["setup"]["draft"].clone();
+        draft["name"] = json!("Renamed draft");
+        let path = format!("/api/setups/{id}");
+        let edit = json!({"version":1,"draft":draft});
+        assert_eq!(
+            request(&app, "POST", &path, edit, true).await.0,
+            StatusCode::NO_CONTENT
+        );
+        let (status, chats) = request(&app, "GET", "/api/chats", json!(null), true).await;
+        assert_eq!(status, StatusCode::OK);
+        let title = chats
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == chat_id)
+            .unwrap()["title"]
+            .clone();
+        assert_eq!(title, json!("Renamed draft"));
+    }
+
     use super::super::setup::{Provisioner, StepOutcome, StepRequest};
     use futures_util::future::BoxFuture;
 
