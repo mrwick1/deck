@@ -69,8 +69,8 @@ async fn main() -> anyhow::Result<()> {
     if let Some(s) = &setups {
         s.start();
     }
-    if let Some(bot) = bot.clone() {
-        let store = store.clone();
+    if bot.is_some() || setups.is_some() {
+        let (store, bot, setups) = (store.clone(), bot.clone(), setups.clone());
         tokio::spawn(async move {
             loop {
                 let now = std::time::SystemTime::now()
@@ -78,7 +78,15 @@ async fn main() -> anyhow::Result<()> {
                     .map_or(0, |d| d.as_secs() as i64);
                 match store.schedule_tick(now).await {
                     Ok(0) => {}
-                    Ok(_) => bot.kick(),
+                    Ok(_) => {
+                        // A queued task needs its own bot's runtime to wake.
+                        if let Some(b) = &bot {
+                            b.kick();
+                        }
+                        if let Some(s) = &setups {
+                            s.kick_runtimes();
+                        }
+                    }
                     Err(e) => tracing::error!("schedule tick failed: {e:#}"),
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;

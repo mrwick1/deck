@@ -44,6 +44,13 @@ impl Service {
         self.kick.notify_one();
     }
 
+    /// Wake every registered bot, for example after the scheduler queued work.
+    pub fn kick_runtimes(&self) {
+        for r in self.runtimes.read().unwrap().values() {
+            r.bot.kick();
+        }
+    }
+
     pub fn runtime(&self, id: &str) -> Option<Arc<Runtime>> {
         self.runtimes.read().unwrap().get(id).cloned()
     }
