@@ -768,3 +768,9 @@ A read that finds another revision clears the own-write expectation and opens co
 **Reason:** Two reviewers measured that each revision remounted the screen and lost typing, focus and errors. They measured two answer POSTs from two fast clicks. They measured a second secret submit unlocking the field while the first was held. They measured 28px buttons and a Cancel button past the panel edge at 320px.
 
 **Boundary:** Unit tests cover the key, the guard, the duplicate flag and the attempt check. Fixture runs in `bare` cover the rest. See [ui-setup-progress-review-checks.md](ui-setup-progress-review-checks.md).
+
+## Preserve position in Conversations (2026-11-15)
+
+**Decision:** Back restores the list scroll and the opened row's focus. Explicit navigation to the list starts at the top. Existing chat headers use the known title. Rows wrap long titles and identify Deck or the bot. Empty and stale lists explain their state. Stale rows remain readable; sending requires reconnection.
+
+**Reason:** Both reviewers measured panel overflow and lost return position. The server sorts by newest creation, so the UI states that order without inventing last-activity data.

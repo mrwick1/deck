@@ -37,7 +37,7 @@ function RouteUnit({ children, route }: { children: ReactNode; route: string }) 
   const present = useIsPresent(), reduced = useReducedMotion(), unit = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      const target = unit.current?.querySelector<HTMLElement>(unit.current.querySelector(".uncertain-create") ? ".bot-list-row, textarea" : "h1, main h2");
+      const target = unit.current?.querySelector<HTMLElement>("[data-return-focus=true]") ?? unit.current?.querySelector<HTMLElement>(unit.current.querySelector(".uncertain-create") ? ".bot-list-row, textarea" : "h1, main h2");
       if (target) { if (target.matches("h1, h2")) target.tabIndex = -1; target.focus({ preventScroll: true }); }
     });
     return () => cancelAnimationFrame(frame);
@@ -54,6 +54,7 @@ function App() {
   const editors = useSetupEditors(rows);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const scrolls = useRef(new Map<string, number>());
+  const historySelection = useRef<number | null>(null);
   const [destination, setDestination] = useState("new");
   useEffect(() => { if (data.hasData && !data.enabled) setDestination(current => current === "new" ? "chat" : current); }, [data.hasData, data.enabled]);
   const [busy, setBusy] = useState(false);
@@ -65,7 +66,10 @@ function App() {
   const refreshWorkspace = () => { setManualRefresh(true); setRefreshMessage("Refreshing…"); void data.refresh(); };
   useEffect(() => { if (manualRefresh && !data.refreshing) { setManualRefresh(false); setRefreshMessage(data.error ? "" : "Workspace is up to date"); } }, [manualRefresh, data.refreshing, data.error]);
   useEffect(() => nav.subscribe(next => { navigationEpoch.current++; setRoute(next); setError(""); }), []);
-  const navigate = nav.go, back = nav.back;
+  const navigate: typeof nav.go = (next, options) => {
+    if (next === "history" && nav.route() !== "history") { historySelection.current = null; scrolls.current.set("history", 0); }
+    nav.go(next, options);
+  }, back = nav.back;
   const draft = (key: string) => drafts[key] ?? "";
   const put = (key: string, value: string) => { if (key === "home") setRefreshMessage(""); setDrafts(previous => ({ ...previous, [key]: value })); };
   const fresh = data.hasData && !data.error;
@@ -142,7 +146,7 @@ function App() {
     <aside className="rail"><button className="brand" onClick={() => navigate("home")}>deck</button><button aria-label="Home" onClick={() => navigate("home")}><House size={18}/></button><button aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button></aside>
     <div className="app">
       {!data.hasData ? (page === "home" ? <HomeLoading error={data.error} retry={() => { void data.refresh(); }}/> : <RouteLoading title={headerTitle(page)} back={back} error={data.error} retry={() => { void data.refresh(); }} composer={page === "chat" || page === "new"}/>) : <AnimatePresence mode="wait" initial={false}><RouteUnit key={routeKey} route={routeKey}>
-      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>{headerTitle(page, row)}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
+      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>{page === "chat" && id !== "new" ? data.chats.find(chat => chat.id === Number(id))?.title || "Untitled conversation" : headerTitle(page, row)}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
       {(!["home", "new"].includes(page) && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
       <>
         {firstHome && <HomeStart enter={false} draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh || uncertainCreate} busy={busy} recovery={recovery} notice={homeFeedback} noticeIsError={!!error} retry={refreshWorkspace} retryBusy={data.refreshing} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: refreshWorkspace }]} />}
@@ -159,7 +163,7 @@ function App() {
           <form className="compact-composer" onSubmit={event => { event.preventDefault(); void propose(); }}><div className="composer-context"><span>To Deck</span><ChoiceSheet label="Task destination" value={destination} disabled={busy || !fresh} onChange={setDestination} options={[{ value: "new", label: "Create a bot", disabled: !data.enabled }, { value: "chat", label: "Chat with Deck" }, ...bots.filter(item => item.status).map(item => ({ value: item.id, label: item.name }))]}/></div><div className="composer-input"><Textarea maxLength={20000} rows={1} aria-label="Describe a job" placeholder={destination === "new" ? "Describe your bot’s job" : "Describe a task"} value={draft("home")} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} onChange={event => put("home", event.target.value)}/><Button className="send" aria-label="Continue" disabled={busy || !fresh || !draft("home").trim() || (destination === "new" && (!data.enabled || uncertainCreate))}><ArrowUp size={18}/></Button></div><div className="home-send-status"><span role={error ? "alert" : "status"}>{busy ? destination === "new" ? "Preparing your setup…" : "Sending your task…" : homeFeedback}</span>{(data.error || error) && <Button type="button" variant="ghost" disabled={data.refreshing} onClick={refreshWorkspace}>Refresh</Button>}</div></form>
         </>}
 
-        {page === "history" && <main className="content"><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button><div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" onClick={() => chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`)}><MessageCircle size={18}/><span>{chat.title || "Untitled conversation"}</span><ChevronRight size={18}/></button>)}</div></main>}
+        {page === "history" && <main className="content" ref={homeContent} onScroll={event => scrolls.current.set("history", event.currentTarget.scrollTop)}><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button>{!fresh && <p className="fine-print">Showing the last known list. You can read conversations; sending resumes when Deck reconnects.</p>}{!data.chats.length && <p className="empty-result">No conversations yet. Start one with Deck.</p>}<div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" data-return-focus={historySelection.current === chat.id ? "true" : undefined} onClick={() => { historySelection.current = chat.id; chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`); }}><MessageCircle size={18}/><span className="conversation-copy"><strong>{chat.title || "Untitled conversation"}</strong><small>{chat.bot_id ? names.get(chat.bot_id) || "Bot conversation" : "Deck"}</small></span><ChevronRight size={18}/></button>)}</div>{data.chats.length > 0 && <p className="fine-print">Newest conversations first.</p>}</main>}
         {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <Chat key={route} id={id === "new" ? null : Number(id)} bot={false} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={chatId => { if (nav.route() === "chat/new") navigate(`chat/${chatId}`, { replace: true }); }} refresh={data.refresh} scrolls={scrolls.current} scope={route}/>}
         {page === "setup" && (row ? <Setup key={setupKey(row)} row={row} data={data} openBot={openBot} disabled={!fresh} editors={editors}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}
         {page === "bot" && <BotRoute key={id.split("?")[0]} id={id.split("?")[0]} initialTab={id.endsWith("?requests") ? "requests" : "chat"} data={data} back={back} draft={draft(`bot/${id.split("?")[0]}`)} putDraft={text => put(`bot/${id.split("?")[0]}`, text)} scrolls={scrolls.current} disabled={!fresh}/>}
