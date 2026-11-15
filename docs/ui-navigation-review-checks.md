@@ -33,7 +33,7 @@ Use this list for round two of the navigation review. Each item names what the c
 
 - Each route is one keyed unit. The outgoing unit is `inert`.
 - Reduced motion renders no entrance and no exit. Evidence: Source.
-- The unit remounts only when the route key changes. Polls do not remount it. A chat id change keeps the same key.
+- The route unit remounts only when its route key changes. Polls do not remount it. A chat ID change keeps the wrapper key, but Chat still uses the full route as its key and remounts. First-message handoff and stream continuity require separate chat-screen verification.
 - Frame smoothness: Unverified. Do not report it from source.
 
 ## Controls and scroll
