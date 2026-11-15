@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
-import { deliverSecret, describeTaskSecret, describeWait, waitFor } from "@/lib/wait";
+import { deliverSecret, describeTaskSecret, describeWait, guarded, waitFor } from "@/lib/wait";
 
 const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
 const now = () => Math.floor(Date.now() / 1000);
@@ -16,8 +16,10 @@ function SecretForm({ id, label, send, done, onDone }: { id: string; label: stri
   const clear = () => { if (input.current) input.current.value = ""; };
   useEffect(() => { const node = input.current; return () => { if (node) node.value = ""; }; }, []);
   const submit = async () => {
+    if (guard.current.busy) return;
     setBusy(true);
     const r = await deliverSecret({ read: () => input.current?.value ?? "", clear, guard: guard.current, send });
+    if (r.ok === false && r.duplicate) return;
     setBusy(false);
     if (r.ok) { setError(null); toast.success(done); await onDone().catch(() => {}); }
     else { setError(r.message); await onDone().catch(() => {}); }
@@ -28,7 +30,7 @@ function SecretForm({ id, label, send, done, onDone }: { id: string; label: stri
     </label>
     <p id={`${id}-note`} className="text-muted-foreground text-xs">Sent only to the protected endpoint. Never put it in chat.</p>
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
-    <div className="flex gap-2"><Button size="sm" type="submit" disabled={busy}>{busy ? "Delivering…" : "Deliver securely"}</Button><Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => { clear(); setError(null); }}>Clear</Button></div>
+    <div className="wait-actions flex flex-wrap gap-2"><Button size="sm" type="submit" disabled={busy}>{busy ? "Delivering…" : "Deliver securely"}</Button><Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => { clear(); setError(null); }}>Clear</Button></div>
   </form>;
 }
 
@@ -36,25 +38,34 @@ function SecretForm({ id, label, send, done, onDone }: { id: string; label: stri
 export function WaitPanel({ row, protectedInput, refresh }: { row: api.SetupRecord; protectedInput: boolean; refresh: () => Promise<void> }) {
   const wait = row.setup.wait;
   const [tick, setTick] = useState(now());
-  const [busy, setBusy] = useState(false);
+  // The guard is synchronous and survives row revisions. The outcome names its request, so a replacement never shows an old result.
+  const guard = useRef({ busy: false });
+  const [outcome, setOutcome] = useState<{ rid: string; pending: boolean; text: string; error: boolean } | null>(null);
   useEffect(() => { const t = setInterval(() => setTick(now()), 1000); return () => clearInterval(t); }, []);
   if (!wait) return null;
   const view = describeWait(wait, protectedInput, tick);
   const label = typeof wait.kind === "object" && "Credential" in wait.kind ? wait.kind.Credential.label : "";
-  const answer = async (decision: api.ChallengeDecision) => {
-    setBusy(true);
-    try { await api.respondChallenge(row.setup.id, row.version, wait.request_id, decision); await refresh(); }
-    catch (e) { toast.error((e as Error).message); await refresh().catch(() => {}); }
-    finally { setBusy(false); }
-  };
+  const rid = wait.request_id, shown = outcome?.rid === rid ? outcome : null, locked = shown?.pending === true;
+  const answer = (decision: api.ChallengeDecision) => guarded(guard.current, async () => {
+    setOutcome({ rid, pending: true, text: decision === "completed" ? "Sending your answer…" : "Cancelling this request…", error: false });
+    try {
+      await api.respondChallenge(row.setup.id, row.version, rid, decision);
+      setOutcome({ rid, pending: false, text: decision === "completed" ? "Answer sent. Waiting for verification." : "Cancel sent.", error: false });
+      await refresh();
+    } catch (e) {
+      setOutcome({ rid, pending: false, text: `${(e as Error).message || "The answer was not confirmed."} Refresh before trying again.`, error: true });
+      await refresh().catch(() => {});
+    }
+  });
   const left = wait.expires_at != null ? Math.max(0, wait.expires_at - tick) : null;
-  return <section aria-label={`Setup request for ${row.setup.draft.name}`} className="bg-muted/40 flex min-w-0 flex-col gap-2 rounded-lg border p-3 [overflow-wrap:anywhere]">
+  return <section aria-label={`Setup request for ${row.setup.draft.name}`} className="wait-panel bg-muted/40 flex min-w-0 flex-col gap-2 rounded-lg border p-3 [overflow-wrap:anywhere]">
     <p role="status" className="text-sm font-medium">{view.title}</p>
     <p className="text-sm">{view.detail}</p>
     {left !== null && view.mode !== "expired" && view.mode !== "pending" && <p className="text-muted-foreground text-xs">Expires in {Math.floor(left / 60)}m {left % 60}s.</p>}
     {/* Keyed by request, so a replacement request starts with an empty field. */}
     {view.mode === "secret" && <SecretForm key={wait.request_id} id={wait.request_id} label={label} done="Delivered. Setup is continuing." send={v => api.submitSecret(row.setup.id, row.version, wait.request_id, v)} onDone={refresh} />}
-    {view.mode === "challenge" && <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={() => answer("completed")}>I completed it</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => answer("cancel")}>Cancel this request</Button></div>}
+    {view.mode === "challenge" && <div className="wait-actions flex flex-wrap gap-2"><Button size="sm" aria-disabled={locked} onClick={() => { void answer("completed"); }}>I completed it</Button><Button size="sm" variant="outline" aria-disabled={locked} onClick={() => { void answer("cancel"); }}>Cancel this request</Button></div>}
+    {view.mode === "challenge" && shown && <p role={shown.error ? "alert" : "status"} className={shown.error ? "text-sm text-red-500" : "text-muted-foreground text-xs"}>{shown.text}</p>}
     {(view.mode === "expired" || view.mode === "pending") && <Button size="sm" variant="outline" className="self-start" onClick={() => refresh().catch(e => toast.error((e as Error).message))}>Refresh</Button>}
   </section>;
 }

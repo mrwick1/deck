@@ -758,3 +758,13 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Boundary:** Recovery has no Save, Approve or Keep mine. A clean editor still drops when the row leaves Draft.
 
 A read that finds another revision clears the own-write expectation and opens conflict resolution. A manual refresh can request the saved revision without another write. These paths prevent a stale base from trapping the owner.
+
+## Keep the setup progress screen stable and honest (2026-11-15)
+
+**Decision:** The setup screen uses one key per setup id in every phase. A version update never remounts it. Typed protected input, focus, scroll, notes and the action guards survive polls. Protected input stays keyed by request id and clears on submit, failure, unmount, expiry and replacement. The challenge answer has a synchronous guard that survives row revisions. Its pending, success and error text names the request, so a replacement request never shows an old result. A second protected submit returns before any state change while the first is held. The header reads Review setup for a Draft and Setup progress for every later phase. The cold route says Setup.
+
+**Controls:** Pause and Resume are requests. The UI shows Pause requested or Resume requested only after a 204 reply. The record has no pause field and the server changes no setup revision, so the UI shows no paused state. Resume is off for an unknown outcome and for an unsupported challenge, with the reason beside it. Refresh progress shows a pending state and then a result read from the workspace error, because the refresh call never throws. An exhausted setup explains the limit. The new limit must be a whole number above the current limit and at most 4294967295, the server `u32` maximum. An invalid value sends nothing, shows an error beside the field and focuses it. An unknown outcome shows its step text and states that Deck cannot resolve it yet. It offers no retry and no owner guess. Wait and phase text come before the recovery editor. Buttons wrap and measure at least 44px.
+
+**Reason:** Two reviewers measured that each revision remounted the screen and lost typing, focus and errors. They measured two answer POSTs from two fast clicks. They measured a second secret submit unlocking the field while the first was held. They measured 28px buttons and a Cancel button past the panel edge at 320px.
+
+**Boundary:** Unit tests cover the key, the guard, the duplicate flag and the attempt check. Fixture runs in `bare` cover the rest. See [ui-setup-progress-review-checks.md](ui-setup-progress-review-checks.md).

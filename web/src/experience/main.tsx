@@ -18,6 +18,8 @@ import { Computer } from "./Computer";
 import { Requests, useRequests } from "./Requests";
 import { Recovery, Review } from "./Review";
 import { hasUnsaved, isBusy, newEntry } from "./setup-editor";
+import { checkAttempts, resumeBlock, setupHeading, setupKey, stepLines } from "./setup-progress";
+import { guarded } from "../lib/wait";
 import { useSetupEditors } from "./useSetupEditors";
 import { useWorkspace } from "./useWorkspace";
 import { destinationOptions } from "./actions";
@@ -29,7 +31,7 @@ import "./live.css";
 const titleFor = (row?: api.SetupRecord, status?: api.BotStatus) => row?.setup.draft.name ?? (status ? "Default bot" : "Bot");
 const nav = createNavigation(window);
 const readRoute = nav.route;
-const headerTitle = (page: string) => page === "setup" ? "Review setup" : page === "new" ? "New bot" : page === "history" ? "Conversations" : page === "bot" ? "Bot" : "Chat with Deck";
+const headerTitle = (page: string, row?: api.SetupRecord) => page === "setup" ? setupHeading(row) : page === "new" ? "New bot" : page === "history" ? "Conversations" : page === "bot" ? "Bot" : "Chat with Deck";
 // One keyed body for each route. The outgoing body is inert while it fades. Focus moves to the heading when the new body mounts.
 function RouteUnit({ children, route }: { children: ReactNode; route: string }) {
   const present = useIsPresent(), reduced = useReducedMotion(), unit = useRef<HTMLDivElement>(null);
@@ -140,7 +142,7 @@ function App() {
     <aside className="rail"><button className="brand" onClick={() => navigate("home")}>deck</button><button aria-label="Home" onClick={() => navigate("home")}><House size={18}/></button><button aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button></aside>
     <div className="app">
       {!data.hasData ? (page === "home" ? <HomeLoading error={data.error} retry={() => { void data.refresh(); }}/> : <RouteLoading title={headerTitle(page)} back={back} error={data.error} retry={() => { void data.refresh(); }} composer={page === "chat" || page === "new"}/>) : <AnimatePresence mode="wait" initial={false}><RouteUnit key={routeKey} route={routeKey}>
-      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>{headerTitle(page)}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
+      {page !== "bot" && !firstHome && <header className="experience-header">{page === "home" ? <h1>deck</h1> : <><button className="icon" aria-label="Back" onClick={back}><ArrowLeft size={18}/></button><h1>{headerTitle(page, row)}</h1></>}<button className="icon" aria-label="Refresh workspace" disabled={busy} onClick={refreshWorkspace}><RefreshCw size={18}/></button>{page === "home" && <button className="icon" aria-label="Conversations" onClick={() => navigate("history")}><MessageCircle size={18}/></button>}</header>}
       {(!["home", "new"].includes(page) && (data.error || error)) && <div role="alert" className="error-note">{data.error ?? error}<button className="text-button" onClick={() => { setError(""); void data.refresh(); }}>Refresh</button></div>}
       <>
         {firstHome && <HomeStart enter={false} draft={draft("home")} setDraft={text => put("home", text)} submit={() => { void propose("new"); }} disabled={!fresh || uncertainCreate} busy={busy} recovery={recovery} notice={homeFeedback} noticeIsError={!!error} retry={refreshWorkspace} retryBusy={data.refreshing} actions={[{ label: "Chat with Deck", run: () => navigate("chat/new") }, { label: "Conversations", run: () => navigate("history") }, { label: "Refresh workspace", run: refreshWorkspace }]} />}
@@ -159,7 +161,7 @@ function App() {
 
         {page === "history" && <main className="content"><button className="primary" onClick={() => navigate("chat/new")}><Plus size={18}/> New conversation</button><div className="conversation-list">{data.chats.map(chat => <button key={chat.id} className="bot-list-row" onClick={() => chat.bot_id ? openBot(chat.bot_id) : navigate(`chat/${chat.id}`)}><MessageCircle size={18}/><span>{chat.title || "Untitled conversation"}</span><ChevronRight size={18}/></button>)}</div></main>}
         {page === "chat" && (id === "new" || /^\d+$/.test(id)) && <Chat key={route} id={id === "new" ? null : Number(id)} bot={false} name="Deck" draft={draft(route)} setDraft={text => put(route, text)} disabled={!fresh} onCreated={chatId => { if (nav.route() === "chat/new") navigate(`chat/${chatId}`, { replace: true }); }} refresh={data.refresh} scrolls={scrolls.current} scope={route}/>}
-        {page === "setup" && (row ? <Setup key={row.phase === "Draft" ? row.setup.id : `${row.setup.id}-${row.version}`} row={row} data={data} openBot={openBot} disabled={!fresh} editors={editors}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}
+        {page === "setup" && (row ? <Setup key={setupKey(row)} row={row} data={data} openBot={openBot} disabled={!fresh} editors={editors}/> : <main className="content"><p>Setup is not available. Refresh the workspace.</p></main>)}
         {page === "bot" && <BotRoute key={id.split("?")[0]} id={id.split("?")[0]} initialTab={id.endsWith("?requests") ? "requests" : "chat"} data={data} back={back} draft={draft(`bot/${id.split("?")[0]}`)} putDraft={text => put(`bot/${id.split("?")[0]}`, text)} scrolls={scrolls.current} disabled={!fresh}/>}
         {!["home", "new", "history", "setup", "chat", "bot"].includes(page) && <main className="content"><p>This screen is unavailable.</p><button className="secondary" onClick={() => navigate("home", { replace: true })}>Go home</button></main>}
       </>
@@ -169,22 +171,38 @@ function App() {
 }
 
 function Setup({ row, data, openBot, disabled, editors }: { row: api.SetupRecord; data: ReturnType<typeof useWorkspace>; openBot: (id: string) => void; disabled: boolean; editors: ReturnType<typeof useSetupEditors> }) {
-  const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [attempts, setAttempts] = useState(String(row.setup.max_attempts + 1));
-  const guard = useRef(false);
-  const control = async (command: unknown) => {
-    if (guard.current || disabled) return; guard.current = true; setBusy(true);
-    try { await api.controlSetup(row.setup.id, row.version, command); await data.refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "Setup change was not confirmed."); }
-    finally { guard.current = false; setBusy(false); }
-  };
+  // The screen keeps one key per setup. Typing, focus, scroll, notes and the guard survive version updates.
+  const [pending, setPending] = useState(""); const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const [attempts, setAttempts] = useState(String(row.setup.max_attempts + 1)); const [attemptsError, setAttemptsError] = useState("");
+  const [asked, setAsked] = useState(false); const [refreshNote, setRefreshNote] = useState("");
+  const guard = useRef({ busy: false }), limit = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (asked && !data.refreshing) { setAsked(false); setNote(null); setRefreshNote(data.error ? "Refresh failed. Showing the last known progress." : "Progress is up to date."); } }, [asked, data.refreshing, data.error]);
+  const control = (command: unknown, working: string, done: string) => disabled ? Promise.resolve(false) : guarded(guard.current, async () => {
+    setPending(working); setNote(null); setRefreshNote("");
+    try { await api.controlSetup(row.setup.id, row.version, command); setNote({ text: done, error: false }); await data.refresh(); }
+    catch (e) { setNote({ text: e instanceof Error ? e.message : "Setup change was not confirmed.", error: true }); }
+    finally { setPending(""); }
+  });
   const entry = editors.entries[row.setup.id], orphan = row.phase !== "Draft" && !!entry && hasUnsaved(entry) && !isBusy(entry);
-  return <main className="content setup-view"><h2 tabIndex={-1}>{row.setup.draft.name}</h2>{orphan && <Recovery entry={entry} discard={() => { editors.discard(row.setup.id); requestAnimationFrame(() => document.querySelector<HTMLElement>(".setup-view h2")?.focus({ preventScroll: true })); }}/>}{row.phase === "Draft" ? <Review row={row} entry={editors.entries[row.setup.id] ?? newEntry(row)} patch={editors.patch} guard={editors.guard} disabled={disabled} refresh={data.refresh}/> : <>
-    <p>{row.runtime_ready ? "Your bot is ready" : row.phase === "Ready" ? "Preparing the runtime" : row.phase}</p><ul className="setup-checklist">{row.checklist.map(item => <li key={item.label}><span>{item.done ? <Check size={18}/> : "·"}</span>{item.label}</li>)}</ul>
-    {(row.error || error) && <p className="error-note" role="alert">{row.error ?? error}</p>}
-    <fieldset disabled={disabled || busy}>{row.setup.wait && <WaitPanel row={row} protectedInput={data.protectedInput} refresh={data.refresh}/>}</fieldset>
-    {row.phase === "Investigate" && <p role="status">The last step has an unknown outcome. Investigate it before any retry. No automatic retry is offered here.</p>}
-    {row.phase === "Exhausted" && <form onSubmit={event => { event.preventDefault(); const value = Number(attempts); if (Number.isInteger(value) && value > row.setup.max_attempts) void control({ action: "attempts", value }); }}><label>Total attempt limit<input type="number" min={row.setup.max_attempts + 1} step={1} value={attempts} onChange={event => setAttempts(event.target.value)}/></label><button className="secondary" disabled={disabled || busy}>Set limit</button></form>}
-    <div className="review-actions">{row.runtime_ready ? <button className="primary" onClick={() => openBot(row.setup.id)}>Open bot <ArrowRight size={18}/></button> : <><button className="secondary" disabled={disabled || busy} onClick={() => { void control({ action: "pause", value: true }); }}>Pause setup</button><button className="secondary" disabled={disabled || busy || row.phase === "Investigate"} onClick={() => { void control({ action: "pause", value: false }); }}>Resume setup</button><button className="secondary" onClick={() => { void data.refresh(); }}>Refresh progress</button></>}</div>
+  const block = resumeBlock(row), off = disabled || !!pending, steps = row.phase === "Investigate" ? stepLines(row) : [];
+  const status = pending || (note && !note.error ? note.text : "") || (asked ? "Refreshing…" : refreshNote);
+  return <main className="content setup-view"><h2 tabIndex={-1}>{row.setup.draft.name}</h2>{row.phase === "Draft" ? <Review row={row} entry={editors.entries[row.setup.id] ?? newEntry(row)} patch={editors.patch} guard={editors.guard} disabled={disabled} refresh={data.refresh}/> : <>
+    <p>{row.runtime_ready ? "Your bot is ready" : row.phase === "Ready" ? "Preparing the runtime" : row.phase}</p>
+    {row.error && <p className="error-note" role="alert">{row.error}</p>}
+    {note?.error && <p className="error-note" role="alert">{note.text}</p>}
+    {row.setup.wait && <fieldset disabled={disabled}><WaitPanel row={row} protectedInput={data.protectedInput} refresh={data.refresh}/></fieldset>}
+    {row.phase === "Investigate" && <section aria-label="Unknown outcome"><p>The last step has an unknown outcome. Deck cannot resolve it here yet. Check the outside service for what happened. No automatic retry is offered.</p>{steps.length > 0 && <ul className="setup-lines">{steps.map(line => <li key={line}>{line}</li>)}</ul>}</section>}
+    {row.phase === "Exhausted" && <form noValidate onSubmit={event => {
+      event.preventDefault();
+      const result = checkAttempts(attempts, row.setup.max_attempts);
+      if (!result.ok) { setAttemptsError(result.message); limit.current?.focus(); return; }
+      setAttemptsError(""); void control({ action: "attempts", value: result.value }, "Setting the limit…", `Attempt limit set to ${result.value}.`);
+    }}><p>Setup used all {row.setup.max_attempts} attempts. Raise the total limit to try again.</p><label>Total attempt limit<input ref={limit} id="setup-attempts" type="text" inputMode="numeric" autoComplete="off" value={attempts} aria-invalid={!!attemptsError} aria-describedby={attemptsError ? "setup-attempts-error" : undefined} onChange={event => { setAttempts(event.target.value); setAttemptsError(""); }}/></label>{attemptsError && <p id="setup-attempts-error" className="field-error" role="alert">{attemptsError}</p>}<button className="secondary" aria-disabled={off}>Set limit</button></form>}
+    <ul className="setup-checklist">{row.checklist.map(item => <li key={item.label}><span>{item.done ? <Check size={18}/> : "·"}</span>{item.label}</li>)}</ul>
+    {status && <p className="inline-status" role="status">{status}</p>}
+    <div className="review-actions setup-actions">{row.runtime_ready ? <button className="primary" onClick={() => openBot(row.setup.id)}>Open bot <ArrowRight size={18}/></button> : <><button className="secondary" aria-disabled={off} onClick={() => { void control({ action: "pause", value: true }, "Requesting pause…", "Pause requested."); }}>Request pause</button><button className="secondary" aria-disabled={off || !!block} aria-describedby={block ? "setup-resume-note" : undefined} onClick={() => { if (!block) void control({ action: "pause", value: false }, "Requesting resume…", "Resume requested."); }}>Request resume</button><button className="secondary" aria-disabled={asked} onClick={() => { if (asked) return; setAsked(true); setRefreshNote(""); setNote(previous => previous?.error ? previous : null); void data.refresh(); }}>{asked ? "Refreshing…" : "Refresh progress"}</button></>}</div>
+    {block && !row.runtime_ready && <p id="setup-resume-note" className="fine-print">{block}</p>}
+    {orphan && <Recovery entry={entry} discard={() => { editors.discard(row.setup.id); requestAnimationFrame(() => document.querySelector<HTMLElement>(".setup-view h2")?.focus({ preventScroll: true })); }}/>}
   </>}</main>;
 }
 

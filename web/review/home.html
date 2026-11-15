@@ -6,11 +6,16 @@ const draft = {revision:1,name:'Morning mail',instructions:'Summarize the inbox 
 const row = {version:1,chat_id:1,phase:'Draft',runtime_ready:false,error:null,checklist:[],setup:{id:'fixture-bot',draft,max_attempts:3,wait:null,steps:[]}};
 const ready = {...row,phase:'Ready',runtime_ready:true,setup:{...row.setup,draft:{...draft,name:'Morning mail and project updates with a deliberately long bot name'}}};
 const status = {bot_id:'fixture-bot',chat_id:1,computer:'saved',automation_paused:false,budget_hold:true,budget_reason:'Fixture hold',working:null,waiting:null,queued:0,tasks:[{id:'result-one',title:'A deliberately long completed result title with project decisions and next steps',state:'done',priority:1,detail:null,source:'owner'}],unresolved:0,idle_secs:0,idle_left_ms:null,pending_events:0,last_error:null,screen:{viewers:0,worker:false,captures:0,delivered:0,unchanged:0}};
-window.__homeFixture = {calls:[], rows:mode==='populated'?[row]:mode==='ready'?[ready]:[], fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}, hold:false, write:null, releaseWrite(){this.writeGate?.();this.writeGate=null;}, bump(patch){const c=this.rows[0];this.rows[0]={...c,version:c.version+1,setup:{...c.setup,draft:{...c.setup.draft,...patch,revision:c.setup.draft.revision+1}}};}};
+// Setup progress modes: setup-phone, setup-secret, setup-unsupported, setup-investigate, setup-exhausted, setup-preparing. The route is #setup/fixture-bot.
+const progress = m => { const wait = m==='setup-phone' ? {request_id:'req-1',kind:'PhoneApproval',expires_at:null,instructions:'Approve the sign-in on your phone.',match_number:'42'} : m==='setup-secret' ? {request_id:'req-1',kind:{Credential:{label:'Fixture login'}},expires_at:null} : m==='setup-unsupported' ? {request_id:'req-1',kind:{Unsupported:{reason:'fixture'}},expires_at:null} : null;
+  const phase = wait ? 'Waiting' : m==='setup-investigate' ? 'Investigate' : m==='setup-exhausted' ? 'Exhausted' : 'Ready';
+  const steps = m==='setup-investigate' ? [{step:'Allocate',status:'Done',last_error:null},{step:{Credential:'Mail'},status:'Unknown',last_error:'The service did not confirm <b>the</b> step'}] : [];
+  return {...row,version:5,phase,error:m==='setup-exhausted'?'Step failed after 3 attempts':null,checklist:[{label:'Computer created',done:true},{label:'Sign in',done:false}],setup:{...row.setup,wait,steps}}; };
+window.__homeFixture = {calls:[], hits:{}, control:[], rows:mode==='populated'?[row]:mode==='ready'?[ready]:mode.startsWith('setup-')?[progress(mode)]:[], holdAct:false, releaseAct(){this.actGate?.();this.actGate=null;}, actFail:false, revise(){const c=this.rows[0];this.rows[0]={...c,version:c.version+1};}, fail:mode==='failure', pending:null, created:false, loading:mode==='loading', loads:[], releaseLoad(){this.loading=false;this.loads.splice(0).forEach(resolve=>resolve());}, release(){this.pending?.();this.pending=null;}, hold:false, write:null, releaseWrite(){this.writeGate?.();this.writeGate=null;}, bump(patch){const c=this.rows[0];this.rows[0]={...c,version:c.version+1,setup:{...c.setup,draft:{...c.setup.draft,...patch,revision:c.setup.draft.revision+1}}};}};
 window.fetch = async (input, init={}) => {
   const path = typeof input==='string'?input:input.url;
   const state = window.__homeFixture;
-  state.calls.push({path,method:init.method||'GET',body:init.body});
+  state.calls.push({path,method:init.method||'GET',body:/\/secret$/.test(path)?'[redacted]':init.body});
   if(path==='/api/setups' && init.method==='POST'){
     await new Promise(resolve=>{state.pending=resolve;});
     if(mode==='create-reject') return Response.json({error:'Please revise the job description'},{status:400});
@@ -32,10 +37,24 @@ window.fetch = async (input, init={}) => {
     if(state.write==='lost') return Response.json({error:'The connection ended before confirmation'},{status:503});
     return new Response(null,{status:204});
   }
+  // Setup progress actions. Strict: the version and request id must be current, else 409. Pause and Resume change no row, as on the server. The secret body is never stored.
+  const act=path.match(/^\/api\/setups\/fixture-bot\/(control|challenge\/respond|secret)$/);
+  if(act && init.method==='POST'){
+    const body=JSON.parse(init.body); state.hits[act[1]]=(state.hits[act[1]]||0)+1;
+    if(state.holdAct) await new Promise(resolve=>state.actGate=resolve);
+    if(state.actFail) return Response.json({error:'Fixture action failed'},{status:500});
+    const c=state.rows[0], w=c.setup.wait;
+    if(body.version!==c.version||(act[1]!=='control'&&(!w||body.request_id!==w.request_id))) return Response.json({error:'The setup changed'},{status:409});
+    if(act[1]==='control'){ if(body.command.action==='attempts') state.rows[0]={...c,version:c.version+1,phase:'Provisioning',setup:{...c.setup,max_attempts:body.command.value}}; else state.control.push(body.command); }
+    else if(act[1]==='secret') state.rows[0]={...c,version:c.version+1,phase:'Provisioning',setup:{...c.setup,wait:null}};
+    else if(body.decision==='cancel') state.rows[0]={...c,version:c.version+1,setup:{...c.setup,wait:{...w,request_id:'req-2'}}};
+    else state.rows[0]={...c,version:c.version+1,setup:{...c.setup,wait:{...w,answered:true}}};
+    return new Response(null,{status:204});
+  }
   if(state.loading) await new Promise(resolve=>state.loads.push(resolve));
   if(mode==='unauthorized') return Response.json({error:'Sign in required'},{status:401});
   if(state.fail) return Response.json({error:'Fixture connection failure'},{status:503});
-  if(path==='/api/setup-options') return Response.json({enabled:mode!=='disabled',protected_input:false});
+  if(path==='/api/setup-options') return Response.json({enabled:mode!=='disabled',protected_input:mode==='setup-secret'});
   if(path==='/api/setups'){const snapshot=structuredClone(state.rows);if(state.holdRows) await new Promise(resolve=>state.releaseRows=resolve);return Response.json(snapshot);}
   if(path==='/api/chats') return Response.json([]);
   if(path==='/api/bots/fixture-bot') return Response.json(status);
