@@ -46,6 +46,21 @@ export function toFields(draft: SetupDraft): Fields {
 }
 export const sameFields = (a: Fields, b: Fields) => (Object.keys(a) as (keyof Fields)[]).every(key => a[key] === b[key]);
 
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((item, index) => item === b[index]);
+/** One check per draft field. The type forces a new field to name its check here. The revision is checked apart. */
+const DRAFT_CHECKS: Record<Exclude<keyof SetupDraft, "revision">, (a: SetupDraft, b: SetupDraft) => boolean> = {
+  name: (a, b) => a.name === b.name,
+  instructions: (a, b) => a.instructions === b.instructions,
+  model: (a, b) => a.model === b.model,
+  authority: (a, b) => a.authority === "Full" || b.authority === "Full" ? a.authority === b.authority : sameList(a.authority.Restricted, b.authority.Restricted),
+  resources: (a, b) => a.resources.cpus === b.resources.cpus && a.resources.memory_mib === b.resources.memory_mib && a.resources.disk_gib === b.resources.disk_gib,
+  budget: (a, b) => !a.budget || !b.budget ? a.budget === b.budget : a.budget.currency === b.budget.currency && a.budget.exponent === b.budget.exponent && a.budget.period === b.budget.period && a.budget.allowance === b.budget.allowance && a.budget.ceiling === b.budget.ceiling,
+  credentials: (a, b) => sameList(a.credentials, b.credentials),
+  task: (a, b) => (a.task ?? null) === (b.task ?? null),
+};
+/** Every draft field except the revision, compared by meaning and not by property order. */
+export const sameDraft = (a: SetupDraft, b: SetupDraft) => Object.values(DRAFT_CHECKS).every(check => check(a, b));
+
 const lines = (text: string) => text.split("\n").map(line => line.trim()).filter(Boolean);
 const readCount = (text: string) => { const value = text.trim(); return /^[1-9]\d*$/.test(value) && Number(value) <= U32_MAX ? Number(value) : null; };
 

@@ -1,12 +1,11 @@
 import * as api from "../lib/api";
-import { sameFields, toFields } from "./setup-form";
+import { sameDraft } from "./setup-form";
 
 export { readAmount } from "./setup-form";
 
 const CHANGED = "The setup changed. Reload and review it before approval.";
 /** A write whose reply was lost may still have happened. Only a read can tell. */
 const ambiguous = (error: unknown) => !(error instanceof api.ApiError) || error.status === 0 || error.status >= 500;
-const sameDraft = (a: api.SetupDraft, b: api.SetupDraft) => sameFields(toFields(a), toFields(b));
 
 export type Stage = "save" | "approve";
 export type Result =

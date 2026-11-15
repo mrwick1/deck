@@ -58,7 +58,7 @@ Measured in `bare` at 412x820, 320x640 and 412x450 against the fixture.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Save and Approve visible without scrolling, flush with the viewport bottom | Yes at all three sizes | Fixture |
+| Save and Approve visible without scrolling | Yes at all three sizes. The bar sits about 16px above the viewport bottom at the end of the page, so it is reachable but not always flush. | Fixture |
 | Action height | 44px | Fixture |
 | Field height and font | At least 44px and 16px | Fixture |
 | Horizontal overflow | None | Fixture |
@@ -88,3 +88,39 @@ At 320 × 640, Enter sent one save request and no approval. A newer row kept the
 An added regression failed before correction: Reload saved draft cleared an unconfirmed-write hold. Reset now retains that hold, and the reload action stays blocked until a read settles the write. Pending phases also use the live status region. The fixture checks the current version after its delayed-write gate, so another-client changes during that delay are rejected.
 
 All 137 tests and type checking pass after these corrections. Frame pacing, physical input and real backend acceptance remain untested.
+
+## Round two corrections
+
+| Check | Expected result | Evidence |
+| --- | --- | --- |
+| Save read returned nothing, then typing, then the row arrives | The typed text stays. The editor rebases on the confirmed row and clears its expectation. | Test |
+| Approval failed with no saved row, then typing, then the row arrives | Same result. | Test |
+| Unconfirmed write, then typing, then a poll or a check | Same result. The check never writes. | Test |
+| Base is stale until a read confirms the write | Save, Approve, Reload and Keep mine are blocked. Typing stays allowed. The status says whether the text is saved. | Test (state); not run in a browser |
+| Row leaves Draft with unsaved or unconfirmed work | The editor stays. The setup screen shows a read-only recovery with Copy and a confirmed Discard. Save, Approve and Keep mine are absent. The reload warning stays on. | Test (store); not run in a browser |
+| Row leaves Draft with a clean editor | The editor drops. | Test |
+| Draft comparison | Every field except the revision, including budget presence, currency, exponent, period and minor amounts. One comparator serves approval, reconcile and the own-write match. | Test |
+| Discard confirmation | Focus moves to Keep editing. | Source |
+| Check saved state settles | Focus moves to Save draft only if focus fell to the page body and the screen is still mounted. | Source |
+
+Recovery lists the fields read-only. It is not a JSON dump. Navigation to a ready bot goes to the setup screen while a recovery is pending.
+
+## Parent verification of round two corrections
+
+All 163 tests, type checking and the build pass. The build retains its shared-chunk size warning.
+A further regression failed before correction: a different server revision left the own-write expectation set and blocked conflict resolution. Receiving that revision now clears the expectation and retains the conflict.
+
+The parent used isolated bare sessions at 412×820, 320×640 and 412×450.
+A save with a failed read followed by newer typing retained that typing after refresh at all three sizes. Each case sent one POST.
+A remote Provisioning transition retained the newer text in read-only recovery. Save and Approve were absent. No horizontal overflow occurred.
+Both discard confirmations focused their safe choice. The recovery confirmation used a scripted click; this is not pointer evidence.
+The original driver hit sticky-footer coverage while auto-scrolling. Explicitly scrolling the field into view before typing passed at all three sizes.
+These checks establish scrolled access, not automatic phone keyboard visibility.
+The manual saved-state refresh was activated at 412×820. The three-size repeat used the header refresh.
+
+The form offers a read-only refresh while awaiting a saved revision.
+The mounted guard resets during effect setup so development StrictMode does not disable focus recovery.
+Recovery copy distinguishes local text from confirmed writes.
+
+Clipboard access, the unload prompt, Check saved state focus after reconciliation, physical keyboards, touch, screen readers, safe areas, frame timing and real-backend acceptance remain unverified by the parent.
+Both requested review rounds are complete. The setup draft gate is accepted with these limits; this does not close provisioning or other screens.

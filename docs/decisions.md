@@ -748,3 +748,13 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Reason:** Two reviewers measured that Enter approved, a version bump discarded typing, Save skipped resource validation and fields stayed editable during a write. Floating point turned `9007199254740.991` into an off-by-one amount. Server code permits zero spending and no granted actions, so the form explains them instead of rejecting them.
 
 **Boundary:** Activity, Requests and the original app keep their own float formatting. The checks in [ui-setup-review-checks.md](ui-setup-review-checks.md) state which results are tests, which are fixture runs in `bare` and which are unverified. No phone keyboard, IME, touch, screen reader or frame timing was measured.
+
+## Keep typing that arrives after a write, and keep work when a setup leaves Draft (2026-11-15)
+
+**Decision:** The editor stores the fields typed at send time with each write. A confirmed own row replaces the editor only if the fields are unchanged. Otherwise the editor rebases on that row and keeps the new typing. Save and Approve stay blocked while a sent write awaits a read. A row that leaves Draft keeps an unsaved or unconfirmed editor. The setup screen then shows read-only recovery with Copy and a confirmed Discard. One comparator checks every draft field except the revision.
+
+**Reason:** Round two showed a poll wiping text typed after a lost read. It also showed a remote phase change deleting unsaved text without a message. The old comparison ignored budget currency and period.
+
+**Boundary:** Recovery has no Save, Approve or Keep mine. A clean editor still drops when the row leaves Draft.
+
+A read that finds another revision clears the own-write expectation and opens conflict resolution. A manual refresh can request the saved revision without another write. These paths prevent a stale base from trapping the owner.

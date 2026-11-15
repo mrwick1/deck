@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { reconcile, submitReview } from "./actions";
-import { applyResult, begin, edit, isDirty, keepMine, reset, type Entry } from "./setup-editor";
+import { applyResult, awaitingRead, begin, edit, isDirty, keepMine, reset, type Entry } from "./setup-editor";
 import { ADVANCED, TEXT_LIMITS, firstInvalid, readAmount, validate, type Errors, type FieldKey, type Fields } from "./setup-form";
 
 interface Props {
@@ -27,14 +27,18 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
   const [focus, setFocus] = useState<{ key: FieldKey; n: number } | null>(null);
   const busy = phase !== "idle", locked = busy;
   const dirty = isDirty(editor);
-  const blocked = busy || disabled || !!conflict || !!unconfirmed;
+  const awaiting = awaitingRead(entry), gone = row.phase !== "Draft" || !!entry.left;
+  const blocked = busy || disabled || !!conflict || !!unconfirmed || awaiting || gone;
   const lastField = useRef<HTMLElement | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
     if (!focus) return;
     const target = document.getElementById(`review-${focus.key}`);
     target?.focus(); target?.scrollIntoView({ block: "nearest" });
   }, [focus]);
+  useEffect(() => { if (confirming) { const keep = document.querySelector<HTMLElement>(".review-confirm-keep"); keep?.focus({ preventScroll: true }); keep?.closest(".review-confirm")?.scrollIntoView({ block: "nearest" }); } }, [confirming]);
   // A disabled fieldset drops focus from a field. Put it back when the lock ends.
   useEffect(() => {
     if (!locked && lastField.current?.isConnected && document.activeElement === document.body) lastField.current.focus({ preventScroll: true });
@@ -42,7 +46,7 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
   }, [locked]);
 
   /** The button that was clicked leaves the page. Hand focus to a control that stays. */
-  const afterRender = (selector: string) => requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true }));
+  const afterRender = (selector: string, when: () => boolean = () => true) => requestAnimationFrame(() => { if (when()) document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true }); });
   const set = (change: Partial<Fields>) => {
     patch(id, current => edit(current, change));
     setErrors(previous => { const next = { ...previous }; for (const key of Object.keys(change)) delete next[key as FieldKey]; return next; });
@@ -70,7 +74,8 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
     void refresh();
   };
   const check = async () => {
-    if (!unconfirmed || guard.has(id) || busy || disabled) return;
+    if (!unconfirmed || guard.has(id) || busy || disabled || gone) return;
+    const onCheck = document.activeElement?.classList.contains("review-check") ?? false;
     guard.add(id);
     patch(id, current => ({ ...current, phase: "checking" }));
     try {
@@ -78,9 +83,11 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
       patch(id, current => applyResult(current, result, unconfirmed.base, unconfirmed.submitted));
     } finally { guard.delete(id); }
     void refresh();
+    // The Check button leaves the page once the state settles. Keep focus on a stable control, but only for an owner who stayed here.
+    if (onCheck && mounted.current) afterRender(".review-save", () => mounted.current && document.activeElement === document.body);
   };
   const discard = () => {
-    if (busy || unconfirmed) return;
+    if (busy || unconfirmed || awaiting) return;
     if (dirty && !confirming) { setConfirming(true); return; }
     setConfirming(false); setErrors({});
     patch(id, current => reset(current, row));
@@ -102,19 +109,19 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
   const zeroNote = ceiling === 0 ? "A ceiling of 0 allows no spending." : allowance === 0 ? "An allowance of 0 allows no spending until you raise it." : "";
   const saving = phase === "saving" && entry.action === "save", approving = entry.action === "approve" && busy;
   const pending = phase === "saving" ? "Saving draft…" : phase === "approving" ? "Approving…" : phase === "checking" ? "Checking the saved state…" : "";
-  const hold = pending || (conflict ? "Resolve the conflict above before saving." : disabled ? "Deck is not connected. Your edits are kept here. Save and Approve return with the connection." : "");
+  const hold = conflict ? "Resolve the conflict above before saving." : awaiting && !unconfirmed ? "Waiting for the server to confirm your last save. You can keep typing. Save and Approve return once it is confirmed." : disabled ? "Deck is not connected. Your edits are kept here. Save and Approve return with the connection." : "";
 
   return <form className="review-form" noValidate aria-busy={locked} onSubmit={event => { event.preventDefault(); void run(false); }}>
     <div className="review-meta">
       <p className="fine-print">Review before creating the computer. Edits stay in this app until you save.</p>
-      <p className="review-dirty">{dirty ? "Unsaved edits" : "No unsaved edits"}</p>
+      <p className="review-dirty">{unconfirmed ? "Save not confirmed" : dirty ? awaiting ? "Edits since the last save are not saved" : "Unsaved edits" : awaiting ? "Saved. Waiting for the server to confirm" : "No unsaved edits"}</p>
       {confirming
-        ? <div className="review-confirm" role="group" aria-label="Discard unsaved edits"><span>Discard your edits?</span><Button type="button" variant="outline" onClick={discard}>Discard</Button><Button type="button" variant="outline" onClick={() => { setConfirming(false); afterRender(".review-reload"); }}>Keep editing</Button></div>
-        : <Button type="button" variant="ghost" className="review-reload" aria-disabled={busy || !!unconfirmed} onClick={discard}>Reload saved draft</Button>}
+        ? <div className="review-confirm" role="group" aria-label="Discard unsaved edits"><span>Discard your edits?</span><Button type="button" variant="outline" onClick={discard}>Discard</Button><Button type="button" variant="outline" className="review-confirm-keep" onClick={() => { setConfirming(false); afterRender(".review-reload"); }}>Keep editing</Button></div>
+        : <Button type="button" variant="ghost" className="review-reload" aria-disabled={busy || !!unconfirmed || awaiting} onClick={discard}>Reload saved draft</Button>}
     </div>
     {conflict && <section className="review-conflict" role="alert" aria-label="Changed elsewhere">
       <p><strong>This setup changed elsewhere.</strong> Your edits are kept. Nothing was overwritten or approved.</p>
-      <div className="review-tools"><Button type="button" variant="outline" aria-disabled={busy || !!unconfirmed} onClick={discard}>Discard mine, load latest</Button><Button type="button" variant="outline" aria-disabled={busy || !!unconfirmed} onClick={() => { if (busy || unconfirmed) return; patch(id, keepMine); afterRender("#review-name"); }}>Keep mine, replace latest</Button></div>
+      <div className="review-tools"><Button type="button" variant="outline" aria-disabled={busy || !!unconfirmed || awaiting} onClick={discard}>Discard mine, load latest</Button><Button type="button" variant="outline" aria-disabled={busy || !!unconfirmed} onClick={() => { if (busy || unconfirmed || awaiting || gone) return; patch(id, keepMine); afterRender("#review-name"); }}>Keep mine, replace latest</Button></div>
     </section>}
     <fieldset className="review-fields" disabled={locked}>
       {field("name", "Name", <Input {...text("name")} {...plain} maxLength={TEXT_LIMITS.name}/>)}
@@ -145,6 +152,7 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
         <p role="status" className="review-success">{pending || (notice?.kind === "success" ? notice.text : "")}</p>
         <p role="alert" className="review-error">{notice?.kind === "error" ? notice.text : ""}</p>
         {hold && <p className="review-hold">{hold}</p>}
+        {awaiting && !unconfirmed && <Button type="button" variant="outline" onClick={() => { void refresh(); }}>Refresh saved state</Button>}
         {unconfirmed && <Button type="button" variant="outline" className="review-check" aria-disabled={busy || disabled} onClick={() => { void check(); }}>Check saved state</Button>}
       </div>
       <div className="review-actions">
@@ -153,4 +161,36 @@ export function Review({ row, entry, patch, guard, disabled, refresh }: Props) {
       </div>
     </div>
   </form>;
+}
+
+const RECOVERY: [keyof Fields, string, boolean][] = [["name", "Name", false], ["instructions", "Job and instructions", true], ["allowed", "Allowed actions", true], ["allowance", "Working allowance", false], ["ceiling", "Absolute ceiling", false], ["model", "Model", false], ["cpus", "CPUs", false], ["memory_mib", "Memory (MiB)", false], ["disk_gib", "Disk (GiB)", false], ["credentials", "Credential labels", true], ["task", "First task", true]];
+const PHASE_TEXT: Record<SetupRecord["phase"], string> = { Draft: "a draft", Provisioning: "being prepared", Waiting: "waiting for you", Investigate: "waiting for investigation", Exhausted: "out of setup attempts", Ready: "ready" };
+
+/**
+ * Read-only recovery for edits that were never saved when the setup moved past Draft elsewhere.
+ * It has no Save, Approve or Keep mine. The owner can copy the text and then discard it on purpose.
+ */
+export function Recovery({ entry, discard }: { entry: Entry; discard: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [copied, setCopied] = useState("");
+  const { fields } = entry.editor, left = entry.left, uncertain = !!entry.unconfirmed;
+  const shown = RECOVERY.filter(([key]) => !(key === "allowed" && !fields.restricted) && !((key === "allowance" || key === "ceiling") && !entry.editor.base.setup.draft.budget));
+  const asText = () => [...shown.map(([key, label]) => `${label}:\n${fields[key]}`), `Authority: ${fields.restricted ? "Only listed actions" : "Full authority"}`].join("\n\n");
+  useEffect(() => { if (confirming) { const keep = document.querySelector<HTMLElement>(".recovery-keep"); keep?.focus({ preventScroll: true }); keep?.closest(".review-confirm")?.scrollIntoView({ block: "nearest" }); } }, [confirming]);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(asText()); setCopied("Copied your edits."); }
+    catch { setCopied("Copy was not allowed. Select the text in the boxes and copy it."); }
+  };
+  return <section className="review-recovery" aria-labelledby="recovery-title">
+    <h3 id="recovery-title" tabIndex={-1}>Your local draft is kept here</h3>
+    <p>This setup moved on elsewhere{left ? ` and is now ${PHASE_TEXT[left.phase]}` : ""}. It can no longer be edited here, so Save and Approve are off. {uncertain ? "A write from this screen was never confirmed, so these edits may or may not be on the server. " : "Changes made after your last confirmed save were not submitted from this screen. "}The text below is kept so you can copy it. See the setup progress below.</p>
+    <div className="review-recovery-fields">
+      {shown.map(([key, label, long]) => <div className="review-field" key={key}><label htmlFor={`recovery-${key}`}>{label}</label>{long ? <Textarea id={`recovery-${key}`} readOnly rows={Math.min(6, Math.max(2, fields[key].toString().split("\n").length))} value={fields[key].toString()}/> : <Input id={`recovery-${key}`} readOnly value={fields[key].toString()}/>}</div>)}
+      <p className="fine-print">Authority: {fields.restricted ? "only the listed actions" : "full authority for the job"}.</p>
+    </div>
+    <p role="status" className="review-success">{copied}</p>
+    {confirming
+      ? <div className="review-confirm" role="group" aria-label="Discard unsaved edits"><span>Discard these edits for good?</span><Button type="button" variant="outline" onClick={discard}>Discard edits</Button><Button type="button" variant="outline" className="recovery-keep" onClick={() => { setConfirming(false); requestAnimationFrame(() => document.querySelector<HTMLElement>(".recovery-discard")?.focus({ preventScroll: true })); }}>Keep them</Button></div>
+      : <div className="review-tools"><Button type="button" variant="outline" onClick={() => { void copy(); }}>Copy my edits</Button><Button type="button" variant="outline" className="recovery-discard" onClick={() => setConfirming(true)}>Discard my edits</Button></div>}
+  </section>;
 }

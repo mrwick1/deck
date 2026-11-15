@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SetupDraft, SetupRecord } from "../lib/api";
 import type { Result } from "./actions";
-import { applyResult, begin, edit, hasUnsaved, isDirty, keepMine, newEntry, openEditor, receive, receiveRow, reset } from "./setup-editor";
+import { applyResult, awaitingRead, begin, edit, hasUnsaved, without, isDirty, keepMine, newEntry, openEditor, receive, receiveRow, reset } from "./setup-editor";
 import { validate } from "./setup-form";
 
 const draft: SetupDraft = { revision: 3, name: "Mail", instructions: "Read mail", model: "configured", authority: "Full", resources: { cpus: 2, memory_mib: 1024, disk_gib: 8 }, budget: { currency: "USD", exponent: 2, period: "month", allowance: 0, ceiling: 0 }, credentials: [], task: null };
@@ -156,4 +156,112 @@ describe("discard while a write is unsettled", () => {
     const uncertain = applyResult(pending, { kind: "unconfirmed", stage: "approve", saved: null }, row, { ...draft, name: "Mine" });
     expect(reset(uncertain, row)).toBe(uncertain);
   });
+});
+
+describe("own write confirmed after the owner kept typing", () => {
+  const typed = (extra: Partial<Parameters<typeof edit>[1]>) => edit(edit(newEntry(row), { name: "Mine" }), extra);
+  const send = (entry: ReturnType<typeof newEntry>) => begin(entry, "save", validate(entry.editor.fields, row.setup.draft, false).draft!);
+  const mine = rowAt(5, { name: "Mine" });
+  it("saved row null, then typing, then the poll: keeps the new text and rebases", () => {
+    const sent = send(edit(newEntry(row), { name: "Mine" }));
+    const done = applyResult(sent, { kind: "saved", row: null }, row, validate(sent.editor.fields, row.setup.draft, false).draft!);
+    const typing = edit(done, { instructions: "Z" });
+    const next = receive(typing.editor, mine);
+    expect(next.fields.instructions).toBe("Z");
+    expect(next.fields.name).toBe("Mine");
+    expect(next.base.version).toBe(5);
+    expect(next.expect).toBeNull();
+    expect(next.conflict).toBeNull();
+    expect(isDirty(next)).toBe(true);
+  });
+  it("approve failed with saved null, then typing, then the poll: keeps the new text", () => {
+    const sent = begin(edit(newEntry(row), { name: "Mine" }), "approve", validate(edit(newEntry(row), { name: "Mine" }).editor.fields, row.setup.draft, true).draft!);
+    const failed = applyResult(sent, { kind: "failed", stage: "approve", error: new Error("read failed"), saved: null }, row, { ...draft, name: "Mine" });
+    const next = receive(edit(failed, { task: "Z" }).editor, mine);
+    expect(next.fields.task).toBe("Z");
+    expect(next.base.version).toBe(5);
+    expect(next.expect).toBeNull();
+  });
+  it("unconfirmed, then typing, then a check that finds the save: keeps the new text", () => {
+    const submitted = validate(edit(newEntry(row), { name: "Mine" }).editor.fields, row.setup.draft, false).draft!;
+    const sent = send(edit(newEntry(row), { name: "Mine" }));
+    const unconfirmed = applyResult(sent, { kind: "unconfirmed", stage: "save", saved: null }, row, submitted);
+    const typing = edit(unconfirmed, { instructions: "Z" });
+    const checked = applyResult(typing, { kind: "saved", row: mine, recovered: true }, row, submitted);
+    expect(checked.editor.fields.instructions).toBe("Z");
+    expect(checked.editor.base.version).toBe(5);
+    expect(checked.unconfirmed).toBeNull();
+    const viaPoll = receive(typing.editor, mine);
+    expect(viaPoll.fields.instructions).toBe("Z");
+  });
+  it("adopts the row when the fields still equal what was sent", () => {
+    const sent = send(edit(newEntry(row), { name: "Mine" }));
+    expect(isDirty(receive(sent.editor, mine))).toBe(false);
+  });
+  it("shows no unsaved edits while a sent write awaits the read, and unsaved edits once the owner types", () => {
+    const sent = send(edit(newEntry(row), { name: "Mine" }));
+    expect(isDirty(sent.editor)).toBe(false);
+    expect(isDirty(edit(sent, { instructions: "Z" }).editor)).toBe(true);
+  });
+});
+
+describe("remote phase change", () => {
+  const left = rowAt(6, {}, "Provisioning");
+  it("keeps a dirty editor and its fields", () => {
+    const entries = receiveRow({ "bot-one": edit(newEntry(row), { instructions: "Half" }) }, left);
+    expect(entries["bot-one"].editor.fields.instructions).toBe("Half");
+    expect(hasUnsaved(entries["bot-one"])).toBe(true);
+    expect(entries["bot-one"].left?.phase).toBe("Provisioning");
+  });
+  it("keeps an unconfirmed entry", () => {
+    const base = edit(newEntry(row), { name: "Mine" });
+    const uncertain = applyResult(begin(base, "save", { ...draft, name: "Mine" }), { kind: "unconfirmed", stage: "save", saved: null }, row, { ...draft, name: "Mine" });
+    expect(receiveRow({ "bot-one": uncertain }, left)["bot-one"].unconfirmed).not.toBeNull();
+  });
+  it("drops a clean entry and a confirmed own approval", () => {
+    expect(receiveRow({ "bot-one": newEntry(row) }, left)).toEqual({});
+    expect(receiveRow({ "bot-one": { ...newEntry(row), phase: "approved" } }, left)).toEqual({});
+  });
+  it("does not say nothing was approved when the row left Draft", () => {
+    const entry = begin(edit(newEntry(row), { name: "Mine" }), "approve", { ...draft, name: "Mine" });
+    expect(applyResult(entry, { kind: "conflict", row: left }, row, { ...draft, name: "Mine" }).notice?.text).not.toContain("Nothing was approved");
+  });
+});
+
+describe("recovery gates", () => {
+  it("blocks a write while the base is stale and unblocks once the read confirms", () => {
+    const sent = begin(edit(newEntry(row), { name: "Mine" }), "save", { ...draft, name: "Mine" });
+    const settled = applyResult(sent, { kind: "saved", row: null }, row, { ...draft, name: "Mine" });
+    expect(awaitingRead(settled)).toBe(true);
+    expect(awaitingRead({ ...settled, editor: receive(settled.editor, rowAt(5, { name: "Mine" })) })).toBe(false);
+  });
+  it("clears the left marker if a Draft row returns, and keeps it on repeated polls", () => {
+    const orphan = receiveRow({ "bot-one": edit(newEntry(row), { name: "Mine" }) }, rowAt(6, {}, "Provisioning"));
+    expect(receiveRow(orphan, rowAt(6, {}, "Provisioning"))).toBe(orphan);
+    expect(receiveRow(orphan, rowAt(7))["bot-one"].left).toBeNull();
+  });
+  it("discard removes the entry and so ends the reload warning", () => {
+    const orphan = receiveRow({ "bot-one": edit(newEntry(row), { name: "Mine" }) }, rowAt(6, {}, "Provisioning"));
+    expect(without(orphan, "bot-one")).toEqual({});
+  });
+});
+
+describe("own-write match compares the whole draft", () => {
+  const budget = (patch: object) => ({ ...draft.budget!, ...patch });
+  const sent = begin(edit(newEntry(row), { name: "Mine" }), "save", { ...draft, name: "Mine" });
+  for (const [label, b] of [["currency", budget({ currency: "EUR" })], ["period", budget({ period: "day" })], ["exponent", budget({ exponent: 3 })], ["presence", null]] as const) {
+    it(`a row with a different budget ${label} is another client's write`, () => {
+      expect(receive(edit(sent, { instructions: "Z" }).editor, rowAt(5, { name: "Mine", budget: b })).conflict?.version).toBe(5);
+    });
+  }
+});
+
+it("allows explicit conflict resolution after a sent write meets a different revision", () => {
+  const entered = edit(newEntry(row), { name: "Mine" });
+  const sent = begin(entered, "save", validate(entered.editor.fields, row.setup.draft, false).draft!);
+  const waiting = applyResult(sent, { kind: "saved", row: null }, row, row.setup.draft);
+  const received = receiveRow({ "bot-one": waiting }, rowAt(5, { name: "Other writer" }))["bot-one"];
+  expect(received.editor.conflict).not.toBeNull();
+  expect(awaitingRead(received)).toBe(false);
+  expect(keepMine(received).editor.base.version).toBe(5);
 });

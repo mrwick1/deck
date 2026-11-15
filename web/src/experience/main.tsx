@@ -16,8 +16,8 @@ import { createNavigation } from "./navigation";
 import { Chat } from "./Chat";
 import { Computer } from "./Computer";
 import { Requests, useRequests } from "./Requests";
-import { Review } from "./Review";
-import { newEntry } from "./setup-editor";
+import { Recovery, Review } from "./Review";
+import { hasUnsaved, isBusy, newEntry } from "./setup-editor";
 import { useSetupEditors } from "./useSetupEditors";
 import { useWorkspace } from "./useWorkspace";
 import { destinationOptions } from "./actions";
@@ -124,7 +124,8 @@ function App() {
   const attention = data.bots.filter(item => item.waiting || item.budget_hold || item.unresolved || item.ceiling_request);
   const results = data.bots.flatMap(bot => bot.tasks.filter(task => task.state === "done").map(task => ({ bot, task }))).slice(0, 8);
   const openBot = (botId: string) => navigate(`bot/${encodeURIComponent(botId)}`);
-  const openSetup = (item: api.SetupRecord) => navigate(`${item.runtime_ready ? "bot" : "setup"}/${encodeURIComponent(item.setup.id)}`);
+  const orphaned = (id: string) => { const entry = editors.entries[id]; return !!entry?.left && hasUnsaved(entry); };
+  const openSetup = (item: api.SetupRecord) => navigate(`${item.runtime_ready && !orphaned(item.setup.id) ? "bot" : "setup"}/${encodeURIComponent(item.setup.id)}`);
   const bots = [...rows.map(item => ({ id: item.setup.id, name: item.setup.draft.name, row: item, status: data.bots.find(bot => bot.bot_id === item.setup.id) })), ...data.bots.filter(bot => !names.has(bot.bot_id)).map(bot => ({ id: bot.bot_id, name: "Default bot", row: undefined, status: bot }))];
   const homeFeedback = manualRefresh && data.refreshing ? "Refreshing…" : error || data.error || refreshMessage;
   const firstHome = page === "home" && data.hasData && data.enabled && !bots.length;
@@ -176,7 +177,8 @@ function Setup({ row, data, openBot, disabled, editors }: { row: api.SetupRecord
     catch (e) { setError(e instanceof Error ? e.message : "Setup change was not confirmed."); }
     finally { guard.current = false; setBusy(false); }
   };
-  return <main className="content setup-view"><h2>{row.setup.draft.name}</h2>{row.phase === "Draft" ? <Review row={row} entry={editors.entries[row.setup.id] ?? newEntry(row)} patch={editors.patch} guard={editors.guard} disabled={disabled} refresh={data.refresh}/> : <>
+  const entry = editors.entries[row.setup.id], orphan = row.phase !== "Draft" && !!entry && hasUnsaved(entry) && !isBusy(entry);
+  return <main className="content setup-view"><h2 tabIndex={-1}>{row.setup.draft.name}</h2>{orphan && <Recovery entry={entry} discard={() => { editors.discard(row.setup.id); requestAnimationFrame(() => document.querySelector<HTMLElement>(".setup-view h2")?.focus({ preventScroll: true })); }}/>}{row.phase === "Draft" ? <Review row={row} entry={editors.entries[row.setup.id] ?? newEntry(row)} patch={editors.patch} guard={editors.guard} disabled={disabled} refresh={data.refresh}/> : <>
     <p>{row.runtime_ready ? "Your bot is ready" : row.phase === "Ready" ? "Preparing the runtime" : row.phase}</p><ul className="setup-checklist">{row.checklist.map(item => <li key={item.label}><span>{item.done ? <Check size={18}/> : "·"}</span>{item.label}</li>)}</ul>
     {(row.error || error) && <p className="error-note" role="alert">{row.error ?? error}</p>}
     <fieldset disabled={disabled || busy}>{row.setup.wait && <WaitPanel row={row} protectedInput={data.protectedInput} refresh={data.refresh}/>}</fieldset>

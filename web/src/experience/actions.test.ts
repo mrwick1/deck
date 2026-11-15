@@ -162,3 +162,26 @@ describe("lost replies", () => {
     expect(await reconcile(row, draft, "approve", saved(5))).toMatchObject({ kind: "unconfirmed", stage: "approve" });
   });
 });
+
+describe("full semantic draft comparison", () => {
+  const changed = (budget: Partial<NonNullable<api.SetupDraft["budget"]>> | null) => ({ ...draft, revision: 4, budget: budget === null ? null : { ...draft.budget!, ...budget } });
+  const server = (d: api.SetupDraft) => [{ ...row, version: 5, setup: { ...row.setup, draft: d } }];
+  const cases: [string, Partial<NonNullable<api.SetupDraft["budget"]>> | null][] = [["currency", { currency: "EUR" }], ["period", { period: "day" }], ["exponent", { exponent: 3 }], ["presence", null]];
+  for (const [name, budget] of cases) {
+    it(`does not approve a saved row whose budget ${name} differs`, async () => {
+      vi.spyOn(api, "editSetup").mockResolvedValue();
+      const approve = vi.spyOn(api, "approveSetup").mockResolvedValue();
+      vi.spyOn(api, "listSetups").mockResolvedValue(server(changed(budget)));
+      expect((await submitReview(row, draft, true)).kind).toBe("conflict");
+      expect(approve).not.toHaveBeenCalled();
+    });
+    it(`does not call a lost save mine when the budget ${name} differs`, async () => {
+      vi.spyOn(api, "listSetups").mockResolvedValue(server(changed(budget)));
+      expect((await reconcile(row, draft, "save", null)).kind).toBe("conflict");
+    });
+  }
+  it("accepts the same draft whatever the property order", async () => {
+    vi.spyOn(api, "listSetups").mockResolvedValue(server({ task: null, credentials: [], budget: { ceiling: 0, allowance: 0, period: "configured-period", exponent: 2, currency: "USD" }, resources: { disk_gib: 8, memory_mib: 1024, cpus: 2 }, authority: "Full", model: "configured", instructions: "Read mail", name: "Mail", revision: 4 }));
+    expect((await reconcile(row, draft, "save", null)).kind).toBe("saved");
+  });
+});
