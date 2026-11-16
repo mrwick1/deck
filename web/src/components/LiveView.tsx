@@ -112,11 +112,11 @@ export function LivePanel({
       {page && (
         <motion.aside
           aria-label="Live view"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 420, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
+          initial={{ x: 24, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 24, opacity: 0 }}
           transition={spring}
-          className="hidden shrink-0 overflow-hidden border-l lg:flex"
+          className="hidden w-[420px] shrink-0 overflow-hidden border-l lg:flex"
         >
           <div className="flex w-[420px] flex-col gap-3 p-4">
             <div className="flex items-center gap-2 text-sm font-medium">
