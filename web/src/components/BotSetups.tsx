@@ -72,19 +72,20 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
   const [error, setError] = useState<string | null>(null);
   const [protectedInput, setProtectedInput] = useState(false);
   const refresh = async () => { const [r, o] = await Promise.all([api.listSetups(), api.setupOptions()]); setRows(r); setProtectedInput(o.protected_input === true); setError(null); };
-  useEffect(() => { let closed = false; Promise.all([api.setupOptions(), api.listSetups()]).then(([o, r]) => { if (!closed) { setEnabled(o.enabled); setProtectedInput(o.protected_input === true); setRows(r); } }, e => { if (!closed) setError((e as Error).message); }); return () => { closed = true; }; }, []);
+  const load = () => Promise.all([api.setupOptions(), api.listSetups()]).then(([o, r]) => { setEnabled(o.enabled); setProtectedInput(o.protected_input === true); setRows(r); setError(null); }, e => setError((e as Error).message));
+  useEffect(() => { load(); }, []);
   useEffect(() => {
     if (!rows.some(r => r.phase === "Provisioning" || r.phase === "Waiting" || (r.phase === "Ready" && !r.runtime_ready))) return;
     const timer = setTimeout(() => refresh().catch(e => setError((e as Error).message)), 2000);
     return () => clearTimeout(timer);
   }, [rows]);
-  if (!enabled && rows.length === 0) return null;
+  if (!enabled && rows.length === 0 && !error) return null;
   const create = async () => { setBusy(true); try { const r = await api.createSetup(job); setJob(""); setEditing(r.setup.id); await refresh(); } catch (e) { fail(e); } finally { setBusy(false); } };
   const control = async (r: api.SetupRecord, command: unknown) => { try { await api.controlSetup(r.setup.id, r.version, command); await refresh(); } catch (e) { fail(e); } };
   return <section aria-label="Bot setup" className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4">
     <div className="flex items-center justify-between"><h2 className="text-sm font-medium">Your bots</h2><Button size="sm" variant="ghost" onClick={() => refresh().catch(fail)}>Refresh</Button></div>
     {enabled && <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); if (job.trim()) create(); }}><label className="text-sm">Describe the new bot’s job<textarea className={field} rows={2} maxLength={20000} value={job} onChange={e => setJob(e.target.value)} placeholder="What should this bot do? Do not include credentials." /></label><Button className="self-start" type="submit" disabled={busy || !job.trim()}>Propose setup</Button></form>}
-    {error && <p role="alert" className="text-sm text-error-foreground">{error}</p>}
+    {error && <div className="flex flex-wrap items-center gap-2"><p role="alert" className="text-sm text-error-foreground">{error}</p><Button size="sm" variant="outline" onClick={load}>Retry</Button></div>}
     {rows.map(r => <article key={r.setup.id} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{r.setup.draft.name}</h3><span className="text-muted-foreground text-xs">{r.runtime_ready ? "Ready" : r.phase}</span></div>
       {r.phase === "Draft" ? <><Button size="sm" variant="outline" aria-expanded={editing === r.setup.id} onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>{editing === r.setup.id ? "Hide review" : "Review setup"}</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
@@ -93,7 +94,7 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
         {r.error && <p role="alert" className="text-sm text-error-foreground">{r.error}</p>}
         {r.setup.wait && <WaitPanel row={r} protectedInput={protectedInput} refresh={refresh} />}
         {r.phase === "Investigate" && <p className="text-sm">A setup step has an unknown outcome. Investigate before retrying.</p>}
-        {r.phase === "Exhausted" && <label className="text-sm">Attempts exhausted. New total attempt limit<input type="number" min={1} defaultValue={r.setup.max_attempts} className={field} onBlur={e => { const value = Number(e.target.value); if (Number.isInteger(value) && value > r.setup.max_attempts) control(r, { action: "attempts", value }); }} /></label>}
+        {r.phase === "Exhausted" && <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); const value = Number(new FormData(e.currentTarget).get("attempts")); if (Number.isInteger(value) && value > r.setup.max_attempts) control(r, { action: "attempts", value }); }}><label className="text-sm">Attempts exhausted. New total attempt limit<input name="attempts" type="number" min={1} defaultValue={r.setup.max_attempts} className={field} onBlur={e => { const value = Number(e.target.value); if (Number.isInteger(value) && value > r.setup.max_attempts) control(r, { action: "attempts", value }); }} /></label><Button className="self-start" size="sm" type="submit">Save limit</Button></form>}
         {r.runtime_ready ? <Button onClick={() => onOpen(r.setup.id, r.chat_id)}>Open bot chat</Button> : <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => control(r, { action: "retry" })}>Refresh setup progress</Button><Button size="sm" variant="outline" onClick={() => control(r, { action: "pause", value: true })}>Pause setup</Button><Button size="sm" variant="outline" onClick={() => control(r, { action: "pause", value: false })}>Resume setup</Button></div>}
       </>}
     </article>)}
