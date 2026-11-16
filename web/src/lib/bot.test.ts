@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BotStatus } from "./api";
 import type { CeilingRequest } from "./api";
-import { ceilingAnswer, describeBot, parseMinor } from "./bot";
+import { ceilingAnswer, describeBot, describeLimits, parseMinor, parseReviewLimits } from "./bot";
 
 const base: BotStatus = {
   bot_id: "main",
@@ -87,5 +87,26 @@ describe("ceiling request", () => {
   it("refuses an approval that does not raise the ceiling", () => {
     expect(ceilingAnswer(req, "approve", "20", "k")).toBeNull();
     expect(ceilingAnswer(req, "approve", "", "k")).toBeNull();
+  });
+});
+
+describe("parseReviewLimits", () => {
+  it("round-trips values into the draft fields", () => {
+    expect(parseReviewLimits("08:00", "+05:30", "25")).toEqual({ schedule: { time: "08:00", timezone: "+05:30" }, max_steps: 25 });
+    expect(parseReviewLimits(" 23:59 ", "UTC", "")).toEqual({ schedule: { time: "23:59", timezone: "UTC" }, max_steps: null });
+  });
+  it("sends no value for empty fields", () => {
+    expect(parseReviewLimits("", "", "")).toEqual({ schedule: null, max_steps: null });
+  });
+  it("rejects an invalid offset, time or limit", () => {
+    for (const z of ["", "utc", "+5:30", "+15:00", "+05:60", "IST"]) expect(parseReviewLimits("08:00", z, "")).toHaveProperty("error");
+    expect(parseReviewLimits("", "UTC", "")).toHaveProperty("error");
+    expect(parseReviewLimits("24:00", "UTC", "")).toHaveProperty("error");
+    for (const n of ["0", "201", "1.5", "-3", "x"]) expect(parseReviewLimits("", "", n)).toHaveProperty("error");
+  });
+  it("describes set limits for the approved summary", () => {
+    const d = { schedule: { time: "08:00", timezone: "UTC" }, max_steps: 10 } as never;
+    expect(describeLimits(d)).toBe("Runs daily at 08:00 (UTC). Step limit 10");
+    expect(describeLimits({} as never)).toBe("");
   });
 });
