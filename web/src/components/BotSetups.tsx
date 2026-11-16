@@ -72,19 +72,20 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
   const [error, setError] = useState<string | null>(null);
   const [protectedInput, setProtectedInput] = useState(false);
   const refresh = async () => { const [r, o] = await Promise.all([api.listSetups(), api.setupOptions()]); setRows(r); setProtectedInput(o.protected_input === true); setError(null); };
-  useEffect(() => { let closed = false; Promise.all([api.setupOptions(), api.listSetups()]).then(([o, r]) => { if (!closed) { setEnabled(o.enabled); setProtectedInput(o.protected_input === true); setRows(r); } }, e => { if (!closed) setError((e as Error).message); }); return () => { closed = true; }; }, []);
+  const load = () => Promise.all([api.setupOptions(), api.listSetups()]).then(([o, r]) => { setEnabled(o.enabled); setProtectedInput(o.protected_input === true); setRows(r); setError(null); }, e => setError((e as Error).message));
+  useEffect(() => { load(); }, []);
   useEffect(() => {
     if (!rows.some(r => r.phase === "Provisioning" || r.phase === "Waiting" || (r.phase === "Ready" && !r.runtime_ready))) return;
     const timer = setTimeout(() => refresh().catch(e => setError((e as Error).message)), 2000);
     return () => clearTimeout(timer);
   }, [rows]);
-  if (!enabled && rows.length === 0) return null;
+  if (!enabled && rows.length === 0 && !error) return null;
   const create = async () => { setBusy(true); try { const r = await api.createSetup(job); setJob(""); setEditing(r.setup.id); await refresh(); } catch (e) { fail(e); } finally { setBusy(false); } };
   const control = async (r: api.SetupRecord, command: unknown) => { try { await api.controlSetup(r.setup.id, r.version, command); await refresh(); } catch (e) { fail(e); } };
   return <section aria-label="Bot setup" className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4">
     <div className="flex items-center justify-between"><h2 className="text-sm font-medium">Your bots</h2><Button size="sm" variant="ghost" onClick={() => refresh().catch(fail)}>Refresh</Button></div>
     {enabled && <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); if (job.trim()) create(); }}><label className="text-sm">Describe the new bot’s job<textarea className={field} rows={2} maxLength={20000} value={job} onChange={e => setJob(e.target.value)} placeholder="What should this bot do? Do not include credentials." /></label><Button className="self-start" type="submit" disabled={busy || !job.trim()}>Propose setup</Button></form>}
-    {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    {error && <div className="flex flex-wrap items-center gap-2"><p role="alert" className="text-sm text-red-500">{error}</p><Button size="sm" variant="outline" onClick={load}>Retry</Button></div>}
     {rows.map(r => <article key={r.setup.id} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{r.setup.draft.name}</h3><span className="text-muted-foreground text-xs">{r.runtime_ready ? "Ready" : r.phase}</span></div>
       {r.phase === "Draft" ? <><Button size="sm" variant="outline" aria-expanded={editing === r.setup.id} onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>{editing === r.setup.id ? "Hide review" : "Review setup"}</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
