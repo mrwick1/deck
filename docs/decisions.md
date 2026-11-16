@@ -699,6 +699,12 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
 
+## D67. Tell the owner when a run reaches the step limit (2026-11-15)
+
+**Decision:** When a run reaches `agent.max_steps`, store a fixed assistant message in the chat. The message says the step limit stopped the work and the task is not finished. Send it as a persisted text event too. The run still fails with the same task detail.
+
+**Reason:** Issue #37. The chat ended on a raw tool result, so the owner did not learn why the bot stopped. Fixed text adds no model call and keeps the history valid for the model.
+
 ## D69. Let each bot set its own model-call limit (2026-11-15)
 
 **Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.

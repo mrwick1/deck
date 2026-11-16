@@ -44,6 +44,12 @@ fn save(c: &Connection, expected: i64, setup: &Setup) -> rusqlite::Result<i64> {
     }
     let version = expected.checked_add(1).ok_or_else(conflict)?;
     t.execute("UPDATE bot_setup_drafts SET revision=?2, body=?3, updated_at=?4 WHERE draft_id=?1 AND lifecycle=1", params![setup.id, version, serde_json::to_string(setup).map_err(encoded)?, now()])?;
+    if prior.setup.draft.name != setup.draft.name {
+        t.execute(
+            "UPDATE chats SET title=?2 WHERE id=?1",
+            params![prior.chat_id, setup.draft.name],
+        )?;
+    }
     t.commit()?;
     Ok(version)
 }
