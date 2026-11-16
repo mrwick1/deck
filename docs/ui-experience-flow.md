@@ -28,7 +28,7 @@ Computer subscribes only while visible and awake. Hide it during sign-in waits. 
 
 Keep the last successful overview during connection loss and mark it stale. Disable dependent actions until a fresh read succeeds. Keep chat drafts in memory. A refresh reloads saved setup, history and task state from the backend.
 
-The public sample preview remains static. The real interface is a separate same-origin entry at `/experience.html`, behind the existing Deck authentication middleware. The original UI remains at `/`. No new public API, auth bypass, model endpoint or credential storage is added.
+The public sample preview remains static. The real interface is the root app at `/` (D88), behind the existing Deck authentication middleware. `/experience.html` redirects to `/`. No new public API, auth bypass, model endpoint or credential storage is added.
 
 ## Design reference
 
@@ -36,7 +36,7 @@ Use the owner-approved calm layout and restrained motion. Apply the craft guidan
 
 ## Run and verify
 
-Build with `npm --prefix web run build`. Build the Deck binary after the web assets. Open `/experience.html` through the existing authenticated server. During local development, use the existing Vite proxy. Do not publish that proxy.
+Build with `npm --prefix web run build`. Build the Deck binary after the web assets. Open `/` through the existing authenticated server. During local development, use the existing Vite proxy. Do not publish that proxy.
 
 Type checking, 64 web tests and the production build pass. Rust formatting and Clippy checks pass. Seven new tests cover setup approval revisions, concurrent edits, failed writes, currency precision, ready destinations and HTTP authentication failures. The build retains a shared chat bundle above the Vite size warning threshold.
 

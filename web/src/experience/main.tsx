@@ -1,5 +1,6 @@
 import { StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { registerSW } from "virtual:pwa-register";
 import { AnimatePresence, motion, MotionConfig, useIsPresent, useReducedMotion } from "motion/react";
 import { DropdownMenu } from "radix-ui";
 import { ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, House, Mail, MessageCircle, Monitor, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
@@ -30,6 +31,8 @@ import "../index.css";
 import "../prototype/style.css";
 import "./compact.css";
 import "./live.css";
+
+registerSW({ immediate: true });
 
 const titleFor = (row?: api.SetupRecord, status?: api.BotStatus) => row?.setup.draft.name ?? (status ? "Default bot" : "Bot");
 const nav = createNavigation(window);

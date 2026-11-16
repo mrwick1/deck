@@ -14,7 +14,7 @@ Motion uses the installed Motion dependency and honors reduced motion. Home and 
 
 ## Open work
 
-Validate the journey in Bare on desktop and phone widths. Check keyboard focus, readable contrast, interrupted transitions and reduced motion. Measure layout shifts and frame delivery. The authenticated implementation is at `/experience.html`. See [ui-experience-flow.md](ui-experience-flow.md).
+Validate the journey in Bare on desktop and phone widths. Check keyboard focus, readable contrast, interrupted transitions and reduced motion. Measure layout shifts and frame delivery. The authenticated implementation is the root app at `/`. See [ui-experience-flow.md](ui-experience-flow.md).
 
 ## Verification
 

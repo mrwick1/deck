@@ -865,3 +865,11 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 **Reason:** The owner asked for it. A merged `bare` fix did not reach the guests: the Gmail service refused any `bare-mcp` except the pinned hash, and new bots took `bare` from the base image. Merged fixes must reach production with the next deploy.
 
 **Risk:** A `bare` regression reaches production with the next deploy. The rollback copy of each deploy keeps the previous `bare-mcp`, so one restore undoes it.
+
+## D94. Make the compact UI the root app (2026-11-16)
+
+**Decision:** `index.html` loads the compact UI (`web/src/experience/main.tsx`). The server answers `/experience.html` with a permanent redirect to `/` and keeps the query. The compact UI registers the service worker. The build has no `experience` entry. The old app in `web/src/App.tsx` stays in the tree but no entry loads it.
+
+**Reason:** The owner asked for the compact UI on `main`. Production already served it at the root. `main` still loaded the old app, so the two differed.
+
+**Boundary:** The old UI files are not removed. Removing them needs the owner's confirmation.

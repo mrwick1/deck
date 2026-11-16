@@ -365,6 +365,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn legacy_experience_page_redirects_to_the_root() {
+        let app = app();
+        let req = |uri: &str, auth: bool| {
+            let mut r = Request::builder().uri(uri);
+            if auth {
+                r = r.header("Remote-User", "test");
+            }
+            r.body(Body::empty()).unwrap()
+        };
+        for (from, to) in [("/experience.html", "/"), ("/experience.html?x=1", "/?x=1")] {
+            let res = app.clone().oneshot(req(from, true)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT, "{from}");
+            assert_eq!(res.headers()["location"], to, "{from}");
+        }
+        let res = app
+            .clone()
+            .oneshot(req("/experience.html", false))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn unknown_api_path_is_a_json_404() {
         let (s, b) = call(&app(), "GET", "/api/nope", "").await;
         assert_eq!(
