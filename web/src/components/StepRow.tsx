@@ -5,7 +5,7 @@ import {
   WorkLogRow,
 } from "@/components/WorkLog";
 import { formatElapsed } from "@/lib/elapsed";
-import { describeStep } from "@/lib/steps";
+import { describePendingStep, describeStep } from "@/lib/steps";
 import { cn } from "@/lib/utils";
 import type { ThreadGroupPart } from "@/components/assistant-ui/elements/thread.aui";
 import {
@@ -100,7 +100,9 @@ export const StepRow: ToolCallMessagePartComponent = ({
     isError || (status?.type === "incomplete" && status.reason !== "cancelled");
   const waiting = approval !== undefined && approval.approved === undefined;
   const Icon = iconFor(toolName, (args ?? {}) as Record<string, unknown>);
-  const label = describeStep(toolName, args, running);
+  const label = waiting
+    ? describePendingStep(toolName, args)
+    : describeStep(toolName, args, running);
 
   return (
     <WorkLogRow
@@ -116,39 +118,43 @@ export const StepRow: ToolCallMessagePartComponent = ({
         }
       }}
       icon={
-        running ? (
+        waiting ? (
+          <HandIcon className="text-warning size-4" aria-hidden />
+        ) : running ? (
           <Loader2Icon
             className="text-muted-foreground size-4 animate-spin"
             aria-hidden
           />
         ) : failed ? (
           <CircleAlertIcon className="text-error size-4" aria-hidden />
-        ) : waiting ? (
-          <HandIcon className="text-warning size-4" aria-hidden />
         ) : (
           <Icon className="text-muted-foreground size-4" aria-hidden />
         )
       }
       label={
-        <span
-          className={cn(
-            "block truncate",
-            running && "live-tool-shine",
-            failed && "text-error",
-          )}
-        >
-          {label}
+        <span className="flex min-w-0 items-baseline">
+          <span
+            className={cn(
+              "truncate",
+              running && !waiting && "live-tool-shine",
+              failed && "text-error",
+            )}
+          >
+            {label}
+          </span>
           {waiting && (
-            <span className="text-warning ms-1.5 text-xs">
+            <span className="text-warning ms-1.5 shrink-0 text-xs">
               needs your answer
             </span>
           )}
           {approval?.approved === false && (
-            <span className="text-muted-foreground ms-1.5 text-xs">denied</span>
+            <span className="text-muted-foreground ms-1.5 shrink-0 text-xs">
+              denied
+            </span>
           )}
         </span>
       }
-      trailing={<Elapsed />}
+      trailing={waiting ? undefined : <Elapsed />}
     >
       <Reveal open={open}>
         <WorkLogDetails>
