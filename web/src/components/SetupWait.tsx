@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
 import { deliverSecret, describeTaskSecret, describeWait, waitFor } from "@/lib/wait";
 
-const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
+const field = "bg-background w-full rounded border px-2 py-1.5 text-base md:text-sm";
 const now = () => Math.floor(Date.now() / 1000);
 
 /** One password-style field. Its value lives only in the DOM node and is cleared on submit, failure and unmount. */
@@ -27,7 +27,7 @@ function SecretForm({ id, label, send, done, onDone }: { id: string; label: stri
       <input ref={input} className={field} type="password" maxLength={4096} name="deck-protected-value" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" disabled={busy} aria-invalid={error !== null} aria-describedby={`${id}-note`} />
     </label>
     <p id={`${id}-note`} className="text-muted-foreground text-xs">Sent only to the protected endpoint. Never put it in chat.</p>
-    {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    {error && <p role="alert" className="text-sm text-error-foreground">{error}</p>}
     <div className="flex gap-2"><Button size="sm" type="submit" disabled={busy}>{busy ? "Delivering…" : "Deliver securely"}</Button><Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => { clear(); setError(null); }}>Clear</Button></div>
   </form>;
 }

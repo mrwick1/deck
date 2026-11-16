@@ -1,9 +1,16 @@
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import * as api from "@/lib/api";
 import { PRIORITIES, ceilingAnswer, describeBot, type Tone } from "@/lib/bot";
 import { cn } from "@/lib/utils";
 import {
   BellIcon,
+  EllipsisIcon,
   MonitorIcon,
   MoonIcon,
   PauseIcon,
@@ -11,7 +18,7 @@ import {
   SquareIcon,
   SunIcon,
 } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 
 export const BotScope = createContext<string | undefined>(undefined);
@@ -19,11 +26,11 @@ export const BotScope = createContext<string | undefined>(undefined);
 const fail = (e: unknown) => toast.error((e as Error).message);
 
 const TONE: Record<Tone, string> = {
-  busy: "bg-emerald-500",
-  attention: "bg-amber-500",
-  idle: "bg-sky-500",
+  busy: "bg-success",
+  attention: "bg-warning",
+  idle: "bg-info",
   asleep: "bg-muted-foreground/40",
-  error: "bg-red-500",
+  error: "bg-error",
 };
 
 export function StatusDot({ tone }: { tone: Tone }) {
@@ -66,19 +73,19 @@ export function BotBar({
     <div
       role="region"
       aria-label="Bot"
-      className="flex flex-wrap items-center gap-1.5 border-b px-2 py-1.5 text-xs md:px-4"
+      className="flex items-center gap-1.5 border-b px-2 py-1.5 text-xs md:flex-wrap md:px-4"
     >
       <button
         type="button"
         onClick={onHome}
-        className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted"
+        className="flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted pointer-coarse:min-h-11"
         aria-label="Overview"
       >
         <StatusDot tone={d.tone} />
         <span className="font-medium">{d.label}</span>
       </button>
       {status.working && (
-        <span className="text-muted-foreground min-w-0 max-w-[40ch] truncate">
+        <span className="text-muted-foreground min-w-0 max-w-[40ch] truncate max-md:hidden">
           {status.working.title}
         </span>
       )}
@@ -91,6 +98,7 @@ export function BotBar({
       <Button
         size="sm"
         variant="outline"
+        className="max-md:hidden"
         onClick={() => api.botPause(!status.automation_paused,botId).catch(fail)}
         title="Pause automation: no new task starts. The computer keeps its state."
       >
@@ -100,6 +108,7 @@ export function BotBar({
       <Button
         size="sm"
         variant="outline"
+        className="max-md:hidden"
         disabled={status.computer === "waking" || status.computer === "saving"}
         onClick={() => (awake ? api.botSleep(botId) : api.botWake(botId)).catch(fail)}
         title={awake ? "Save the computer to disk. It wakes on the next task." : "Wake the computer"}
@@ -108,14 +117,46 @@ export function BotBar({
         {awake ? "Sleep computer" : "Wake computer"}
       </Button>
       {awake && (
-        <Button size="sm" variant={screenOpen ? "secondary" : "outline"} onClick={onScreen}>
+        <Button
+          size="sm"
+          variant={screenOpen ? "secondary" : "outline"}
+          className="max-md:hidden"
+          onClick={onScreen}
+        >
           <MonitorIcon className="size-3" /> Screen
         </Button>
       )}
-      <Button size="sm" variant="outline" onClick={onInbox} aria-label="Inbox">
+      <Button size="sm" variant="outline" onClick={onInbox} aria-label={inboxCount > 0 ? `Inbox, ${inboxCount} items` : "Inbox"}>
         <BellIcon className="size-3" />
         {inboxCount > 0 && <span className="tabular-nums">{inboxCount}</span>}
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" className="md:hidden" aria-label="More">
+            <EllipsisIcon className="size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onSelect={() => api.botPause(!status.automation_paused, botId).catch(fail)}
+          >
+            {status.automation_paused ? <PlayIcon /> : <PauseIcon />}
+            {status.automation_paused ? "Resume automation" : "Pause automation"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={status.computer === "waking" || status.computer === "saving"}
+            onSelect={() => (awake ? api.botSleep(botId) : api.botWake(botId)).catch(fail)}
+          >
+            {awake ? <MoonIcon /> : <SunIcon />}
+            {awake ? "Sleep computer" : "Wake computer"}
+          </DropdownMenuItem>
+          {awake && (
+            <DropdownMenuItem onSelect={onScreen}>
+              <MonitorIcon /> Screen
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -170,7 +211,7 @@ export function SendOptions({
       <label className="flex items-center gap-1">
         Send as
         <select
-          className="bg-background rounded border px-1 py-0.5"
+          className="bg-background rounded border px-1 py-0.5 text-base md:text-sm"
           value={mode}
           onChange={(e) => setMode(e.target.value as "steer" | "queue")}
         >
@@ -182,7 +223,7 @@ export function SendOptions({
         <label className="flex items-center gap-1">
           Priority
           <select
-            className="bg-background rounded border px-1 py-0.5"
+            className="bg-background rounded border px-1 py-0.5 text-base md:text-sm"
             value={priority}
             onChange={(e) => setPriority(Number(e.target.value))}
           >
@@ -214,7 +255,7 @@ function CeilingForm({ r, done }: { r: api.CeilingRequest; done: () => void }) {
         Ceiling now {shown} {r.currency}. {r.reason}
       </span>
       <input
-        className="bg-background w-28 rounded border px-1 py-0.5 text-xs"
+        className="bg-background w-28 rounded border px-1 py-0.5 text-base md:text-xs"
         inputMode="decimal"
         aria-label={`New ceiling in ${r.currency}`}
         placeholder={`New ceiling (${r.currency})`}
@@ -290,8 +331,11 @@ export function InboxPanel({
 }) {
   const botId=useContext(BotScope);
   return (
-    <section aria-label="Inbox" className="border-b px-3 py-2 md:px-4">
-      <div className="mb-2 flex items-center justify-between text-sm font-medium">
+    <section
+      aria-label="Inbox"
+      className="max-h-[40dvh] overflow-y-auto overscroll-contain border-b px-3 pb-2 md:px-4"
+    >
+      <div className="bg-background sticky top-0 mb-2 flex pt-2 items-center justify-between text-sm font-medium">
         Inbox
         <Button size="sm" variant="ghost" onClick={onClose}>
           Close
@@ -346,17 +390,20 @@ export function BotHome({
 }) {
   const d = describeBot(status);
   const recent = status.tasks.slice(0, 4);
+  const statusId = useId();
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 p-4">
       <button
         type="button"
         onClick={onOpen}
+        aria-label="Open the bot chat"
+        aria-describedby={statusId}
         className="bg-card hover:bg-muted/50 flex flex-col gap-2 rounded-2xl border p-4 text-left shadow-sm"
       >
         <span className="flex items-center gap-2 text-sm font-medium">
           <StatusDot tone={d.tone} /> Bot · {d.label}
         </span>
-        <span className="text-muted-foreground text-xs">
+        <span id={statusId} className="text-muted-foreground text-xs">
           Computer: {COMPUTER_LABEL[status.computer]}
           {status.idle_left_ms !== null && status.computer === "awake"
             ? ` · saves in ${Math.ceil(status.idle_left_ms / 1000)} s if idle`
@@ -377,7 +424,7 @@ export function BotHome({
         <span className="text-xs underline">Open the chat</span>
       </button>
       {status.last_error && (
-        <p role="alert" className="text-xs text-red-500">
+        <p role="alert" className="text-xs text-error-foreground">
           {status.last_error}
         </p>
       )}

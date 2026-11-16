@@ -106,27 +106,19 @@ export const StepRow: ToolCallMessagePartComponent = ({
 
   return (
     <WorkLogRow
-      role="button"
-      tabIndex={0}
       aria-expanded={open}
       aria-label={failed ? `${label}, failed` : label}
       onClick={() => setOpen((o) => !o)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setOpen((o) => !o);
-        }
-      }}
       icon={
         waiting ? (
-          <HandIcon className="text-warning size-4" aria-hidden />
+          <HandIcon className="text-warning-foreground size-4" aria-hidden />
         ) : running ? (
           <Loader2Icon
             className="text-muted-foreground size-4 animate-spin"
             aria-hidden
           />
         ) : failed ? (
-          <CircleAlertIcon className="text-error size-4" aria-hidden />
+          <CircleAlertIcon className="text-error-foreground size-4" aria-hidden />
         ) : (
           <Icon className="text-muted-foreground size-4" aria-hidden />
         )
@@ -137,13 +129,13 @@ export const StepRow: ToolCallMessagePartComponent = ({
             className={cn(
               "truncate",
               running && !waiting && "live-tool-shine",
-              failed && "text-error",
+              failed && "text-error-foreground",
             )}
           >
             {label}
           </span>
           {waiting && (
-            <span className="text-warning ms-1.5 shrink-0 text-xs">
+            <span className="text-warning-foreground ms-1.5 shrink-0 text-xs">
               needs your answer
             </span>
           )}
@@ -165,7 +157,7 @@ export const StepRow: ToolCallMessagePartComponent = ({
             <pre
               className={cn(
                 "bg-muted/60 max-h-60 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap",
-                failed && "text-error",
+                failed && "text-error-foreground",
               )}
             >
               {typeof result === "string"

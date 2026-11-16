@@ -20,7 +20,7 @@ import { useBot } from "@/lib/bot";
 import { useDeck } from "@/lib/useDeck";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { MenuIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useState } from "react";
 import { Toaster } from "sonner";
 import { Drawer } from "vaul";
@@ -63,6 +63,7 @@ export default function App() {
   const showScreen = inChat && bot.computer === "awake" && (screen || browserActive || !!bot.waiting);
 
   return (
+    <MotionConfig reducedMotion="user">
     <AssistantRuntimeProvider runtime={runtime}>
       <BotScope value={selectedBot}>
       <DockContext value={dock}>
@@ -97,7 +98,7 @@ export default function App() {
               </Drawer.Portal>
             </Drawer.Root>
             <main className="flex min-w-0 flex-1 flex-col">
-              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 pt-[env(safe-area-inset-top)] md:px-4">
+              <header className="flex min-h-12 shrink-0 items-center gap-2 border-b px-2 pt-[env(safe-area-inset-top)] md:px-4">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -107,18 +108,7 @@ export default function App() {
                 >
                   <MenuIcon />
                 </Button>
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.h1
-                    key={title}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.15 }}
-                    className="min-w-0 flex-1 truncate text-sm font-medium"
-                  >
-                    {title}
-                  </motion.h1>
-                </AnimatePresence>
+                <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
                 <AnimatePresence>
                   {!connected && (
                     <motion.span
@@ -161,10 +151,12 @@ export default function App() {
                 />
               )}
               {(!bot || chatId !== null) && (
-                <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+                <>
                   <LivePill page={page} running={running} />
-                  <Thread components={THREAD} />
-                </div>
+                  <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+                    <Thread components={THREAD} />
+                  </div>
+                </>
               )}
               {inChat && (
                 <SendOptions
@@ -183,5 +175,6 @@ export default function App() {
       </DockContext>
       </BotScope>
     </AssistantRuntimeProvider>
+    </MotionConfig>
   );
 }
