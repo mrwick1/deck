@@ -57,6 +57,8 @@ const DRAFT_CHECKS: Record<Exclude<keyof SetupDraft, "revision">, (a: SetupDraft
   budget: (a, b) => !a.budget || !b.budget ? a.budget === b.budget : a.budget.currency === b.budget.currency && a.budget.exponent === b.budget.exponent && a.budget.period === b.budget.period && a.budget.allowance === b.budget.allowance && a.budget.ceiling === b.budget.ceiling,
   credentials: (a, b) => sameList(a.credentials, b.credentials),
   task: (a, b) => (a.task ?? null) === (b.task ?? null),
+  schedule: (a, b) => (a.schedule?.time ?? null) === (b.schedule?.time ?? null) && (a.schedule?.timezone ?? null) === (b.schedule?.timezone ?? null),
+  max_steps: (a, b) => (a.max_steps ?? null) === (b.max_steps ?? null),
 };
 /** Every draft field except the revision, compared by meaning and not by property order. */
 export const sameDraft = (a: SetupDraft, b: SetupDraft) => Object.values(DRAFT_CHECKS).every(check => check(a, b));

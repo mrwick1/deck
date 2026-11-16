@@ -244,7 +244,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean; hideComposer: boole
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         data-slot="aui_thread-viewport"
-        className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
+        className="relative flex flex-1 flex-col overflow-x-auto overflow-y-auto scroll-smooth motion-reduce:scroll-auto"
       >
         <div
           className={cn(

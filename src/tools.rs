@@ -1351,7 +1351,9 @@ mod tests {
                     ceiling: 100,
                 }),
                 credentials: vec![],
+                max_steps: None,
                 task: Some("Sign in to the fixture".into()),
+                schedule: None,
             },
         )
         .unwrap();

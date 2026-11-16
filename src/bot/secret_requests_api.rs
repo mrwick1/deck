@@ -842,7 +842,9 @@ mod tests {
                 },
                 budget: None,
                 credentials: vec![],
+                max_steps: None,
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();

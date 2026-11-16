@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SetupDraft } from "../lib/api";
-import { ADVANCED, firstInvalid, formatMinor, readAmount, sameFields, toFields, validate } from "./setup-form";
+import { ADVANCED, firstInvalid, formatMinor, readAmount, sameDraft, sameFields, toFields, validate } from "./setup-form";
 
 const base: SetupDraft = { revision: 3, name: "Mail", instructions: "Read mail", model: "configured", authority: "Full", resources: { cpus: 2, memory_mib: 1024, disk_gib: 8 }, budget: { currency: "USD", exponent: 2, period: "month", allowance: 0, ceiling: 0 }, credentials: [], task: null };
 const check = (patch: Partial<ReturnType<typeof toFields>> = {}, approve = false, draft = base) => validate({ ...toFields(draft), ...patch }, draft, approve);
@@ -79,5 +79,15 @@ describe("shared field validation", () => {
   it("compares fields by value", () => {
     expect(sameFields(toFields(base), toFields({ ...base }))).toBe(true);
     expect(sameFields(toFields(base), toFields({ ...base, name: "Other" }))).toBe(false);
+  });
+
+  it("sees a changed schedule or step limit, and keeps both on save", () => {
+    const set = { ...base, schedule: { time: "08:00", timezone: "+05:30" }, max_steps: 40 };
+    expect(sameDraft(set, { ...set })).toBe(true);
+    expect(sameDraft(set, base)).toBe(false);
+    expect(sameDraft(set, { ...set, max_steps: 10 })).toBe(false);
+    expect(sameDraft(set, { ...set, schedule: { time: "09:00", timezone: "+05:30" } })).toBe(false);
+    const saved = validate(toFields(set), set, false).draft!;
+    expect([saved.schedule, saved.max_steps]).toEqual([set.schedule, 40]);
   });
 });

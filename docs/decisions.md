@@ -104,7 +104,7 @@ Each decision has a date, the decision and the reason.
 
 **Decision:** `deck` files each `bare` failure as an issue on `mrwick1/bare` with the label `bare-mcp`. A scheduled agent task runs once a day on the owner's machine. It picks up to three open labelled issues and starts one agent for each, in its own worktree. Each agent opens a fix pull request. The owner reviews each pull request. Nothing merges on its own.
 
-**Order:** Issues that block a `deck` task come first, then the oldest. The task skips an issue that has an open pull request or the label `in-progress`. It adds `in-progress` when it starts an issue. `deck` pins a `bare` release. The owner chooses when to update it.
+**Order:** Issues that block a `deck` task come first, then the oldest. The task skips an issue that has an open pull request or the label `in-progress`. It adds `in-progress` when it starts an issue. D93 replaces the pinned `bare` of this decision.
 
 **Reason:** Fixes arrive without manual work. A small daily batch keeps the cost and the review load low. A pinned `bare` keeps `deck` stable.
 
@@ -814,3 +814,54 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 **Reason:** Route remounts discarded pending guards, live output and recovery text. A new conversation must keep later typing when its first send returns an ID. Acknowledging one conversation must not discard another held message.
 
 **Boundary:** State lasts for the current application session. It does not survive a full page reload. Matching stored text is evidence, not proof of delivery. A lost create response can leave an empty conversation whose ID is unknown to the client.
+## D86. Tell the owner when a run reaches the step limit (2026-11-15)
+
+**Decision:** When a run reaches `agent.max_steps`, store a fixed assistant message in the chat. The message says the step limit stopped the work and the task is not finished. Send it as a persisted text event too. The run still fails with the same task detail.
+
+**Reason:** Issue #37. The chat ended on a raw tool result, so the owner did not learn why the bot stopped. Fixed text adds no model call and keeps the history valid for the model.
+
+## D87. Let each bot set its own model-call limit (2026-11-15)
+
+**Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.
+
+**Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.
+
+## D88. Queue daily schedules for ready bots (2026-11-15)
+
+**Decision:** A draft may carry one daily schedule: a `HH:MM` time and a zone, either `UTC` or a fixed offset such as `+05:30`. Invalid values fail when the draft loads or saves. A started bot with a schedule gets one queued task per local day, after the time has passed. The task holds the setup task text, or the instructions when there is no task. The last queued date commits with the task in one transaction. A restart queues nothing twice. A missed time queues one catch-up task, not one per missed day. A bot seen for the first time after its time has passed records today and queues nothing, because setup just ran the first task.
+
+**Boundary:** Queueing bypasses no gate. Pause, budget and other holds still block dispatch. Deck adds no UI, no weekday rules, no named zones with daylight saving, and no model extraction of a schedule from job text.
+
+**Reason:** A job that says "every day" ran once. The owner wants daily bots, such as a news digest at 08:00 Asia/Kolkata (`+05:30`). A fixed offset keeps the first version small and testable.
+
+## D89. Show the schedule and step limit in the setup review form (2026-11-16)
+
+**Decision:** The web review form has a daily time, a time zone offset and a step limit. Empty fields send no value. The form checks the same rules as the API and blocks save on an invalid value. The approved view shows both values.
+
+**Reason:** Issue #48. Only a raw API call could set D87 and D88 values before approval.
+
+## D90. Let the owner retire a bot (2026-11-16)
+
+**Decision:** Add the control action `retire`. It needs `{"confirm": true}`. It kills the bot's computer through the harness `kill` call and drops the runtime. It then stores `retired` in the setup record. The setup driver skips a retired setup, so it never registers or wakes after a restart. A retired bot does not count toward `max_bots`. A repeat call changes nothing. Chat, files and database rows stay.
+
+**Reason:** Issue #47. A broken bot kept its `max_bots` slot forever. The marker is written after the kill, so a failed kill can be retried. This slice has no UI and no undo.
+
+## D91. Give the model the current date and time (2026-11-16)
+
+**Decision:** Add one line to the end of each run's system message: `Current date and time: YYYY-MM-DD HH:MM UTC`. The line uses the UTC time when the run builds its messages. It goes last, so the rest of the prompt stays byte-identical.
+
+**Reason:** Issue #49. The system prompt had no date. A digest made on 2026-11-16 was headed "15 Nov 2026".
+
+## D92. Start the bare session once after the executor install (2026-11-16)
+
+**Decision:** Write guest executor files under a temp name in the same folder, then rename them. After the install, ask the guest for a readiness probe. Start `bare-session` once, through `swaymsg`, only when the probe says `no_session`. A failure in this step does not stop the install.
+
+**Reason:** Issue #46. The install rewrote `bare-session` about two seconds after sway started it at login. The fresh bot then had no session, and `ready` never passed. Atomic rename removes the half-written file. The one-time start restores the session. The probe starts nothing when a session already runs.
+
+## D93. Production follows bare main (2026-11-16)
+
+**Decision:** Production does not pin a `bare` release. Each `deck` deploy builds `bare-mcp` from the newest `bare` main and installs it in every guest. The guest check of the `bare-mcp` hash stays. The deploy sets the expected hash from that build. No person keeps the hash by hand. This replaces the pinned `bare` of D15.
+
+**Reason:** The owner asked for it. A merged `bare` fix did not reach the guests: the Gmail service refused any `bare-mcp` except the pinned hash, and new bots took `bare` from the base image. Merged fixes must reach production with the next deploy.
+
+**Risk:** A `bare` regression reaches production with the next deploy. The rollback copy of each deploy keeps the previous `bare-mcp`, so one restore undoes it.

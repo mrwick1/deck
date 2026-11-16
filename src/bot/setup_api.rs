@@ -137,7 +137,9 @@ async fn create(
                 ceiling: p.accounting.ceiling,
             }),
             credentials: vec![],
+            max_steps: None,
             task: None,
+            schedule: None,
         },
     )
     .map_err(conflict)?;
@@ -176,6 +178,16 @@ async fn edit(
         return Err(error(
             StatusCode::BAD_REQUEST,
             "Setup text exceeds its limit",
+        ));
+    }
+    if body
+        .draft
+        .max_steps
+        .is_some_and(|n| !(1..=200).contains(&n))
+    {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "Step limit must be 1 to 200",
         ));
     }
     row.setup
@@ -241,6 +253,9 @@ enum Action {
         value: bool,
     },
     Retry,
+    Retire {
+        confirm: bool,
+    },
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -260,10 +275,23 @@ async fn control(
         .await
         .map_err(conflict)?
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "Setup not found"))?;
+    if matches!(body.command, Action::Retire { .. }) && row.setup.retired {
+        return Ok(StatusCode::NO_CONTENT);
+    }
     if row.version != body.version {
         return Err(error(StatusCode::CONFLICT, "Setup changed; reload it"));
     }
     match body.command {
+        Action::Retire { confirm } => {
+            if !confirm {
+                return Err(error(
+                    StatusCode::BAD_REQUEST,
+                    "Retiring a bot needs confirmation",
+                ));
+            }
+            s.retire(&row).await.map_err(conflict)?;
+            return Ok(StatusCode::NO_CONTENT);
+        }
         Action::Attempts { value } => {
             if value == 0 {
                 return Err(error(
@@ -707,6 +735,11 @@ d = pathlib.Path(a[a.index('--dir') + 1])
 d.mkdir(parents=True, exist_ok=True)
 with open(d / 'argv.log', 'a') as f:
     f.write(json.dumps(a) + '\n')
+if 'status' in a:
+    print(json.dumps({'running': True}))
+    sys.exit(0)
+if 'kill' in a:
+    sys.exit(0)
 if 'deliver-secret' not in a and 'secret-receipt' not in a:
     sys.exit(2)
 bot = a[a.index('--bot') + 1]
@@ -738,7 +771,7 @@ print(rec)
         p
     }
 
-    async fn request(
+    pub(crate) async fn request(
         app: &Router,
         method: &str,
         path: &str,
@@ -765,6 +798,42 @@ print(rec)
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         )
+    }
+
+    #[tokio::test]
+    async fn a_step_limit_outside_1_to_200_is_not_saved() {
+        let (app, store, _dir, _) = app();
+        let (_, row) = request(
+            &app,
+            "POST",
+            "/api/setups",
+            json!({"job":"Use fixture"}),
+            true,
+        )
+        .await;
+        let id = row["setup"]["id"].as_str().unwrap().to_owned();
+        for bad in [0, 201] {
+            let mut draft = row["setup"]["draft"].clone();
+            draft["max_steps"] = json!(bad);
+            let edit = json!({"version":1,"draft":draft});
+            assert_eq!(
+                request(&app, "POST", &format!("/api/setups/{id}"), edit, true)
+                    .await
+                    .0,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            store
+                .setup_record(&id)
+                .await
+                .unwrap()
+                .unwrap()
+                .setup
+                .draft
+                .max_steps,
+            None
+        );
     }
 
     #[tokio::test]
@@ -853,6 +922,40 @@ print(rec)
             .0,
             StatusCode::BAD_REQUEST
         );
+    }
+
+    #[tokio::test]
+    async fn renaming_a_draft_renames_its_setup_chat() {
+        let (app, _, _, _) = app();
+        let (status, row) = request(
+            &app,
+            "POST",
+            "/api/setups",
+            json!({"job":"Read fixture"}),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = row["setup"]["id"].as_str().unwrap();
+        let chat_id = row["chat_id"].as_i64().unwrap();
+        let mut draft = row["setup"]["draft"].clone();
+        draft["name"] = json!("Renamed draft");
+        let path = format!("/api/setups/{id}");
+        let edit = json!({"version":1,"draft":draft});
+        assert_eq!(
+            request(&app, "POST", &path, edit, true).await.0,
+            StatusCode::NO_CONTENT
+        );
+        let (status, chats) = request(&app, "GET", "/api/chats", json!(null), true).await;
+        assert_eq!(status, StatusCode::OK);
+        let title = chats
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == chat_id)
+            .unwrap()["title"]
+            .clone();
+        assert_eq!(title, json!("Renamed draft"));
     }
 
     use super::super::setup::{Provisioner, StepOutcome, StepRequest};

@@ -11,7 +11,7 @@ The first ten questions were answered on 2026-11-11. The answers are in [decisio
 | Shell and files | D13 (bwrap shell from v1) | Superseded in location by D24. The shell now runs inside each bot's VM. Its sandbox policy is open. |
 | Database | D12 (SQLite) | Holds. |
 | Approvals | D14 (model flag plus domain rules) | Phone push is deferred by D32. Enforcement is trust-based under D33. |
-| Feedback loop | D15 (scheduled fixer, pinned bare) | Holds. |
+| Feedback loop | D15 (scheduled fixer), D93 (production follows bare main) | Holds. |
 | First milestone | D16 (M1 in parallel with the bare gaps) | M1 is done (see the README). |
 | License | D17 (MIT or Apache 2.0) | Holds. |
 

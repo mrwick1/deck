@@ -52,9 +52,10 @@ All routes below use the existing trusted-proxy owner authentication. Machine ev
 | `GET /api/setup-options` | Reports availability and configured recommendation defaults. |
 | `GET /api/setups` | Returns snapshots, checklist, phase and runtime availability. |
 | `POST /api/setups` | Accepts `{"job":"Read and summarize supplied documents"}`. Returns a draft and its chat. |
-| `POST /api/setups/{id}` | Accepts the current snapshot `version` and edited `draft`. |
+| `POST /api/setups/{id}` | Accepts the current snapshot `version` and edited `draft`. An optional `draft.max_steps` (1 to 200) sets the model-call limit for this bot only; omit it to use the global `[agent] max_steps`. |
 | `POST /api/setups/{id}/approve` | Accepts snapshot `version` and reviewed draft `revision`. A repeat changes nothing. |
 | `POST /api/setups/{id}/control` | Accepts snapshot `version` and a `command`. Supports pause, retry, attempt limits and explicit unknown-outcome resolution. |
+| `POST /api/setups/{id}/control` with `{"action":"retire","confirm":true}` | Stops the bot's computer, drops its runtime and marks the setup retired. The bot never registers or wakes again and no longer counts toward `max_bots`. Chat, files and database rows stay. Without `confirm: true` the call is rejected. A repeat is a no-op. |
 | `GET /api/bots/{id}` | Returns a registered bot's status. |
 | `/api/bots/{id}/...` | Uses the existing bot control routes for that bot. |
 

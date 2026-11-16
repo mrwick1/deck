@@ -304,6 +304,13 @@ impl Agent {
         {
             system.push_str(&format!("\nCurrent approved job (version {}):\n{}\nAuthority: {:?}\nOwner restrictions: {}\nThese current settings replace older job instructions in the conversation.\n", definition.version, definition.instructions, definition.authority, serde_json::to_string(&definition.restrictions)?));
         }
+        // Issue #49: an RFC 3339 UTC stamp, shown as "YYYY-MM-DD HH:MM UTC".
+        let now = crate::store::now();
+        system.push_str(&format!(
+            "Current date and time: {} {} UTC\n",
+            &now[..10],
+            &now[11..16]
+        ));
         let mut out = vec![json!({"role":"system","content":system})];
         let stored = self.store.list_messages(chat_id).await?.unwrap_or_default();
         for m in stored {
@@ -480,6 +487,14 @@ impl Agent {
                 }
             }
         }
+        // Fixed text: the owner learns why the run stopped, with no extra model call.
+        let note = format!(
+            "I stopped because I reached the step limit of {} model calls. The task is not finished.",
+            self.config.agent.max_steps
+        );
+        self.store_message(run.chat_id, json!({"role":"assistant","content":note}))
+            .await?;
+        self.emit(run, "text", json!({"text": note}), true).await;
         Err(anyhow::anyhow!(
             "stopped after {} model calls (max_steps)",
             self.config.agent.max_steps
@@ -827,6 +842,25 @@ mod tests {
         assert!(sent["tools"].as_array().unwrap().len() >= 5);
     }
 
+    /// Issue #49: the model knows the current date and time (UTC).
+    #[tokio::test]
+    async fn system_message_states_the_current_date() {
+        let f = fixture(vec![text_reply("pong")], FakeHost::default(), 5).await;
+        let (_, h) = f.agent.start(f.chat, "ping".into()).await.unwrap().unwrap();
+        h.await.unwrap();
+        let sent = f.requests.lock().unwrap()[0].clone();
+        let system = sent["messages"][0]["content"].as_str().unwrap();
+        let line = system
+            .lines()
+            .find_map(|l| l.strip_prefix("Current date and time: "))
+            .unwrap();
+        let shape: String = line
+            .chars()
+            .map(|c| if c.is_ascii_digit() { 'd' } else { c })
+            .collect();
+        assert_eq!(shape, "dddd-dd-dd dd:dd UTC");
+    }
+
     /// Decision D4: a screenshot the user asks for always reaches the chat.
     #[tokio::test]
     async fn screenshot_reaches_the_chat() {
@@ -952,6 +986,11 @@ mod tests {
         assert_eq!(fin["status"], "failed");
         assert!(fin["error"].as_str().unwrap().contains("max_steps"));
         assert_eq!(f.requests.lock().unwrap().len(), 2);
+        // The owner must see why the work stopped, not a raw tool result.
+        let msgs = f.store.list_messages(f.chat).await.unwrap().unwrap();
+        let last: Value = serde_json::from_str(&msgs.last().unwrap().content).unwrap();
+        assert_eq!(last["role"], "assistant");
+        assert!(last["content"].as_str().unwrap().contains("step limit"));
     }
 
     #[tokio::test]

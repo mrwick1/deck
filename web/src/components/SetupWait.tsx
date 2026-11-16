@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
 import { challengeResponse, deliverSecret, describeTaskSecret, describeWait, guarded, waitFor } from "@/lib/wait";
 
-const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
+const field = "bg-background w-full rounded border px-2 py-1.5 text-base md:text-sm";
 const now = () => Math.floor(Date.now() / 1000);
 
 /** One password-style field. Its value lives only in the DOM node and is cleared on submit, failure and unmount. */
@@ -30,7 +30,7 @@ function SecretForm({ id, label, send, done, onDone }: { id: string; label: stri
       <input ref={input} className={field} type="password" maxLength={4096} name="deck-protected-value" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} data-1p-ignore data-lpignore="true" disabled={busy} aria-invalid={error !== null} aria-describedby={`${id}-note`} />
     </label>
     <p id={`${id}-note`} className="text-muted-foreground text-xs">Sent only to the protected endpoint. Never put it in chat.</p>
-    {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    {error && <p role="alert" className="text-sm text-error-foreground">{error}</p>}
     <div className="wait-actions flex flex-wrap gap-2"><Button size="sm" type="submit" disabled={busy}>{busy ? "Delivering…" : "Deliver securely"}</Button><Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => { clear(); setError(null); }}>Clear</Button></div>
   </form>;
 }
@@ -70,7 +70,7 @@ export function WaitPanel({ row, protectedInput, refresh, response }: { row: api
     {view.mode === "secret" && <SecretForm key={wait.request_id} id={wait.request_id} label={label} done="Delivered. Setup is continuing." send={v => api.submitSecret(row.setup.id, row.version, wait.request_id, v)} onDone={refresh} />}
     {view.mode === "challenge" && <div className="wait-actions flex flex-wrap gap-2"><Button size="sm" aria-disabled={locked} onClick={() => { void answer("completed"); }}>I completed it</Button><Button size="sm" variant="outline" aria-disabled={locked} onClick={() => { void answer("cancel"); }}>Cancel this request</Button></div>}
     {view.mode === "challenge" && locked && !shown && <p role="status">Finishing the previous response…</p>}
-    {view.mode === "challenge" && shown && <p role={shown.error ? "alert" : "status"} className={shown.error ? "text-sm text-red-500" : "text-muted-foreground text-xs"}>{shown.text}</p>}
+    {view.mode === "challenge" && shown && <p role={shown.error ? "alert" : "status"} className={shown.error ? "text-sm text-error-foreground" : "text-muted-foreground text-xs"}>{shown.text}</p>}
     {(view.mode === "expired" || view.mode === "pending") && <Button size="sm" variant="outline" className="self-start" onClick={() => refresh().catch(e => toast.error((e as Error).message))}>Refresh</Button>}
   </section>;
 }
