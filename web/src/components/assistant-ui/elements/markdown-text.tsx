@@ -251,7 +251,7 @@ const defaultComponents = memoizeMarkdownComponents({
   ),
   li: ({ className, ...props }) => (
     <li
-      className={cn("aui-md-li leading-relaxed whitespace-pre-line", className)}
+      className={cn("aui-md-li leading-relaxed", className)}
       {...props}
     />
   ),
