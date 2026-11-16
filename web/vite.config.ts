@@ -16,8 +16,8 @@ export default defineConfig({
         description: 'A self-hosted AI agent',
         display: 'standalone',
         start_url: '/',
-        background_color: '#121214',
-        theme_color: '#4f46e5',
+        background_color: '#f7f7f8',
+        theme_color: '#f7f7f8',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -31,7 +31,7 @@ export default defineConfig({
       },
     }),
   ],
-  build: { rollupOptions: { input: { app: path.resolve(import.meta.dirname, 'index.html'), prototype: path.resolve(import.meta.dirname, 'prototype.html'), experience: path.resolve(import.meta.dirname, 'experience.html') } } },
+  build: { rollupOptions: { input: { app: path.resolve(import.meta.dirname, 'index.html'), prototype: path.resolve(import.meta.dirname, 'prototype.html') } } },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     proxy: {

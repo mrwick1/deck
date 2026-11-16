@@ -10,7 +10,19 @@ struct Assets;
 
 /// Serve the embedded web app. Unknown paths get `index.html`, so client routes work.
 /// Unknown `/api` paths get a JSON 404.
+/// The old `/experience.html` address redirects to the root. The query stays.
 pub async fn serve(method: Method, uri: Uri) -> Response {
+    if method == Method::GET && uri.path() == "/experience.html" {
+        let to = uri.query().map_or("/".to_owned(), |q| format!("/?{q}"));
+        return (
+            StatusCode::PERMANENT_REDIRECT,
+            [
+                (header::LOCATION, to),
+                (header::CACHE_CONTROL, "no-cache".into()),
+            ],
+        )
+            .into_response();
+    }
     let path = uri.path().trim_start_matches('/');
     if path == "api" || path.starts_with("api/") || method != Method::GET {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response();
