@@ -724,3 +724,9 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** The web review form has a daily time, a time zone offset and a step limit. Empty fields send no value. The form checks the same rules as the API and blocks save on an invalid value. The approved view shows both values.
 
 **Reason:** Issue #48. Only a raw API call could set D87 and D88 values before approval.
+
+## D90. Let the owner retire a bot (2026-11-16)
+
+**Decision:** Add the control action `retire`. It needs `{"confirm": true}`. It kills the bot's computer through the harness `kill` call and drops the runtime. It then stores `retired` in the setup record. The setup driver skips a retired setup, so it never registers or wakes after a restart. A retired bot does not count toward `max_bots`. A repeat call changes nothing. Chat, files and database rows stay.
+
+**Reason:** Issue #47. A broken bot kept its `max_bots` slot forever. The marker is written after the kill, so a failed kill can be retried. This slice has no UI and no undo.

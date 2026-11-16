@@ -35,6 +35,7 @@ fn save(c: &Connection, expected: i64, setup: &Setup) -> rusqlite::Result<i64> {
     if prior.version != expected
         || prior.setup.approval != setup.approval
         || prior.setup.started != setup.started
+        || prior.setup.retired != setup.retired
         || (prior.setup.approval.is_some() && prior.setup.draft != setup.draft)
     {
         return Err(conflict());
@@ -127,6 +128,20 @@ impl Store {
             t.execute("INSERT INTO bot_definitions(bot_id,version,instructions,authority,restrictions,actor,draft_id,draft_revision,created_at) VALUES (?1,1,?2,?3,?4,?5,?1,?6,?7)", params![id, row.setup.draft.instructions, authority, serde_json::to_string(&restrictions).map_err(encoded)?, actor, revision, now()])?;
             t.execute("INSERT INTO bot_accounting(bot_id,currency,exponent,period,policy_version,ceiling,allowance,version) VALUES (?1,?2,?3,?4,?5,?6,?7,1)", params![id,budget.currency,budget.exponent,budget.period,policy,budget.ceiling,budget.allowance])?;
             t.execute("INSERT INTO accounting_changes(change_id,bot_id,kind,old_value,new_value,reason,actor,version,created_at) VALUES (?1,?2,'configure',0,?3,'approved setup',?4,1,?5)", params![format!("setup:{id}"),id,budget.ceiling,actor,now()])?;
+            t.execute("UPDATE bot_setup_drafts SET revision=revision+1,body=?2,updated_at=?3 WHERE draft_id=?1",params![id,serde_json::to_string(&row.setup).map_err(encoded)?,now()])?;
+            t.commit()?;
+            Ok(())
+        }).await
+    }
+
+    /// Mark the setup retired. The row, chat, files and ledger stay. A repeat changes nothing.
+    pub async fn retire_setup(&self, id: &str) -> anyhow::Result<()> {
+        let id = id.to_owned();
+        self.run(move |c| {
+            let t = Transaction::new_unchecked(c, TransactionBehavior::Immediate)?;
+            let mut row = record(&t, &id)?.ok_or_else(conflict)?;
+            if row.setup.retired { return Ok(()); }
+            row.setup.retired = true;
             t.execute("UPDATE bot_setup_drafts SET revision=revision+1,body=?2,updated_at=?3 WHERE draft_id=?1",params![id,serde_json::to_string(&row.setup).map_err(encoded)?,now()])?;
             t.commit()?;
             Ok(())

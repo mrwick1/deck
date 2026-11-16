@@ -233,7 +233,6 @@ impl Bot {
         self.kick.notify_one();
     }
 
-    #[cfg(test)]
     pub fn stop_loop(&self) {
         self.shutdown.cancel();
     }

@@ -157,6 +157,28 @@ impl Service {
         private_dir(&self.config.data_dir, &c.workspace())
     }
 
+    /// Stop the computer, drop the runtime and record the retirement. Chat, files and rows stay.
+    /// The marker is written last, so a failed stop can be retried.
+    pub async fn retire(&self, row: &Record) -> anyhow::Result<()> {
+        let id = &row.setup.id;
+        let p = self
+            .config
+            .provisioning
+            .as_ref()
+            .context("provisioning is not configured")?;
+        ensure!(valid_id(id), "bad bot ID");
+        let runtime = self.runtimes.write().unwrap().remove(id);
+        if let Some(r) = runtime {
+            r.bot.stop_loop();
+        }
+        let mut vm = p.template.clone();
+        vm.bot_id = id.clone();
+        vm.runtime_dir = p.runtime_root.join(id);
+        super::vm::Harness::new(&vm).kill().await?;
+        self.errors.write().unwrap().remove(id);
+        self.store.retire_setup(id).await
+    }
+
     pub fn start(self: &Arc<Self>) {
         let this = self.clone();
         tokio::spawn(async move {
@@ -175,7 +197,10 @@ impl Service {
         };
         let rows = self.store.setup_records().await?;
         for row in rows {
-            if row.setup.approval.is_none() || self.runtime(&row.setup.id).is_some() {
+            if row.setup.approval.is_none()
+                || row.setup.retired
+                || self.runtime(&row.setup.id).is_some()
+            {
                 continue;
             }
             let id = row.setup.id.clone();
@@ -530,6 +555,97 @@ mod tests {
             task: None,
             schedule: None,
         }
+    }
+
+    /// An approved setup with every step done and a ceiling hold, so scan registers it asleep.
+    async fn ready_setup(service: &Service, id: &str) {
+        let store = &service.store;
+        let setup = super::super::setup::Setup::new(id, fixture_draft(service)).unwrap();
+        store.create_setup(&setup).await.unwrap();
+        let p = service.config.provisioning.as_ref().unwrap();
+        store
+            .approve_setup(id, 1, 1, "owner", &p.limits, &service.profile().unwrap())
+            .await
+            .unwrap();
+        let mut row = store.setup_record(id).await.unwrap().unwrap();
+        for step in &mut row.setup.steps {
+            step.status = super::super::setup::Status::Done;
+        }
+        store
+            .save_setup_state(row.version, &row.setup)
+            .await
+            .unwrap();
+        store.require_ceiling_review(id, "test hold").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retiring_a_bot_frees_capacity_and_it_never_registers_again() {
+        let (_, store, dir, service) = super::super::setup_api::tests::app();
+        std::fs::create_dir_all(&service.config.data_dir).unwrap();
+        ready_setup(&service, "first").await;
+        ready_setup(&service, "second").await;
+        service.scan().await.unwrap();
+        assert!(service.runtime("first").is_some());
+        assert!(service.runtime("second").is_none(), "max_bots is 1");
+        let row = store.setup_record("first").await.unwrap().unwrap();
+        service.retire(&row).await.unwrap();
+        service.retire(&row).await.unwrap();
+        assert!(service.runtime("first").is_none());
+        let log = std::fs::read_to_string(dir.join("computers/first/argv.log")).unwrap();
+        assert!(log.contains("\"kill\""), "{log}");
+        let row = store.setup_record("first").await.unwrap().unwrap();
+        assert!(row.setup.retired);
+        service.scan().await.unwrap();
+        assert!(service.runtime("second").is_some());
+        // A new service on the same store keeps the retired bot out.
+        let model = ModelClient::new(
+            &service.config.model.base_url,
+            None,
+            &service.config.model.api_key_env,
+        );
+        let fresh = Service::new(service.config.clone(), store.clone(), model);
+        fresh.scan().await.unwrap();
+        assert!(fresh.runtime("first").is_none());
+        assert!(fresh.runtime("second").is_some());
+        // Chat and ledger rows stay.
+        assert!(store.accounting("first").await.unwrap().is_some());
+        service.runtime("second").unwrap().bot.stop_loop();
+        fresh.runtime("second").unwrap().bot.stop_loop();
+    }
+
+    #[tokio::test]
+    async fn retire_needs_confirmation_and_a_repeat_is_a_no_op() {
+        let (app, store, _dir, service) = super::super::setup_api::tests::app();
+        ready_setup(&service, "bot").await;
+        let path = "/api/setups/bot/control";
+        let v = store.setup_record("bot").await.unwrap().unwrap().version;
+        let no = serde_json::json!({"version":v,"command":{"action":"retire","confirm":false}});
+        let (status, _) =
+            super::super::setup_api::tests::request(&app, "POST", path, no, true).await;
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(
+            !store
+                .setup_record("bot")
+                .await
+                .unwrap()
+                .unwrap()
+                .setup
+                .retired
+        );
+        let yes = serde_json::json!({"version":v,"command":{"action":"retire","confirm":true}});
+        let (status, _) =
+            super::super::setup_api::tests::request(&app, "POST", path, yes.clone(), true).await;
+        assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+        let after = store.setup_record("bot").await.unwrap().unwrap();
+        assert!(after.setup.retired);
+        // The old version and a repeat both succeed without a change.
+        let (status, _) =
+            super::super::setup_api::tests::request(&app, "POST", path, yes, true).await;
+        assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+        assert_eq!(
+            store.setup_record("bot").await.unwrap().unwrap().version,
+            after.version
+        );
     }
 
     #[tokio::test]

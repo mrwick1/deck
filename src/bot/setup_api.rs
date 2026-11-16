@@ -253,6 +253,9 @@ enum Action {
         value: bool,
     },
     Retry,
+    Retire {
+        confirm: bool,
+    },
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -272,10 +275,23 @@ async fn control(
         .await
         .map_err(conflict)?
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "Setup not found"))?;
+    if matches!(body.command, Action::Retire { .. }) && row.setup.retired {
+        return Ok(StatusCode::NO_CONTENT);
+    }
     if row.version != body.version {
         return Err(error(StatusCode::CONFLICT, "Setup changed; reload it"));
     }
     match body.command {
+        Action::Retire { confirm } => {
+            if !confirm {
+                return Err(error(
+                    StatusCode::BAD_REQUEST,
+                    "Retiring a bot needs confirmation",
+                ));
+            }
+            s.retire(&row).await.map_err(conflict)?;
+            return Ok(StatusCode::NO_CONTENT);
+        }
         Action::Attempts { value } => {
             if value == 0 {
                 return Err(error(
@@ -719,6 +735,11 @@ d = pathlib.Path(a[a.index('--dir') + 1])
 d.mkdir(parents=True, exist_ok=True)
 with open(d / 'argv.log', 'a') as f:
     f.write(json.dumps(a) + '\n')
+if 'status' in a:
+    print(json.dumps({'running': True}))
+    sys.exit(0)
+if 'kill' in a:
+    sys.exit(0)
 if 'deliver-secret' not in a and 'secret-receipt' not in a:
     sys.exit(2)
 bot = a[a.index('--bot') + 1]
@@ -750,7 +771,7 @@ print(rec)
         p
     }
 
-    async fn request(
+    pub(crate) async fn request(
         app: &Router,
         method: &str,
         path: &str,
