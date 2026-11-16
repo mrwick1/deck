@@ -316,6 +316,24 @@ export function InboxPanel({
   );
 }
 
+const COMPUTER_LABEL: Record<api.BotStatus["computer"], string> = {
+  saved: "Asleep",
+  waking: "Waking",
+  awake: "Awake",
+  saving: "Saving",
+  failed: "Failed",
+};
+
+const TASK_LABEL: Record<api.BotTask["state"], string> = {
+  queued: "Queued",
+  running: "Running",
+  waiting: "Waiting",
+  done: "Done",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  held: "Held",
+};
+
 /** The home overview: one card for the bot. */
 export function BotHome({
   status,
@@ -329,7 +347,7 @@ export function BotHome({
   const d = describeBot(status);
   const recent = status.tasks.slice(0, 4);
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-3 p-4">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 p-4">
       <button
         type="button"
         onClick={onOpen}
@@ -339,18 +357,18 @@ export function BotHome({
           <StatusDot tone={d.tone} /> Bot · {d.label}
         </span>
         <span className="text-muted-foreground text-xs">
-          Computer: {status.computer}
+          Computer: {COMPUTER_LABEL[status.computer]}
           {status.idle_left_ms !== null && status.computer === "awake"
             ? ` · saves in ${Math.ceil(status.idle_left_ms / 1000)} s if idle`
             : ""}
-          {status.queued > 0 ? ` · ${status.queued} queued` : ""}
-          {inboxCount > 0 ? ` · ${inboxCount} need you` : ""}
+          {status.queued > 0 ? ` · ${status.queued.toLocaleString()} queued` : ""}
+          {inboxCount > 0 ? ` · ${inboxCount.toLocaleString()} need you` : ""}
         </span>
         {recent.length > 0 && (
           <ul className="text-xs">
             {recent.map((t) => (
               <li key={t.id} className="flex gap-2 truncate">
-                <span className="text-muted-foreground w-16 shrink-0">{t.state}</span>
+                <span className="text-muted-foreground w-16 shrink-0">{TASK_LABEL[t.state]}</span>
                 <span className="truncate">{t.title}</span>
               </li>
             ))}
