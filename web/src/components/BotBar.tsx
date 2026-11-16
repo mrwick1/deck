@@ -18,7 +18,7 @@ import {
   SquareIcon,
   SunIcon,
 } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 
 export const BotScope = createContext<string | undefined>(undefined);
@@ -26,11 +26,11 @@ export const BotScope = createContext<string | undefined>(undefined);
 const fail = (e: unknown) => toast.error((e as Error).message);
 
 const TONE: Record<Tone, string> = {
-  busy: "bg-emerald-500",
-  attention: "bg-amber-500",
-  idle: "bg-sky-500",
+  busy: "bg-success",
+  attention: "bg-warning",
+  idle: "bg-info",
   asleep: "bg-muted-foreground/40",
-  error: "bg-red-500",
+  error: "bg-error",
 };
 
 export function StatusDot({ tone }: { tone: Tone }) {
@@ -126,7 +126,7 @@ export function BotBar({
           <MonitorIcon className="size-3" /> Screen
         </Button>
       )}
-      <Button size="sm" variant="outline" onClick={onInbox} aria-label="Inbox">
+      <Button size="sm" variant="outline" onClick={onInbox} aria-label={inboxCount > 0 ? `Inbox, ${inboxCount} items` : "Inbox"}>
         <BellIcon className="size-3" />
         {inboxCount > 0 && <span className="tabular-nums">{inboxCount}</span>}
       </Button>
@@ -372,17 +372,20 @@ export function BotHome({
 }) {
   const d = describeBot(status);
   const recent = status.tasks.slice(0, 4);
+  const statusId = useId();
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-3 p-4">
       <button
         type="button"
         onClick={onOpen}
+        aria-label="Open the bot chat"
+        aria-describedby={statusId}
         className="bg-card hover:bg-muted/50 flex flex-col gap-2 rounded-2xl border p-4 text-left shadow-sm"
       >
         <span className="flex items-center gap-2 text-sm font-medium">
           <StatusDot tone={d.tone} /> Bot · {d.label}
         </span>
-        <span className="text-muted-foreground text-xs">
+        <span id={statusId} className="text-muted-foreground text-xs">
           Computer: {status.computer}
           {status.idle_left_ms !== null && status.computer === "awake"
             ? ` · saves in ${Math.ceil(status.idle_left_ms / 1000)} s if idle`
@@ -403,7 +406,7 @@ export function BotHome({
         <span className="text-xs underline">Open the chat</span>
       </button>
       {status.last_error && (
-        <p role="alert" className="text-xs text-red-500">
+        <p role="alert" className="text-xs text-error-foreground">
           {status.last_error}
         </p>
       )}
