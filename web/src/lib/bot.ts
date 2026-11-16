@@ -111,3 +111,23 @@ export function useBot(id?: string) {
 
   return { status: loadedId === id ? status : null, inbox: loadedId === id ? inbox : [], refreshInbox };
 }
+
+/** Read the review form's schedule and step limit as the API expects them. Empty fields mean none. */
+export function parseReviewLimits(time: string, zone: string, steps: string):
+  { schedule: api.SetupSchedule | null; max_steps: number | null } | { error: string } {
+  const t = time.trim(), z = zone.trim(), s = steps.trim();
+  let max_steps: number | null = null;
+  if (s) {
+    if (!/^\d+$/.test(s) || Number(s) < 1 || Number(s) > 200) return { error: "Enter a step limit from 1 to 200, or leave it empty." };
+    max_steps = Number(s);
+  }
+  if (!t && !z) return { schedule: null, max_steps };
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return { error: "Enter the daily time as HH:MM." };
+  const m = /^([+-])(\d\d):(\d\d)$/.exec(z);
+  if (z !== "UTC" && !(m && Number(m[2]) <= 14 && Number(m[3]) < 60)) return { error: "Enter the time zone as UTC or an offset such as +05:30." };
+  return { schedule: { time: t, timezone: z }, max_steps };
+}
+
+/** One line for the approved summary. */
+export const describeLimits = (d: api.SetupDraft) =>
+  [d.schedule ? `Runs daily at ${d.schedule.time} (${d.schedule.timezone})` : null, d.max_steps ? `Step limit ${d.max_steps}` : null].filter(Boolean).join(". ");

@@ -157,7 +157,9 @@ export interface SetupDraft {
   revision:number; name:string; instructions:string; model:string;
   authority:"Full" | {Restricted:string[]}; resources:{cpus:number; memory_mib:number; disk_gib:number};
   budget:SetupBudget | null; credentials:string[]; task:string | null;
+  schedule?:SetupSchedule | null; max_steps?:number | null;
 }
+export interface SetupSchedule { time:string; timezone:string; }
 /** A durable owner wait. Optional fields default to absent on older servers. */
 export type WaitKind = "PhoneApproval" | "Captcha" | {Credential:{label:string}} | {Unsupported:{reason?:string | null}};
 export interface SetupWait {

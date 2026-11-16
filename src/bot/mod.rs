@@ -13,6 +13,7 @@ pub mod db;
 pub mod events;
 pub mod hub;
 pub mod provisioning;
+pub mod schedule;
 pub mod screen;
 pub mod secret_requests_api;
 pub mod secrets;
@@ -232,7 +233,6 @@ impl Bot {
         self.kick.notify_one();
     }
 
-    #[cfg(test)]
     pub fn stop_loop(&self) {
         self.shutdown.cancel();
     }
@@ -2153,6 +2153,7 @@ mod tests {
                 credentials: vec![],
                 max_steps: None,
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();

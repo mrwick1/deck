@@ -35,6 +35,7 @@ fn save(c: &Connection, expected: i64, setup: &Setup) -> rusqlite::Result<i64> {
     if prior.version != expected
         || prior.setup.approval != setup.approval
         || prior.setup.started != setup.started
+        || prior.setup.retired != setup.retired
         || (prior.setup.approval.is_some() && prior.setup.draft != setup.draft)
     {
         return Err(conflict());
@@ -133,6 +134,20 @@ impl Store {
         }).await
     }
 
+    /// Mark the setup retired. The row, chat, files and ledger stay. A repeat changes nothing.
+    pub async fn retire_setup(&self, id: &str) -> anyhow::Result<()> {
+        let id = id.to_owned();
+        self.run(move |c| {
+            let t = Transaction::new_unchecked(c, TransactionBehavior::Immediate)?;
+            let mut row = record(&t, &id)?.ok_or_else(conflict)?;
+            if row.setup.retired { return Ok(()); }
+            row.setup.retired = true;
+            t.execute("UPDATE bot_setup_drafts SET revision=revision+1,body=?2,updated_at=?3 WHERE draft_id=?1",params![id,serde_json::to_string(&row.setup).map_err(encoded)?,now()])?;
+            t.commit()?;
+            Ok(())
+        }).await
+    }
+
     /// The ready marker, checklist message and first task commit together.
     pub async fn finish_setup(&self, id: &str) -> anyhow::Result<Option<String>> {
         let id = id.to_owned();
@@ -186,6 +201,7 @@ mod tests {
             credentials: vec![],
             max_steps: None,
             task: Some("Read the supplied fixture".into()),
+            schedule: None,
         }
     }
 

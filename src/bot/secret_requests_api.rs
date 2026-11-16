@@ -844,6 +844,7 @@ mod tests {
                 credentials: vec![],
                 max_steps: None,
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();
