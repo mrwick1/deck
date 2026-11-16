@@ -3,7 +3,7 @@ import { ApiError, secretFailure, type SetupRecord, type SetupWait, type TaskSec
 /** NUL, CR and LF cannot go in the guest's NAME=value store. An empty value is no value. Spaces stay. */
 export const validSecret = (v: string) => v.length > 0 && v.length <= 4096 && !/[\0\r\n]/.test(v) && new TextEncoder().encode(v).length <= 4096;
 
-export type DeliverResult = { ok: true } | { ok: false; message: string };
+export type DeliverResult = { ok: true } | { ok: false; message: string; duplicate?: true };
 
 /**
  * Read the value once, clear its field before the request, clear it again after any outcome.
@@ -15,7 +15,7 @@ export async function deliverSecret(o: {
   send: (value: string) => Promise<void>;
   guard?: { busy: boolean };
 }): Promise<DeliverResult> {
-  if (o.guard?.busy) return { ok: false, message: "Delivery is already in progress." };
+  if (o.guard?.busy) return { ok: false, message: "Delivery is already in progress.", duplicate: true };
   const value = o.read();
   o.clear();
   if (!validSecret(value)) return { ok: false, message: "The value is empty, contains a line break, or exceeds the supported size." };
@@ -59,4 +59,29 @@ export function describeTaskSecret(r: TaskSecretRequest, nowSecs: number): WaitV
   if (r.expires_at <= nowSecs)
     return { mode: "expired", title: `The request for ${r.label} expired`, detail: "The bot is told to ask again if it still needs the value. A new request will appear here. Refresh to check." };
   return { mode: "secret", title: `Protected input needed: ${r.label}`, detail: `${r.purpose} The value goes straight to the bot's computer. It never enters chat or the model.` };
+}
+
+/** Run once at a time. A second call while the first runs does nothing and returns false. */
+export async function guarded(guard: { busy: boolean }, run: () => Promise<void>): Promise<boolean> {
+  if (guard.busy) return false;
+  guard.busy = true;
+  try { await run(); } finally { guard.busy = false; }
+  return true;
+}
+
+export type ChallengeOutcome = { rid: string; pending: boolean; text: string; error: boolean } | null;
+
+/** Holds response metadata only. The workspace can retain it while its request tab unmounts. */
+export function challengeResponse() {
+  let outcome: ChallengeOutcome = null;
+  const listeners = new Set<() => void>();
+  return {
+    guard: { busy: false },
+    getSnapshot: () => outcome,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    set: (update: ChallengeOutcome | ((previous: ChallengeOutcome) => ChallengeOutcome)) => {
+      outcome = typeof update === "function" ? update(outcome) : update;
+      listeners.forEach(listener => listener());
+    },
+  };
 }

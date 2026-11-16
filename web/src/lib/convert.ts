@@ -79,6 +79,22 @@ export function toThreadMessages(
     }
   }
   flush();
+  // A run that ended without output still shows what happened.
+  if (run && run.status !== "running" && run.status !== "done" && out[out.length - 1]?.role !== "assistant") {
+    out.push({
+      role: "assistant",
+      id: `m${out.length}`,
+      content: [
+        {
+          type: "text",
+          text:
+            run.status === "cancelled"
+              ? "The run was cancelled."
+              : `The run failed: ${run.error ?? "no reason was given"}`,
+        },
+      ],
+    });
+  }
   const last = out[out.length - 1];
   if (run && last?.role === "assistant" && run.status !== "running") {
     out[out.length - 1] = {

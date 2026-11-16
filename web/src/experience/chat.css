@@ -1,0 +1,19 @@
+/* Chat. Specific enough to win over live.css, which loads after this file. */
+.experience .live-chat .message-pane{position:relative}
+.experience .live-chat .chat-empty{position:absolute;top:0;left:24px;right:24px;padding:36px 0 0;pointer-events:none}
+.experience .live-chat [data-role=user]{animation:none}
+.experience .live-chat .aui-user-message-content{will-change:transform,opacity}
+.experience .live-chat .latest-button{position:absolute;right:24px;bottom:12px;z-index:2;min-width:44px;min-height:44px}
+.experience .chat-slot{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.experience .recovery-panel{margin:8px 24px;padding:12px;border:1px solid #dfd2b9;background:#fff3eb;color:#783a20;border-radius:12px;font-size:13px;overflow-wrap:anywhere;max-height:40%;overflow:auto}
+.experience .recovery-panel q{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:6px 0;color:var(--ink)}
+.experience .recovery-panel p{margin:6px 0}
+.experience .recovery-panel button,.experience .live-chat .approval-request button{min-height:44px}
+.experience .live-chat .review-actions{display:flex;flex-wrap:wrap;gap:8px}
+.experience .live-chat .error-note{margin:8px 24px 0;border-radius:12px}
+.experience .composer-context .stop-button{display:flex;align-items:center;gap:6px;min-width:44px;min-height:44px;padding:0 8px;font-size:13px}
+.experience .composer-context .stop-button[aria-disabled=true]{opacity:.6}
+.experience .compact-composer .composer-input{display:flex;align-items:flex-end;gap:8px}
+.experience .compact-composer .composer-input textarea{flex:1}
+.experience .compact-composer .send{flex:none;min-width:44px;min-height:44px}
+@media(max-width:700px){.experience .live-chat .chat-empty{left:12px;right:12px}.experience .live-chat .latest-button{right:12px}.experience .recovery-panel,.experience .live-chat .error-note{margin-left:12px;margin-right:12px}}

@@ -699,6 +699,121 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
 
+## UI experience prototype (2026-11-14)
+
+**Decision:** Build the new experience in a separate `prototype.html` entry point. Preserve the existing app as a reference. Use the installed React and Motion dependencies. Start with a bot-centered home, a main composer and bot workspaces with chat, activity and computer views.
+
+**Reason:** The owner approved a new interface with fluid motion and stable layouts. A separate sample-data journey permits review before runtime integration.
+
+**Boundary:** The prototype makes no API requests. Account connection, owner approval, work and results are simulations. State resets on reload. Browser motion, accessibility and layout-shift acceptance remain unverified.
+
+## Prototype interaction flow (2026-11-14)
+
+**Decision:** Keep prototype state per bot. Give Home its own composer draft. Show the destination before sending work. Keep setup review separate from bot creation. Use explicit controls to advance simulated account and task events. Require an owner-entered demo ceiling without a monetary default.
+
+**Reason:** The owner approved the visual prototype and requested the design flow. Independent state permits review of navigation, owner waits and queued work without affecting the live runtime.
+
+**Boundary:** The prototype uses a sample mail workflow. It does not implement arbitrary job planning, real accounts, spending enforcement or cross-bot delegation. State lasts only for the current page session.
+
+## Connect the compact experience to the backend (2026-11-15)
+
+**Decision:** Add the authenticated redesign at `/experience.html`. Retain the original app at `/` and the sample preview at `/prototype.html`. Reuse setup review, chat streaming, protected input and bot control APIs. Keep API calls on the same origin. Exclude the separate entries from the original app's service-worker navigation fallback.
+
+**Layout:** Use compact bot rows and one workspace header. Show the composer only in chat. Put preview controls in a disclosure. Keep touch targets at least 44px. Honor reduced motion.
+
+**Reason:** The owner approved the journey and requested real backend connections after the design pass. The owner also identified wasted space in the prototype.
+
+**Boundary:** Publish only sample assets to the public preview. The authenticated interface requires the existing server and authentication. This change does not restart the server or run real-account work. Live phone motion and backend acceptance remain separate checks.
+
+## Review the complete mobile flow (2026-11-15)
+
+**Decision:** Use the existing shadcn/Radix controls, Vaul sheets, Motion transitions and assistant-ui chat renderer for the redesign. Start with mobile layouts. Cover every screen, input, selection, loading state and message-send transition. Retain reduced-motion support and real backend behavior.
+
+**Review gate:** The owner requested two rounds for each screen. GPT Sol Medium and Opus 5.5 both review each round. Exchange their first-round feedback before the second round. Complete Home before mobile navigation, mobile use and the remaining screens. Record findings and fixes per screen. Do not claim native-device performance from viewport simulation.
+
+**Reason:** The owner made a fluid mobile experience the main priority and expanded the work from Home to the complete flow.
+
+## Track depth for in-app Back and animate keyed route bodies (2026-11-15)
+
+**Decision:** Store a depth number in each history entry. Header Back calls `history.back()` when the depth is above zero. At depth zero it replaces the entry with Home and never leaves the app. Navigating to the current route replaces the entry. A newly created chat replaces `chat/new`. Render each route (header, notices and body) as one keyed Motion unit in `AnimatePresence` with `mode="wait"`. The outgoing unit is `inert`. Reduced motion skips entrance and exit. Focus moves to the heading when the new unit mounts. A cold load shows a route-shaped shell with the correct title, Back button and skeleton. Only chat routes and New bot show a composer skeleton. Headers are 64px. The bot controls use the Radix `DropdownMenu`. Tab scroll restores in a layout effect keyed to the tab. Both entry pages use `viewport-fit=cover`, and `.app` applies the safe-area insets once.
+
+**Reason:** Two reviewers found that Back pushed Home and looped, cold deep links showed the Home skeleton, Home and other headers differed by 4px, and routes had inconsistent or missing exits. The plain `details` menu had no outside-click, Escape or focus handling. The tab scroll ref wrote on every poll render.
+
+**Boundary:** Unit tests cover the navigation outcomes against a fake history. They do not cover React rendering. No frame smoothness, safe-area, physical keyboard or touch result is measured. See [ui-navigation-review-checks.md](ui-navigation-review-checks.md).
+
+## Keep the setup review editor stable and exact (2026-11-15)
+
+**Decision:** Enter in the review form saves the draft and never approves. Save draft is the only submit button. Approve is a separate `type="button"` that runs the same validation as Save. Unsaved edits live in App-owned state keyed by setup id. Each editor stores its base row and its typed fields. The form no longer remounts when the server version changes. A newer row replaces a clean editor. A newer row leaves a dirty editor untouched and shows a conflict. Save and Approve stay blocked until the owner discards their edits or keeps them on the newer row. A reload warning appears while edits or a write are unsaved. Nothing is written to browser storage. While a write runs, the editable fieldset is locked. The actions use `aria-disabled` so focus stays, and a synchronous guard stops a second submit. Only a confirmed reply announces success. A lost reply triggers a read-only comparison against the submitted and base snapshots. That check never replays a write. If the read also fails, Save and Approve stay blocked until a read settles the outcome. Budget amounts are written and read with integer arithmetic. Resource fields need whole numbers from 1 to 4294967295, the server `u32` domain. A zero allowance or ceiling and an empty restricted list stay valid, as `src/bot/setup.rs` allows. The form explains both. A missing server budget still blocks approval.
+
+**Reason:** Two reviewers measured that Enter approved, a version bump discarded typing, Save skipped resource validation and fields stayed editable during a write. Floating point turned `9007199254740.991` into an off-by-one amount. Server code permits zero spending and no granted actions, so the form explains them instead of rejecting them.
+
+**Boundary:** Activity, Requests and the original app keep their own float formatting. The checks in [ui-setup-review-checks.md](ui-setup-review-checks.md) state which results are tests, which are fixture runs in `bare` and which are unverified. No phone keyboard, IME, touch, screen reader or frame timing was measured.
+
+## Keep typing that arrives after a write, and keep work when a setup leaves Draft (2026-11-15)
+
+**Decision:** The editor stores the fields typed at send time with each write. A confirmed own row replaces the editor only if the fields are unchanged. Otherwise the editor rebases on that row and keeps the new typing. Save and Approve stay blocked while a sent write awaits a read. A row that leaves Draft keeps an unsaved or unconfirmed editor. The setup screen then shows read-only recovery with Copy and a confirmed Discard. One comparator checks every draft field except the revision.
+
+**Reason:** Round two showed a poll wiping text typed after a lost read. It also showed a remote phase change deleting unsaved text without a message. The old comparison ignored budget currency and period.
+
+**Boundary:** Recovery has no Save, Approve or Keep mine. A clean editor still drops when the row leaves Draft.
+
+A read that finds another revision clears the own-write expectation and opens conflict resolution. A manual refresh can request the saved revision without another write. These paths prevent a stale base from trapping the owner.
+
+## Keep the setup progress screen stable and honest (2026-11-15)
+
+**Decision:** The setup screen uses one key per setup id in every phase. A version update never remounts it. Typed protected input, focus, scroll, notes and the action guards survive polls. Protected input stays keyed by request id and clears on submit, failure, unmount, expiry and replacement. The challenge answer has a synchronous guard that survives row revisions. Its pending, success and error text names the request, so a replacement request never shows an old result. A second protected submit returns before any state change while the first is held. The header reads Review setup for a Draft and Setup progress for every later phase. The cold route says Setup.
+
+**Controls:** Pause and Resume are requests. The UI shows Pause requested or Resume requested only after a 204 reply. The record has no pause field and the server changes no setup revision, so the UI shows no paused state. Resume is off for an unknown outcome and for an unsupported challenge, with the reason beside it. Refresh progress shows a pending state and then a result read from the workspace error, because the refresh call never throws. An exhausted setup explains the limit. The new limit must be a whole number above the current limit and at most 4294967295, the server `u32` maximum. An invalid value sends nothing, shows an error beside the field and focuses it. An unknown outcome shows its step text and states that Deck cannot resolve it yet. It offers no retry and no owner guess. Wait and phase text come before the recovery editor. Buttons wrap and measure at least 44px.
+
+**Reason:** Two reviewers measured that each revision remounted the screen and lost typing, focus and errors. They measured two answer POSTs from two fast clicks. They measured a second secret submit unlocking the field while the first was held. They measured 28px buttons and a Cancel button past the panel edge at 320px.
+
+**Boundary:** Unit tests cover the key, the guard, the duplicate flag and the attempt check. Fixture runs in `bare` cover the rest. See [ui-setup-progress-review-checks.md](ui-setup-progress-review-checks.md).
+
+## Preserve position in Conversations (2026-11-15)
+
+**Decision:** Back restores the list scroll and the opened row's focus. Explicit navigation to the list starts at the top. Existing chat headers use the known title. Rows wrap long titles and identify Deck or the bot. Empty and stale lists explain their state. Stale rows remain readable; sending requires reconnection.
+
+**Reason:** Both reviewers measured panel overflow and lost return position. The server sorts by newest creation, so the UI states that order without inventing last-activity data.
+
+## Isolate late setup feedback (2026-11-15)
+
+**Decision:** An unmounted protected-input form emits no success notification. A delivery notification names its label. Challenge controls stay visibly pending until their reconciliation read finishes. Refresh status does not erase control errors.
+
+**Reason:** Second-round checks reproduced stale success notifications, disappearing action errors and controls that looked enabled while their guard was still locked. Exhausted-form spacing now uses its own class; a direct-child selector also matched draft review.
+
+## Keep request responses across tab changes (2026-11-15)
+
+**Decision:** The bot workspace owns inbox operation state and shared challenge response state. A forced reconciliation read starts after older reads settle. A request that may have applied stays locked until the owner checks and reviews it. Protected values remain in DOM fields and never enter the operation store. Shared request panels join the removal-focus sequence.
+
+**Reason:** Reviews reproduced duplicate writes after stale reads and tab changes. A component-local challenge guard did not survive a tab change even after inbox guards moved into the workspace.
+
+**Boundary:** Several server actions have no version or idempotency key. A read cannot prove that a returning hold is the same hold. The client does not automatically replay writes.
+
+Requests state belongs above the route, not only above its tabs. Activity task actions use the same store and task identity. This prevents a route return or a second screen from bypassing an unknown response.
+
+## Recover screen reads and explain workspace actions (2026-11-15)
+
+**Decision:** Retry a failed frame read three times with increasing delays. Then offer Retry. Clear frames on privacy responses and stream errors. A stopped stream offers Reconnect. Preload each image and handle decode failure before showing it. Keep the frame area bounded.
+
+**Reason:** An unchanged desktop emits no new frame event. The old viewer could claim reconnection without scheduling recovery. Invalid images also cleared all status.
+
+**Decision:** Activity uses exact budget formatting and offers Open conversation on completed work. Queued and held tasks can change priority. Task and computer actions show pending and accepted feedback. A compact connection note sits below the bot tabs.
+
+**Boundary:** Results open the conversation, not a task-specific message. Home says Completed results because tasks have no completion timestamp. Request acceptance does not prove the computer has reached a new state. Physical motion and real-backend acceptance remain unverified.
+
+## 2026-11-15: Keep a pending question before its reply
+
+**Decision:** Merge the pending user message into stored history before adding live run output. Use the same message order before and after send confirmation.
+
+**Reason:** An early streamed reply previously displaced the pending question and changed its positional message ID. The regression test failed with assistant-before-user order, then passed after the merge changed.
+
+## 2026-11-15: Keep chat sessions above route views
+
+**Decision:** Keep Deck and visited bot chat controllers mounted above route views. Render their views through portal slots. Retain unconfirmed sends by conversation and keep unknown conversation creation separate. Never replay an ambiguous write automatically.
+
+**Reason:** Route remounts discarded pending guards, live output and recovery text. A new conversation must keep later typing when its first send returns an ID. Acknowledging one conversation must not discard another held message.
+
+**Boundary:** State lasts for the current application session. It does not survive a full page reload. Matching stored text is evidence, not proof of delivery. A lost create response can leave an empty conversation whose ID is unknown to the client.
 ## D86. Tell the owner when a run reaches the step limit (2026-11-15)
 
 **Decision:** When a run reaches `agent.max_steps`, store a fixed assistant message in the chat. The message says the step limit stopped the work and the task is not finished. Send it as a persisted text event too. The run still fails with the same task detail.
