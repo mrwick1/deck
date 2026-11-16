@@ -530,17 +530,29 @@ def install_executor(p, bot_id):
     code, out, _ = qga.sh("test -e /home/deck/.local/state/deck-executor/identity.json && echo bound")
     if "bound" in out:
         sys.exit("this guest already has an executor identity; refusing to rebind it")
+    # Write each file under a temp name in the same folder, then rename it. sway execs bare-session at
+    # login, so a plain rewrite could expose a half-written script.
+    tmps = {dst: f"{os.path.dirname(dst)}/.{os.path.basename(dst)}.new" for dst in EXECUTOR_FILES.values()}
     for src, dst in EXECUTOR_FILES.items():
-        qga.push(dst, (HERE / "guest" / src).read_bytes())
+        qga.push(tmps[dst], (HERE / "guest" / src).read_bytes())
+    bins = [dst for dst in EXECUTOR_FILES.values() if dst.startswith("/usr/local/bin/")]
+    swap = " && ".join([f"chmod 755 {tmps[d]}" for d in bins] + [f"mv -f {tmps[d]} {d}" for d in EXECUTOR_FILES.values()])
     guest_id = uuid.uuid4().hex
     ident = json.dumps({"bot_id": bot_id, "guest_id": guest_id, "max_epoch": 0})
-    code, _, err = qga.sh("chmod 755 /usr/local/bin/deck-executor /usr/local/bin/bare-call /usr/local/bin/deck-publish /usr/local/bin/bare-session && "
+    code, _, err = qga.sh(swap + " && "
                           "runuser -u deck -- sh -c 'umask 077 && mkdir -p ~/.local/state/deck-executor ~/workspace "
                           "&& cat > ~/.local/state/deck-executor/identity.json' && "
                           "udevadm control --reload && udevadm trigger --subsystem-match=virtio-ports --action=add && udevadm settle && "
                           "systemctl daemon-reload && systemctl enable --now deck-executor.service", stdin=ident, timeout=60)
     if code != 0:
         sys.exit(f"executor install failed: {err.strip()[:300]}")
+    # sway's login start can miss the rewritten bare-session. Start it once, and only when no session runs.
+    try:  # best effort: a failure here must not lose the binding; `ready` reports the state later
+        _, out, _ = qga.exec(["/usr/local/bin/as-deck", "/usr/local/bin/bare-call", "--ready", "1"], timeout=15)
+        if out.strip() and json.loads(out).get("reason") == "no_session":
+            qga.exec(["/usr/local/bin/as-deck", "sh", "-c", "swaymsg exec /usr/local/bin/bare-session"], timeout=15)
+    except (OSError, ValueError, RuntimeError, TimeoutError):
+        pass
     info = {"bot_id": bot_id, "guest_id": guest_id}
     (p.root / "executor.json").write_text(json.dumps(info))
     return info

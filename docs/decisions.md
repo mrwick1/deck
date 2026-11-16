@@ -736,3 +736,9 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** Add one line to the end of each run's system message: `Current date and time: YYYY-MM-DD HH:MM UTC`. The line uses the UTC time when the run builds its messages. It goes last, so the rest of the prompt stays byte-identical.
 
 **Reason:** Issue #49. The system prompt had no date. A digest made on 2026-11-16 was headed "15 Nov 2026".
+
+## D92. Start the bare session once after the executor install (2026-11-16)
+
+**Decision:** Write guest executor files under a temp name in the same folder, then rename them. After the install, ask the guest for a readiness probe. Start `bare-session` once, through `swaymsg`, only when the probe says `no_session`. A failure in this step does not stop the install.
+
+**Reason:** Issue #46. The install rewrote `bare-session` about two seconds after sway started it at login. The fresh bot then had no session, and `ready` never passed. Atomic rename removes the half-written file. The one-time start restores the session. The probe starts nothing when a session already runs.
