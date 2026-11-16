@@ -719,7 +719,13 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 
 **Reason:** A job that says "every day" ran once. The owner wants daily bots, such as a news digest at 08:00 Asia/Kolkata (`+05:30`). A fixed offset keeps the first version small and testable.
 
-## D89. Let the owner retire a bot (2026-11-16)
+## D89. Show the schedule and step limit in the setup review form (2026-11-16)
+
+**Decision:** The web review form has a daily time, a time zone offset and a step limit. Empty fields send no value. The form checks the same rules as the API and blocks save on an invalid value. The approved view shows both values.
+
+**Reason:** Issue #48. Only a raw API call could set D87 and D88 values before approval.
+
+## D90. Let the owner retire a bot (2026-11-16)
 
 **Decision:** Add the control action `retire`. It needs `{"confirm": true}`. It kills the bot's computer through the harness `kill` call and drops the runtime. It then stores `retired` in the setup record. The setup driver skips a retired setup, so it never registers or wakes after a restart. A retired bot does not count toward `max_bots`. A repeat call changes nothing. Chat, files and database rows stay.
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
-import { parseMinor } from "@/lib/bot";
+import { describeLimits, parseMinor, parseReviewLimits } from "@/lib/bot";
 import { WaitPanel } from "@/components/SetupWait";
 
 const fail = (e: unknown) => toast.error((e as Error).message);
@@ -15,14 +15,20 @@ function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise
   const budget = draft.budget;
   const [allowance, setAllowance] = useState(budget ? (budget.allowance / 10 ** budget.exponent).toFixed(budget.exponent) : "");
   const [ceiling, setCeiling] = useState(budget ? (budget.ceiling / 10 ** budget.exponent).toFixed(budget.exponent) : "");
+  const [time, setTime] = useState(row.setup.draft.schedule?.time ?? "");
+  const [zone, setZone] = useState(row.setup.draft.schedule?.timezone ?? "");
+  const [steps, setSteps] = useState(row.setup.draft.max_steps?.toString() ?? "");
+  const limits = parseReviewLimits(time, zone, steps);
+  const limitError = "error" in limits ? limits.error : null;
   const save = async (approve: boolean) => {
+    if ("error" in limits) return toast.error(limits.error);
     if (!budget) return toast.error("A reviewed spending budget is required.");
     const amount = (s: string) => /^0(?:\.0+)?$/.test(s.trim()) ? 0 : parseMinor(s, budget.exponent);
     const a = amount(allowance), c = amount(ceiling);
     if (a === null || c === null || a > c) return toast.error("Enter a working allowance at or below the spending ceiling.");
     setBusy(true);
     try {
-      await api.editSetup(row.setup.id, row.version, { ...draft, credentials: credentials.split("\n").map(s => s.trim()).filter(Boolean), budget: { ...budget, allowance: a, ceiling: c } });
+      await api.editSetup(row.setup.id, row.version, { ...draft, schedule: limits.schedule, max_steps: limits.max_steps, credentials: credentials.split("\n").map(s => s.trim()).filter(Boolean), budget: { ...budget, allowance: a, ceiling: c } });
       if (approve) await api.approveSetup(row.setup.id, row.version + 1, row.setup.draft.revision + 1);
       await refresh();
     } catch (e) { fail(e); } finally { setBusy(false); }
@@ -47,7 +53,13 @@ function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise
     <label className="text-sm">Credential labels, one per line<textarea className={field} placeholder="Labels only. Never enter passwords here." value={credentials} onChange={e => setCredentials(e.target.value)} /></label>
     <p className="text-muted-foreground text-xs">A bot that needs credentials asks for them through protected input after setup. It preserves progress and waits. If protected input is unavailable, it stays blocked.</p>
     <label className="text-sm">First task, if you have one<textarea className={field} value={draft.task ?? ""} onChange={e => setDraft({ ...draft, task: e.target.value.trim() ? e.target.value : null })} /></label>
-    <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !budget} onClick={() => save(true)}>Approve setup and create computer</Button></div>
+    <fieldset className="grid grid-cols-3 gap-2"><legend className="mb-1 text-sm">Daily run and step limit (optional)</legend>
+      <label className="text-xs">Daily time<input type="time" className={field} value={time} onChange={e => setTime(e.target.value)} /></label>
+      <label className="text-xs">Time zone offset<input className={field} placeholder="UTC or +05:30" value={zone} onChange={e => setZone(e.target.value)} /></label>
+      <label className="text-xs">Step limit (1 to 200)<input type="number" min={1} max={200} className={field} value={steps} onChange={e => setSteps(e.target.value)} /></label>
+      {limitError && <p role="alert" className="col-span-3 text-sm text-red-500">{limitError}</p>}
+    </fieldset>
+    <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !!limitError} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !budget || !!limitError} onClick={() => save(true)}>Approve setup and create computer</Button></div>
   </div>;
 }
 
@@ -76,6 +88,7 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
     {rows.map(r => <article key={r.setup.id} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{r.setup.draft.name}</h3><span className="text-muted-foreground text-xs">{r.runtime_ready ? "Ready" : r.phase}</span></div>
       {r.phase === "Draft" ? <><Button size="sm" variant="outline" aria-expanded={editing === r.setup.id} onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>{editing === r.setup.id ? "Hide review" : "Review setup"}</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
+        {describeLimits(r.setup.draft) && <p className="text-sm">{describeLimits(r.setup.draft)}.</p>}
         <ul className="text-sm">{r.checklist.map(i => <li key={i.label}>{i.done ? "✓" : "·"} {i.label}</li>)}</ul>
         {r.error && <p role="alert" className="text-sm text-red-500">{r.error}</p>}
         {r.setup.wait && <WaitPanel row={r} protectedInput={protectedInput} refresh={refresh} />}
