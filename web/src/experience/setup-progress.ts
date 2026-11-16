@@ -6,6 +6,14 @@ export const setupKey = (row: SetupRecord) => row.setup.id;
 /** Draft keeps the review title. Every later phase reads as progress. */
 export const setupHeading = (row?: SetupRecord) => !row ? "Setup" : row.phase === "Draft" ? "Review setup" : "Setup progress";
 
+/** The one label for a setup phase. Runtime readiness wins over the raw phase. */
+export function phaseLabel(row: SetupRecord): string {
+  if (row.runtime_ready) return "Your bot is ready";
+  if (row.phase === "Ready") return "Preparing the runtime";
+  if (row.phase === "Draft") return "Review setup";
+  return row.phase;
+}
+
 export type Attempts = { ok: true; value: number } | { ok: false; message: string };
 /** The new total must be a whole number above the current limit and inside the server u32 range. */
 export function checkAttempts(text: string, current: number): Attempts {
@@ -24,6 +32,9 @@ export function resumeBlock(row: SetupRecord): string | null {
   if (typeof kind === "object" && "Unsupported" in kind) return "Resume is off. Deck cannot complete this challenge, so resuming would not resolve it.";
   return null;
 }
+
+/** Show Pause unless the bot is known to be paused. Show Resume unless it is known to run. Unknown shows both. */
+export const pauseActions = (paused?: boolean) => ({ pause: paused !== true, resume: paused !== false });
 
 const stepName = (step: unknown) => typeof step === "string" ? step : step && typeof step === "object" ? Object.entries(step).map(([k, v]) => `${k} ${String(v)}`).join(", ") : "Step";
 /** Readable lines for steps that are not done. Text only. */
