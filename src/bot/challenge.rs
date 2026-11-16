@@ -400,6 +400,7 @@ mod tests {
                 },
                 budget: None,
                 credentials,
+                max_steps: None,
                 task: None,
             },
         )
