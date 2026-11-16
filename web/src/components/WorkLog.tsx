@@ -120,24 +120,27 @@ export function WorkLogButton({
   );
 }
 
-/** Div-based disclosure supports selectable detail and nested actions in an entry. */
+/** Disclosure row: the label line is a button. The details sit next to it, so they stay selectable. */
 export function WorkLogRow({
   icon,
   label,
   trailing,
   wrapLabel = false,
   children,
-  ...rowProps
-}: RowContent & Omit<ComponentProps<"div">, "className" | "style">) {
-  const className = useRowClassName(rowProps.onClick !== undefined);
+  ...buttonProps
+}: RowContent &
+  Omit<ComponentProps<"button">, "className" | "style">) {
+  const className = useRowClassName(true);
   return (
-    <div {...rowProps} className={className}>
-      <WorkLogLine
-        icon={icon}
-        label={label}
-        trailing={trailing}
-        wrapLabel={wrapLabel}
-      />
+    <div className="min-w-0">
+      <button {...buttonProps} type="button" className={className}>
+        <WorkLogLine
+          icon={icon}
+          label={label}
+          trailing={trailing}
+          wrapLabel={wrapLabel}
+        />
+      </button>
       {children}
     </div>
   );

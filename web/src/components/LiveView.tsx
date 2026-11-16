@@ -21,12 +21,12 @@ function LiveDot({ on }: { on: boolean }) {
   return (
     <span className="relative flex size-2">
       {on && (
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/70 motion-reduce:animate-none" />
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-success/70 motion-reduce:animate-none" />
       )}
       <span
         className={cn(
           "relative inline-flex size-2 rounded-full",
-          on ? "bg-emerald-500" : "bg-muted-foreground/40",
+          on ? "bg-success" : "bg-muted-foreground/40",
         )}
       />
     </span>
@@ -112,11 +112,11 @@ export function LivePanel({
       {page && (
         <motion.aside
           aria-label="Live view"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 420, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
+          initial={{ x: 24, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 24, opacity: 0 }}
           transition={spring}
-          className="hidden shrink-0 overflow-hidden border-l lg:flex"
+          className="hidden w-[420px] shrink-0 overflow-hidden border-l lg:flex"
         >
           <div className="flex w-[420px] flex-col gap-3 p-4">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -146,7 +146,7 @@ export function LivePill({ page, running }: { page?: Page; running: boolean }) {
             exit={{ y: -12, opacity: 0, scale: 0.95 }}
             whileTap={{ scale: 0.96 }}
             transition={spring}
-            className="bg-background/80 absolute top-2 left-1/2 z-10 flex max-w-[80%] -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur lg:hidden"
+            className="bg-background/80 mx-auto my-1.5 flex shrink-0 max-w-[80%] items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur lg:hidden"
             aria-label={`Live view: ${host(page.url)}`}
           >
             <LiveDot on={running} />
