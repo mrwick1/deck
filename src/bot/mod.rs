@@ -431,7 +431,8 @@ impl Bot {
         self.inner.lock().unwrap().idle_since = None;
         drop(gate);
         if let Err(e) = self.ensure_awake().await {
-            let why = format!("the computer did not wake: {e:#}");
+            tracing::error!("task {}: the computer did not wake: {e:#}", task.id);
+            let why = "The computer did not start. Wake it from the Computer tab, then add the task again.".to_string();
             self.store
                 .move_task(&task.id, &["queued", "waiting"], "failed", Some(why))
                 .await?;
@@ -1333,6 +1334,30 @@ mod tests {
                 .unwrap()
                 .contains("scripted save failure")
         );
+    }
+
+    #[tokio::test]
+    async fn a_wake_failure_gives_the_owner_a_short_task_detail() {
+        let t = setup(vec![], 5000, true).await;
+        t.g.vm.inner.lock().unwrap().fail_wake = true;
+        let a = t.bot.submit("work".into(), Mode::Queue, 1).await.unwrap();
+        until("task failed", || async {
+            state(&t, &a.task_id).await == "failed"
+        })
+        .await;
+        let detail =
+            t.g.store
+                .task(&a.task_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .detail
+                .unwrap();
+        assert_eq!(
+            detail,
+            "The computer did not start. Wake it from the Computer tab, then add the task again."
+        );
+        assert!(!detail.contains('/') && !detail.contains("os error"));
     }
 
     #[tokio::test]
