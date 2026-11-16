@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SetupRecord } from "../lib/api";
 import { deliverSecret, guarded } from "../lib/wait";
-import { checkAttempts, resumeBlock, setupHeading, setupKey, stepLines } from "./setup-progress";
+import { checkAttempts, pauseActions, phaseLabel, resumeBlock, setupHeading, setupKey, stepLines } from "./setup-progress";
 
 const row = (phase: SetupRecord["phase"], version: number): SetupRecord => ({ version, chat_id: 1, phase, runtime_ready: false, error: null, checklist: [], setup: { id: "bot-one", wait: null, max_attempts: 3, steps: [], draft: {} as never } });
 const held = () => { let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); return { gate, release }; };
@@ -47,6 +47,33 @@ describe("duplicate protected delivery", () => {
     release();
     expect(await first).toEqual({ ok: true });
     expect(guard.busy).toBe(false);
+  });
+});
+
+describe("phase label", () => {
+  it("says ready when the runtime is ready", () => {
+    expect(phaseLabel({ ...row("Ready", 1), runtime_ready: true })).toBe("Your bot is ready");
+  });
+  it("says preparing for Ready before the runtime is ready", () => {
+    expect(phaseLabel(row("Ready", 1))).toBe("Preparing the runtime");
+  });
+  it("says review for Draft", () => {
+    expect(phaseLabel(row("Draft", 1))).toBe("Review setup");
+  });
+  it("shows the raw phase for Provisioning", () => {
+    expect(phaseLabel(row("Provisioning", 1))).toBe("Provisioning");
+  });
+});
+
+describe("pause and resume actions", () => {
+  it("shows resume only when the bot is paused", () => {
+    expect(pauseActions(true)).toEqual({ pause: false, resume: true });
+  });
+  it("shows pause only when the bot runs", () => {
+    expect(pauseActions(false)).toEqual({ pause: true, resume: false });
+  });
+  it("shows both when the pause state is unknown", () => {
+    expect(pauseActions(undefined)).toEqual({ pause: true, resume: true });
   });
 });
 
