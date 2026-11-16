@@ -274,14 +274,6 @@ CREATE TABLE privacy_generations(
 );
 ";
 
-/// The last local date a bot's daily schedule queued a task.
-const SCHEMA_V10: &str = "
-CREATE TABLE bot_schedule(
-    bot_id TEXT PRIMARY KEY,
-    last_date TEXT NOT NULL
-);
-";
-
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -362,7 +354,7 @@ pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let steps = [
         SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
-        SCHEMA_V9, SCHEMA_V10,
+        SCHEMA_V9,
     ];
     for (i, sql) in steps.iter().enumerate() {
         let v = i as i64 + 1;
@@ -645,7 +637,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 10);
+        assert_eq!(v, 9);
     }
 
     #[test]

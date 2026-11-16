@@ -75,6 +75,8 @@ impl Store {
     pub async fn schedule_tick(&self, now_secs: i64) -> anyhow::Result<usize> {
         self.run(move |c| {
             let t = Transaction::new_unchecked(c, TransactionBehavior::Immediate)?;
+            // No schema version: other branches use later versions for their own tables.
+            t.execute_batch("CREATE TABLE IF NOT EXISTS bot_schedule(bot_id TEXT PRIMARY KEY, last_date TEXT NOT NULL);")?;
             let rows: Vec<(String, i64, String)> = {
                 let mut q = t.prepare("SELECT d.draft_id, s.chat_id, d.body FROM bot_setup_drafts d JOIN bot_state s ON s.bot_id=d.bot_id WHERE d.lifecycle=1")?;
                 q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?
