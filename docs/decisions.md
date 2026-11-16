@@ -699,7 +699,7 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
 
-## D68. Queue daily schedules for ready bots (2026-11-15)
+## D88. Queue daily schedules for ready bots (2026-11-15)
 
 **Decision:** A draft may carry one daily schedule: a `HH:MM` time and a zone, either `UTC` or a fixed offset such as `+05:30`. Invalid values fail when the draft loads or saves. A started bot with a schedule gets one queued task per local day, after the time has passed. The task holds the setup task text, or the instructions when there is no task. The last queued date commits with the task in one transaction. A restart queues nothing twice. A missed time queues one catch-up task, not one per missed day. A bot seen for the first time after its time has passed records today and queues nothing, because setup just ran the first task.
 
