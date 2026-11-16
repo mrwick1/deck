@@ -1,7 +1,7 @@
 // The docked panel follows T3 Code's composer banners (MIT, see web/THIRD_PARTY.md).
 import { Button } from "@/components/ui/button";
 import { formatElapsed } from "@/lib/elapsed";
-import { describeStep } from "@/lib/steps";
+import { describePendingStep } from "@/lib/steps";
 import type { PendingApproval } from "@/lib/useDeck";
 import { HandIcon, Loader2Icon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -65,7 +65,7 @@ function ApprovalPanel({ approval }: { approval: PendingApproval }) {
         <span className="text-warning font-medium">Needs your answer</span>
       </div>
       <p className="text-sm font-medium">
-        {describeStep(approval.name, approval.args, true)}
+        {describePendingStep(approval.name, approval.args)}
       </p>
       {approval.reason && (
         <p className="text-muted-foreground text-sm">{approval.reason}</p>
