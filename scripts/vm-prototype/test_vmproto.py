@@ -16,6 +16,31 @@ import unittest.mock
 from unittest.mock import patch
 
 
+NO_SESSION = (3, json.dumps({"ready": False, "reason": "no_session"}), "")
+READY = (0, json.dumps({"ready": True, "tools": 2, "bot_id": "bot-1", "guest_id": "g"}), "")
+
+
+class FakeInstallQga:
+    """Records the guest writes and commands of install_executor. Answers the readiness probe with `probe`."""
+
+    def __init__(self, probe):
+        self.probe = probe
+        self.pushed = []
+        self.scripts = []
+        self.execs = []
+
+    def push(self, guest_path, data):
+        self.pushed.append(guest_path)
+
+    def sh(self, script, stdin=None, timeout=30):
+        self.scripts.append(script)
+        return (1, "", "") if script.startswith("test -e") else (0, "", "")
+
+    def exec(self, argv, stdin=None, timeout=30):
+        self.execs.append(argv)
+        return self.probe if "--ready" in argv else (0, "", "")
+
+
 class Helpers(unittest.TestCase):
     def test_start_refuses_live_vm_before_touching_sockets(self):
         with tempfile.TemporaryDirectory() as d:
@@ -93,6 +118,37 @@ class Helpers(unittest.TestCase):
         for bad in ("", "a b", "../x", "x" * 65):
             with self.assertRaises(SystemExit):
                 v.install_executor(p, bad)
+
+    def install(self, probe):
+        """Run install_executor against a fake QGA. `probe` answers `bare-call --ready`."""
+        q = FakeInstallQga(probe)
+        d = tempfile.mkdtemp(prefix="deck-install-")
+        self.addCleanup(shutil.rmtree, d, True)
+        p = v.Paths(d)
+        p.mk()
+        with patch.object(v, "Qga", return_value=q):
+            v.install_executor(p, "bot-1")
+        return q
+
+    def test_install_writes_guest_files_under_a_temp_name_then_renames(self):
+        q = self.install(NO_SESSION)
+        finals = list(v.EXECUTOR_FILES.values())
+        self.assertEqual(len(q.pushed), len(finals))
+        script = "\n".join(q.scripts)
+        for dst, tmp in zip(finals, q.pushed):
+            self.assertNotEqual(tmp, dst)
+            self.assertEqual(os.path.dirname(tmp), os.path.dirname(dst))
+            self.assertIn(f"mv -f {tmp} {dst}", script)
+        self.assertLess(script.index(f"chmod 755 {q.pushed[0]}"), script.index("mv -f"))
+
+    def test_no_session_starts_bare_session_exactly_once(self):
+        q = self.install(NO_SESSION)
+        starts = [a for a in q.execs if any("swaymsg" in x for x in a)]
+        self.assertEqual(starts, [["/usr/local/bin/as-deck", "sh", "-c", "swaymsg exec /usr/local/bin/bare-session"]])
+
+    def test_ready_session_is_not_started_again(self):
+        q = self.install(READY)
+        self.assertEqual([a for a in q.execs if any("swaymsg" in x for x in a)], [])
 
     def test_executor_files_exist_and_seed_carries_them(self):
         for f in v.EXECUTOR_FILES:

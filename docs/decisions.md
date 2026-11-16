@@ -710,3 +710,9 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.
 
 **Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.
+
+## D89. Start the bare session once after the executor install (2026-11-16)
+
+**Decision:** Write guest executor files under a temp name in the same folder, then rename them. After the install, ask the guest for a readiness probe. Start `bare-session` once, through `swaymsg`, only when the probe says `no_session`. A failure in this step does not stop the install.
+
+**Reason:** Issue #46. The install rewrote `bare-session` about two seconds after sway started it at login. The fresh bot then had no session, and `ready` never passed. Atomic rename removes the half-written file. The one-time start restores the session. The probe starts nothing when a session already runs.
