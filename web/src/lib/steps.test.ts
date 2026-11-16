@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeStep } from "./steps";
+import { describePendingStep, describeStep } from "./steps";
 
 describe("describeStep", () => {
   it("names the host of an opened page", () => {
@@ -24,5 +24,23 @@ describe("describeStep", () => {
     expect(describeStep("browser_new_tool", {}, false)).toBe(
       "Ran browser_new_tool",
     );
+  });
+});
+
+describe("describePendingStep", () => {
+  it("names the host in the imperative", () => {
+    expect(
+      describePendingStep("browser_open", { url: "https://example.com/a" }),
+    ).toBe("Open example.com");
+  });
+
+  it("describes an act click in the imperative", () => {
+    expect(describePendingStep("browser_act", { op: "click", ref: "e1" })).toBe(
+      "Click",
+    );
+  });
+
+  it("humanizes an unknown tool name", () => {
+    expect(describePendingStep("send_email", {})).toBe("Send email");
   });
 });
