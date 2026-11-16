@@ -710,3 +710,9 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.
 
 **Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.
+
+## D89. Give the model the current date and time (2026-11-16)
+
+**Decision:** Add one line to the end of each run's system message: `Current date and time: YYYY-MM-DD HH:MM UTC`. The line uses the UTC time when the run builds its messages. It goes last, so the rest of the prompt stays byte-identical.
+
+**Reason:** Issue #49. The system prompt had no date. A digest made on 2026-11-16 was headed "15 Nov 2026".
