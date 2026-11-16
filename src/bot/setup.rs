@@ -185,6 +185,9 @@ pub struct Setup {
     pub wait: Option<Wait>,
     pub wait_seq: u64,
     pub started: bool,
+    /// The owner retired the bot. It never registers or wakes again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub retired: bool,
     /// Recent closed challenge requests, newest last.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved: Vec<super::challenge::Resolved>,
@@ -288,6 +291,7 @@ impl Setup {
             steps: vec![],
             wait: None,
             wait_seq: 0,
+            retired: false,
             started: false,
             resolved: vec![],
         })

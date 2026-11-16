@@ -89,6 +89,14 @@ impl Harness {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
+    /// Stop the process of the bot without saving its state. A stopped computer needs no call.
+    pub async fn kill(&self) -> anyhow::Result<()> {
+        if self.status().await?.running {
+            self.run(&["kill"]).await?;
+        }
+        Ok(())
+    }
+
     fn vm_pid(&self) -> Option<u32> {
         let text = std::fs::read_to_string(self.dir.join("run").join("vm.json")).ok()?;
         serde_json::from_str::<Value>(&text).ok()?["pid"]

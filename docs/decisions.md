@@ -710,3 +710,9 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.
 
 **Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.
+
+## D89. Let the owner retire a bot (2026-11-16)
+
+**Decision:** Add the control action `retire`. It needs `{"confirm": true}`. It kills the bot's computer through the harness `kill` call and drops the runtime. It then stores `retired` in the setup record. The setup driver skips a retired setup, so it never registers or wakes after a restart. A retired bot does not count toward `max_bots`. A repeat call changes nothing. Chat, files and database rows stay.
+
+**Reason:** Issue #47. A broken bot kept its `max_bots` slot forever. The marker is written after the kill, so a failed kill can be retried. This slice has no UI and no undo.
