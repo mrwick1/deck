@@ -143,6 +143,9 @@ impl Service {
         accounting.ceiling = budget.ceiling;
         accounting.allowance = budget.allowance;
         c.accounting = Some(accounting);
+        if let Some(n) = row.setup.draft.max_steps {
+            c.agent.max_steps = n;
+        }
         Ok(c)
     }
 
@@ -347,6 +350,7 @@ mod tests {
                     ceiling: 100,
                 }),
                 credentials: vec![],
+                max_steps: None,
                 task: Some("Read fixture".into()),
                 schedule: None,
             },
@@ -442,6 +446,7 @@ mod tests {
                     ceiling: 100,
                 }),
                 credentials: vec![],
+                max_steps: None,
                 task: None,
                 schedule: None,
             },
@@ -521,9 +526,29 @@ mod tests {
                 ceiling: 100,
             }),
             credentials: vec![],
+            max_steps: None,
             task: None,
             schedule: None,
         }
+    }
+
+    #[tokio::test]
+    async fn a_bot_step_limit_overrides_only_its_own_config() {
+        let (_, store, _dir, service) = super::super::setup_api::tests::app();
+        let mut limited = fixture_draft(&service);
+        limited.max_steps = Some(40);
+        for (id, draft) in [("limited", limited), ("general", fixture_draft(&service))] {
+            let setup = super::super::setup::Setup::new(id, draft).unwrap();
+            store.create_setup(&setup).await.unwrap();
+        }
+        service.scan().await.unwrap();
+        let row = store.setup_record("limited").await.unwrap().unwrap();
+        assert_eq!(service.bot_config(&row).unwrap().agent.max_steps, 40);
+        let row = store.setup_record("general").await.unwrap().unwrap();
+        assert_eq!(
+            service.bot_config(&row).unwrap().agent.max_steps,
+            service.config.agent.max_steps
+        );
     }
 
     #[tokio::test]

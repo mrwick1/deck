@@ -699,6 +699,18 @@ Stage 3 is accepted for one configured bot with synthetic events and a scripted 
 
 The generated setup UI acceptance command omits --wait. That flag ends the controller when its first task completes, before the required final restart and late image evidence. The deadline, loss checks and explicit stop cleanup remain. The regression failed before the change; all 43 controller tests pass afterward. No product runtime or acceptance gate changes.
 
+## D86. Tell the owner when a run reaches the step limit (2026-11-15)
+
+**Decision:** When a run reaches `agent.max_steps`, store a fixed assistant message in the chat. The message says the step limit stopped the work and the task is not finished. Send it as a persisted text event too. The run still fails with the same task detail.
+
+**Reason:** Issue #37. The chat ended on a raw tool result, so the owner did not learn why the bot stopped. Fixed text adds no model call and keeps the history valid for the model.
+
+## D87. Let each bot set its own model-call limit (2026-11-15)
+
+**Decision:** Add an optional `max_steps` to the setup draft. Accept 1 to 200 on save. An approved bot uses its draft value. A draft without it uses the global `[agent] max_steps`.
+
+**Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.
+
 ## D88. Queue daily schedules for ready bots (2026-11-15)
 
 **Decision:** A draft may carry one daily schedule: a `HH:MM` time and a zone, either `UTC` or a fixed offset such as `+05:30`. Invalid values fail when the draft loads or saves. A started bot with a schedule gets one queued task per local day, after the time has passed. The task holds the setup task text, or the instructions when there is no task. The last queued date commits with the task in one transaction. A restart queues nothing twice. A missed time queues one catch-up task, not one per missed day. A bot seen for the first time after its time has passed records today and queues nothing, because setup just ran the first task.

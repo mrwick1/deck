@@ -145,6 +145,7 @@ mod tests {
             credentials: vec![],
             task: Some("Digest".into()),
             schedule,
+            max_steps: None,
         }
     }
 

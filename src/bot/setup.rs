@@ -85,6 +85,9 @@ pub struct Draft {
     pub budget: Option<Budget>,
     /// Labels of the credentials the job needs. Labels only, never values.
     pub credentials: Vec<String>,
+    /// Model calls one run may make. `None` keeps the global `[agent] max_steps`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_steps: Option<usize>,
     /// Specific work to start once ready. `None` means a general role.
     pub task: Option<String>,
     /// A daily time to queue the task again. `None` means one run.
@@ -827,9 +830,18 @@ mod tests {
             },
             budget: None,
             credentials: vec!["mail".into()],
+            max_steps: None,
             task: Some("Sort the inbox".into()),
             schedule: None,
         }
+    }
+
+    #[test]
+    fn a_draft_saved_without_a_step_limit_still_parses() {
+        let mut json = serde_json::to_value(draft()).unwrap();
+        json.as_object_mut().unwrap().remove("max_steps");
+        let parsed: Draft = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.max_steps, None);
     }
 
     fn limits() -> Limits {

@@ -480,6 +480,14 @@ impl Agent {
                 }
             }
         }
+        // Fixed text: the owner learns why the run stopped, with no extra model call.
+        let note = format!(
+            "I stopped because I reached the step limit of {} model calls. The task is not finished.",
+            self.config.agent.max_steps
+        );
+        self.store_message(run.chat_id, json!({"role":"assistant","content":note}))
+            .await?;
+        self.emit(run, "text", json!({"text": note}), true).await;
         Err(anyhow::anyhow!(
             "stopped after {} model calls (max_steps)",
             self.config.agent.max_steps
@@ -952,6 +960,11 @@ mod tests {
         assert_eq!(fin["status"], "failed");
         assert!(fin["error"].as_str().unwrap().contains("max_steps"));
         assert_eq!(f.requests.lock().unwrap().len(), 2);
+        // The owner must see why the work stopped, not a raw tool result.
+        let msgs = f.store.list_messages(f.chat).await.unwrap().unwrap();
+        let last: Value = serde_json::from_str(&msgs.last().unwrap().content).unwrap();
+        assert_eq!(last["role"], "assistant");
+        assert!(last["content"].as_str().unwrap().contains("step limit"));
     }
 
     #[tokio::test]

@@ -137,6 +137,7 @@ async fn create(
                 ceiling: p.accounting.ceiling,
             }),
             credentials: vec![],
+            max_steps: None,
             task: None,
             schedule: None,
         },
@@ -177,6 +178,16 @@ async fn edit(
         return Err(error(
             StatusCode::BAD_REQUEST,
             "Setup text exceeds its limit",
+        ));
+    }
+    if body
+        .draft
+        .max_steps
+        .is_some_and(|n| !(1..=200).contains(&n))
+    {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "Step limit must be 1 to 200",
         ));
     }
     row.setup
@@ -769,6 +780,42 @@ print(rec)
     }
 
     #[tokio::test]
+    async fn a_step_limit_outside_1_to_200_is_not_saved() {
+        let (app, store, _dir, _) = app();
+        let (_, row) = request(
+            &app,
+            "POST",
+            "/api/setups",
+            json!({"job":"Use fixture"}),
+            true,
+        )
+        .await;
+        let id = row["setup"]["id"].as_str().unwrap().to_owned();
+        for bad in [0, 201] {
+            let mut draft = row["setup"]["draft"].clone();
+            draft["max_steps"] = json!(bad);
+            let edit = json!({"version":1,"draft":draft});
+            assert_eq!(
+                request(&app, "POST", &format!("/api/setups/{id}"), edit, true)
+                    .await
+                    .0,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            store
+                .setup_record(&id)
+                .await
+                .unwrap()
+                .unwrap()
+                .setup
+                .draft
+                .max_steps,
+            None
+        );
+    }
+
+    #[tokio::test]
     async fn authenticated_revision_approval_creates_authority_but_never_an_early_computer() {
         let (app, store, dir, _) = app();
         assert_eq!(
@@ -854,6 +901,40 @@ print(rec)
             .0,
             StatusCode::BAD_REQUEST
         );
+    }
+
+    #[tokio::test]
+    async fn renaming_a_draft_renames_its_setup_chat() {
+        let (app, _, _, _) = app();
+        let (status, row) = request(
+            &app,
+            "POST",
+            "/api/setups",
+            json!({"job":"Read fixture"}),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = row["setup"]["id"].as_str().unwrap();
+        let chat_id = row["chat_id"].as_i64().unwrap();
+        let mut draft = row["setup"]["draft"].clone();
+        draft["name"] = json!("Renamed draft");
+        let path = format!("/api/setups/{id}");
+        let edit = json!({"version":1,"draft":draft});
+        assert_eq!(
+            request(&app, "POST", &path, edit, true).await.0,
+            StatusCode::NO_CONTENT
+        );
+        let (status, chats) = request(&app, "GET", "/api/chats", json!(null), true).await;
+        assert_eq!(status, StatusCode::OK);
+        let title = chats
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == chat_id)
+            .unwrap()["title"]
+            .clone();
+        assert_eq!(title, json!("Renamed draft"));
     }
 
     use super::super::setup::{Provisioner, StepOutcome, StepRequest};
