@@ -146,7 +146,7 @@ export function LivePill({ page, running }: { page?: Page; running: boolean }) {
             exit={{ y: -12, opacity: 0, scale: 0.95 }}
             whileTap={{ scale: 0.96 }}
             transition={spring}
-            className="bg-background/80 absolute top-2 left-1/2 z-10 flex max-w-[80%] -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur lg:hidden"
+            className="bg-background/80 mx-auto my-1.5 flex shrink-0 max-w-[80%] items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur lg:hidden"
             aria-label={`Live view: ${host(page.url)}`}
           >
             <LiveDot on={running} />

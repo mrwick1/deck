@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
 import { deliverSecret, describeTaskSecret, describeWait, waitFor } from "@/lib/wait";
 
-const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
+const field = "bg-background w-full rounded border px-2 py-1.5 text-base md:text-sm";
 const now = () => Math.floor(Date.now() / 1000);
 
 /** One password-style field. Its value lives only in the DOM node and is cleared on submit, failure and unmount. */

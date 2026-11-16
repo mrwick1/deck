@@ -6,7 +6,7 @@ import { describeLimits, parseMinor, parseReviewLimits } from "@/lib/bot";
 import { WaitPanel } from "@/components/SetupWait";
 
 const fail = (e: unknown) => toast.error((e as Error).message);
-const field = "bg-background w-full rounded border px-2 py-1.5 text-sm";
+const field = "bg-background w-full rounded border px-2 py-1.5 text-base md:text-sm";
 
 function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise<void> }) {
   const [draft, setDraft] = useState<api.SetupDraft>(() => structuredClone(row.setup.draft));
