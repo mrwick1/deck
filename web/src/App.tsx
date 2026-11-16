@@ -108,18 +108,7 @@ export default function App() {
                 >
                   <MenuIcon />
                 </Button>
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.h1
-                    key={title}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.15 }}
-                    className="min-w-0 flex-1 truncate text-sm font-medium"
-                  >
-                    {title}
-                  </motion.h1>
-                </AnimatePresence>
+                <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
                 <AnimatePresence>
                   {!connected && (
                     <motion.span
