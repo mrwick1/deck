@@ -730,3 +730,9 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** Add the control action `retire`. It needs `{"confirm": true}`. It kills the bot's computer through the harness `kill` call and drops the runtime. It then stores `retired` in the setup record. The setup driver skips a retired setup, so it never registers or wakes after a restart. A retired bot does not count toward `max_bots`. A repeat call changes nothing. Chat, files and database rows stay.
 
 **Reason:** Issue #47. A broken bot kept its `max_bots` slot forever. The marker is written after the kill, so a failed kill can be retried. This slice has no UI and no undo.
+
+## D91. Give the model the current date and time (2026-11-16)
+
+**Decision:** Add one line to the end of each run's system message: `Current date and time: YYYY-MM-DD HH:MM UTC`. The line uses the UTC time when the run builds its messages. It goes last, so the rest of the prompt stays byte-identical.
+
+**Reason:** Issue #49. The system prompt had no date. A digest made on 2026-11-16 was headed "15 Nov 2026".
