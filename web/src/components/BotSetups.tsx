@@ -57,7 +57,7 @@ function Review({ row, refresh }: { row: api.SetupRecord; refresh: () => Promise
       <label className="text-xs">Daily time<input type="time" className={field} value={time} onChange={e => setTime(e.target.value)} /></label>
       <label className="text-xs">Time zone offset<input className={field} placeholder="UTC or +05:30" value={zone} onChange={e => setZone(e.target.value)} /></label>
       <label className="text-xs">Step limit (1 to 200)<input type="number" min={1} max={200} className={field} value={steps} onChange={e => setSteps(e.target.value)} /></label>
-      {limitError && <p role="alert" className="col-span-3 text-sm text-red-500">{limitError}</p>}
+      {limitError && <p role="alert" className="col-span-3 text-sm text-error-foreground">{limitError}</p>}
     </fieldset>
     <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !!limitError} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !budget || !!limitError} onClick={() => save(true)}>Approve setup and create computer</Button></div>
   </div>;
@@ -84,13 +84,13 @@ export function BotSetups({ onOpen }: { onOpen: (id: string, chat: number) => vo
   return <section aria-label="Bot setup" className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4">
     <div className="flex items-center justify-between"><h2 className="text-sm font-medium">Your bots</h2><Button size="sm" variant="ghost" onClick={() => refresh().catch(fail)}>Refresh</Button></div>
     {enabled && <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); if (job.trim()) create(); }}><label className="text-sm">Describe the new bot’s job<textarea className={field} rows={2} maxLength={20000} value={job} onChange={e => setJob(e.target.value)} placeholder="What should this bot do? Do not include credentials." /></label><Button className="self-start" type="submit" disabled={busy || !job.trim()}>Propose setup</Button></form>}
-    {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    {error && <p role="alert" className="text-sm text-error-foreground">{error}</p>}
     {rows.map(r => <article key={r.setup.id} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{r.setup.draft.name}</h3><span className="text-muted-foreground text-xs">{r.runtime_ready ? "Ready" : r.phase}</span></div>
       {r.phase === "Draft" ? <><Button size="sm" variant="outline" aria-expanded={editing === r.setup.id} onClick={() => setEditing(editing === r.setup.id ? null : r.setup.id)}>{editing === r.setup.id ? "Hide review" : "Review setup"}</Button>{editing === r.setup.id && <Review key={`${r.setup.id}-${r.version}`} row={r} refresh={refresh} />}</> : <>
         {describeLimits(r.setup.draft) && <p className="text-sm">{describeLimits(r.setup.draft)}.</p>}
         <ul className="text-sm">{r.checklist.map(i => <li key={i.label}>{i.done ? "✓" : "·"} {i.label}</li>)}</ul>
-        {r.error && <p role="alert" className="text-sm text-red-500">{r.error}</p>}
+        {r.error && <p role="alert" className="text-sm text-error-foreground">{r.error}</p>}
         {r.setup.wait && <WaitPanel row={r} protectedInput={protectedInput} refresh={refresh} />}
         {r.phase === "Investigate" && <p className="text-sm">A setup step has an unknown outcome. Investigate before retrying.</p>}
         {r.phase === "Exhausted" && <label className="text-sm">Attempts exhausted. New total attempt limit<input type="number" min={1} defaultValue={r.setup.max_attempts} className={field} onBlur={e => { const value = Number(e.target.value); if (Number.isInteger(value) && value > r.setup.max_attempts) control(r, { action: "attempts", value }); }} /></label>}

@@ -21,12 +21,12 @@ function LiveDot({ on }: { on: boolean }) {
   return (
     <span className="relative flex size-2">
       {on && (
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/70 motion-reduce:animate-none" />
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-success/70 motion-reduce:animate-none" />
       )}
       <span
         className={cn(
           "relative inline-flex size-2 rounded-full",
-          on ? "bg-emerald-500" : "bg-muted-foreground/40",
+          on ? "bg-success" : "bg-muted-foreground/40",
         )}
       />
     </span>

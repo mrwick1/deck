@@ -20,7 +20,7 @@ import { useBot } from "@/lib/bot";
 import { useDeck } from "@/lib/useDeck";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { MenuIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useState } from "react";
 import { Toaster } from "sonner";
 import { Drawer } from "vaul";
@@ -63,6 +63,7 @@ export default function App() {
   const showScreen = inChat && bot.computer === "awake" && (screen || browserActive || !!bot.waiting);
 
   return (
+    <MotionConfig reducedMotion="user">
     <AssistantRuntimeProvider runtime={runtime}>
       <BotScope value={selectedBot}>
       <DockContext value={dock}>
@@ -183,5 +184,6 @@ export default function App() {
       </DockContext>
       </BotScope>
     </AssistantRuntimeProvider>
+    </MotionConfig>
   );
 }
