@@ -201,6 +201,7 @@ mod tests {
             credentials: vec![],
             max_steps: None,
             task: Some("Read the supplied fixture".into()),
+            schedule: None,
         }
     }
 

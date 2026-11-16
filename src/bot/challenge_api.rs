@@ -202,6 +202,7 @@ mod tests {
                 credentials: vec![],
                 max_steps: None,
                 task: Some("Sign in to the fixture".into()),
+                schedule: None,
             },
         )
         .unwrap();
