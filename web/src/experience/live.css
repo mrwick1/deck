@@ -8,7 +8,7 @@
 
 .experience{--page:#f7f7f8;--surface:#fff;--raised:#eeeeef;--line:#dedee1;--ink:#242428;--secondary:#525258;--muted:#68686f;--accent:#496854}.experience button,.experience summary{touch-action:manipulation}.experience .requests-view button{min-height:44px}@media(prefers-reduced-motion:reduce){.experience [data-slot=aui_thread-viewport]{scroll-behavior:auto}}
 
-.experience .composer-context .choice-trigger{display:flex;align-items:center;justify-content:flex-end;min-height:44px;height:44px!important}.experience .bot-list-row{height:auto}.experience .bot-row-copy>strong{overflow-wrap:anywhere}.experience .text-button{height:auto}
+.experience .composer-context .choice-trigger{display:flex;align-items:center;justify-content:flex-end;min-height:44px;height:44px!important}.experience .bot-list-row{height:auto}.experience .bot-row-copy>strong{overflow-wrap:anywhere}.experience .text-button{height:auto}.experience .bot-id{color:var(--secondary);font-weight:400}
 .experience .attention,.experience .bot-list-row,.experience .result-row{height:auto;min-height:44px;min-width:0;white-space:normal}.experience .bot-list{grid-template-columns:minmax(0,1fr)}.experience .attention>span,.experience .result-row>span{min-width:0;overflow-wrap:anywhere}
 
 .experience .route-unit,.experience .route-loading{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}.experience .route-loading .start-unavailable>button{margin-top:16px;min-height:44px}.experience .route-composer-line{display:block;height:44px;width:100%;border-radius:8px;background:linear-gradient(var(--raised),var(--raised)) 0 50%/60% 16px no-repeat}
