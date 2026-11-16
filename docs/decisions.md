@@ -104,7 +104,7 @@ Each decision has a date, the decision and the reason.
 
 **Decision:** `deck` files each `bare` failure as an issue on `mrwick1/bare` with the label `bare-mcp`. A scheduled agent task runs once a day on the owner's machine. It picks up to three open labelled issues and starts one agent for each, in its own worktree. Each agent opens a fix pull request. The owner reviews each pull request. Nothing merges on its own.
 
-**Order:** Issues that block a `deck` task come first, then the oldest. The task skips an issue that has an open pull request or the label `in-progress`. It adds `in-progress` when it starts an issue. `deck` pins a `bare` release. The owner chooses when to update it.
+**Order:** Issues that block a `deck` task come first, then the oldest. The task skips an issue that has an open pull request or the label `in-progress`. It adds `in-progress` when it starts an issue. D93 replaces the pinned `bare` of this decision.
 
 **Reason:** Fixes arrive without manual work. A small daily batch keeps the cost and the review load low. A pinned `bare` keeps `deck` stable.
 
@@ -742,3 +742,11 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 **Decision:** Write guest executor files under a temp name in the same folder, then rename them. After the install, ask the guest for a readiness probe. Start `bare-session` once, through `swaymsg`, only when the probe says `no_session`. A failure in this step does not stop the install.
 
 **Reason:** Issue #46. The install rewrote `bare-session` about two seconds after sway started it at login. The fresh bot then had no session, and `ready` never passed. Atomic rename removes the half-written file. The one-time start restores the session. The probe starts nothing when a session already runs.
+
+## D93. Production follows bare main (2026-11-16)
+
+**Decision:** Production does not pin a `bare` release. Each `deck` deploy builds `bare-mcp` from the newest `bare` main and installs it in every guest. The guest check of the `bare-mcp` hash stays. The deploy sets the expected hash from that build. No person keeps the hash by hand. This replaces the pinned `bare` of D15.
+
+**Reason:** The owner asked for it. A merged `bare` fix did not reach the guests: the Gmail service refused any `bare-mcp` except the pinned hash, and new bots took `bare` from the base image. Merged fixes must reach production with the next deploy.
+
+**Risk:** A `bare` regression reaches production with the next deploy. The rollback copy of each deploy keeps the previous `bare-mcp`, so one restore undoes it.
