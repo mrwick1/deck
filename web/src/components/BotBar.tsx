@@ -1,9 +1,16 @@
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import * as api from "@/lib/api";
 import { PRIORITIES, ceilingAnswer, describeBot, type Tone } from "@/lib/bot";
 import { cn } from "@/lib/utils";
 import {
   BellIcon,
+  EllipsisIcon,
   MonitorIcon,
   MoonIcon,
   PauseIcon,
@@ -66,19 +73,19 @@ export function BotBar({
     <div
       role="region"
       aria-label="Bot"
-      className="flex flex-wrap items-center gap-1.5 border-b px-2 py-1.5 text-xs md:px-4"
+      className="flex items-center gap-1.5 border-b px-2 py-1.5 text-xs md:flex-wrap md:px-4"
     >
       <button
         type="button"
         onClick={onHome}
-        className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted"
+        className="flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted pointer-coarse:min-h-11"
         aria-label="Overview"
       >
         <StatusDot tone={d.tone} />
         <span className="font-medium">{d.label}</span>
       </button>
       {status.working && (
-        <span className="text-muted-foreground min-w-0 max-w-[40ch] truncate">
+        <span className="text-muted-foreground min-w-0 max-w-[40ch] truncate max-md:hidden">
           {status.working.title}
         </span>
       )}
@@ -91,6 +98,7 @@ export function BotBar({
       <Button
         size="sm"
         variant="outline"
+        className="max-md:hidden"
         onClick={() => api.botPause(!status.automation_paused,botId).catch(fail)}
         title="Pause automation: no new task starts. The computer keeps its state."
       >
@@ -100,6 +108,7 @@ export function BotBar({
       <Button
         size="sm"
         variant="outline"
+        className="max-md:hidden"
         disabled={status.computer === "waking" || status.computer === "saving"}
         onClick={() => (awake ? api.botSleep(botId) : api.botWake(botId)).catch(fail)}
         title={awake ? "Save the computer to disk. It wakes on the next task." : "Wake the computer"}
@@ -108,7 +117,12 @@ export function BotBar({
         {awake ? "Sleep computer" : "Wake computer"}
       </Button>
       {awake && (
-        <Button size="sm" variant={screenOpen ? "secondary" : "outline"} onClick={onScreen}>
+        <Button
+          size="sm"
+          variant={screenOpen ? "secondary" : "outline"}
+          className="max-md:hidden"
+          onClick={onScreen}
+        >
           <MonitorIcon className="size-3" /> Screen
         </Button>
       )}
@@ -116,6 +130,33 @@ export function BotBar({
         <BellIcon className="size-3" />
         {inboxCount > 0 && <span className="tabular-nums">{inboxCount}</span>}
       </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" className="md:hidden" aria-label="More">
+            <EllipsisIcon className="size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onSelect={() => api.botPause(!status.automation_paused, botId).catch(fail)}
+          >
+            {status.automation_paused ? <PlayIcon /> : <PauseIcon />}
+            {status.automation_paused ? "Resume automation" : "Pause automation"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={status.computer === "waking" || status.computer === "saving"}
+            onSelect={() => (awake ? api.botSleep(botId) : api.botWake(botId)).catch(fail)}
+          >
+            {awake ? <MoonIcon /> : <SunIcon />}
+            {awake ? "Sleep computer" : "Wake computer"}
+          </DropdownMenuItem>
+          {awake && (
+            <DropdownMenuItem onSelect={onScreen}>
+              <MonitorIcon /> Screen
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -170,7 +211,7 @@ export function SendOptions({
       <label className="flex items-center gap-1">
         Send as
         <select
-          className="bg-background rounded border px-1 py-0.5"
+          className="bg-background rounded border px-1 py-0.5 text-base md:text-sm"
           value={mode}
           onChange={(e) => setMode(e.target.value as "steer" | "queue")}
         >
@@ -182,7 +223,7 @@ export function SendOptions({
         <label className="flex items-center gap-1">
           Priority
           <select
-            className="bg-background rounded border px-1 py-0.5"
+            className="bg-background rounded border px-1 py-0.5 text-base md:text-sm"
             value={priority}
             onChange={(e) => setPriority(Number(e.target.value))}
           >
@@ -214,7 +255,7 @@ function CeilingForm({ r, done }: { r: api.CeilingRequest; done: () => void }) {
         Ceiling now {shown} {r.currency}. {r.reason}
       </span>
       <input
-        className="bg-background w-28 rounded border px-1 py-0.5 text-xs"
+        className="bg-background w-28 rounded border px-1 py-0.5 text-base md:text-xs"
         inputMode="decimal"
         aria-label={`New ceiling in ${r.currency}`}
         placeholder={`New ceiling (${r.currency})`}
@@ -290,8 +331,11 @@ export function InboxPanel({
 }) {
   const botId=useContext(BotScope);
   return (
-    <section aria-label="Inbox" className="border-b px-3 py-2 md:px-4">
-      <div className="mb-2 flex items-center justify-between text-sm font-medium">
+    <section
+      aria-label="Inbox"
+      className="max-h-[40dvh] overflow-y-auto overscroll-contain border-b px-3 pb-2 md:px-4"
+    >
+      <div className="bg-background sticky top-0 mb-2 flex pt-2 items-center justify-between text-sm font-medium">
         Inbox
         <Button size="sm" variant="ghost" onClick={onClose}>
           Close

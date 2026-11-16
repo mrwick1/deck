@@ -97,7 +97,7 @@ export default function App() {
               </Drawer.Portal>
             </Drawer.Root>
             <main className="flex min-w-0 flex-1 flex-col">
-              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 pt-[env(safe-area-inset-top)] md:px-4">
+              <header className="flex min-h-12 shrink-0 items-center gap-2 border-b px-2 pt-[env(safe-area-inset-top)] md:px-4">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -161,10 +161,12 @@ export default function App() {
                 />
               )}
               {(!bot || chatId !== null) && (
-                <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+                <>
                   <LivePill page={page} running={running} />
-                  <Thread components={THREAD} />
-                </div>
+                  <div className="relative min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+                    <Thread components={THREAD} />
+                  </div>
+                </>
               )}
               {inChat && (
                 <SendOptions
