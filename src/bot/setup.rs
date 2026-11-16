@@ -90,6 +90,9 @@ pub struct Draft {
     pub max_steps: Option<usize>,
     /// Specific work to start once ready. `None` means a general role.
     pub task: Option<String>,
+    /// A daily time to queue the task again. `None` means one run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<super::schedule::Schedule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -829,6 +832,7 @@ mod tests {
             credentials: vec!["mail".into()],
             max_steps: None,
             task: Some("Sort the inbox".into()),
+            schedule: None,
         }
     }
 
@@ -1189,6 +1193,7 @@ mod tests {
             "bot-1",
             Draft {
                 task: None,
+                schedule: None,
                 credentials: vec![],
                 ..draft()
             },
