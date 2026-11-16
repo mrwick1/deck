@@ -304,6 +304,13 @@ impl Agent {
         {
             system.push_str(&format!("\nCurrent approved job (version {}):\n{}\nAuthority: {:?}\nOwner restrictions: {}\nThese current settings replace older job instructions in the conversation.\n", definition.version, definition.instructions, definition.authority, serde_json::to_string(&definition.restrictions)?));
         }
+        // Issue #49: an RFC 3339 UTC stamp, shown as "YYYY-MM-DD HH:MM UTC".
+        let now = crate::store::now();
+        system.push_str(&format!(
+            "Current date and time: {} {} UTC\n",
+            &now[..10],
+            &now[11..16]
+        ));
         let mut out = vec![json!({"role":"system","content":system})];
         let stored = self.store.list_messages(chat_id).await?.unwrap_or_default();
         for m in stored {
@@ -833,6 +840,25 @@ mod tests {
         assert_eq!(sent["messages"][0]["role"], "system");
         assert_eq!(sent["stream"], true);
         assert!(sent["tools"].as_array().unwrap().len() >= 5);
+    }
+
+    /// Issue #49: the model knows the current date and time (UTC).
+    #[tokio::test]
+    async fn system_message_states_the_current_date() {
+        let f = fixture(vec![text_reply("pong")], FakeHost::default(), 5).await;
+        let (_, h) = f.agent.start(f.chat, "ping".into()).await.unwrap().unwrap();
+        h.await.unwrap();
+        let sent = f.requests.lock().unwrap()[0].clone();
+        let system = sent["messages"][0]["content"].as_str().unwrap();
+        let line = system
+            .lines()
+            .find_map(|l| l.strip_prefix("Current date and time: "))
+            .unwrap();
+        let shape: String = line
+            .chars()
+            .map(|c| if c.is_ascii_digit() { 'd' } else { c })
+            .collect();
+        assert_eq!(shape, "dddd-dd-dd dd:dd UTC");
     }
 
     /// Decision D4: a screenshot the user asks for always reaches the chat.

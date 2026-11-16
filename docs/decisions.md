@@ -711,7 +711,33 @@ The generated setup UI acceptance command omits --wait. That flag ends the contr
 
 **Reason:** One global limit forced a narrow bot and a general research bot to share a value. A low limit stopped the general bot early. The field defaults to none, so older drafts still load unchanged. Issue #38.
 
-## D89. Start the bare session once after the executor install (2026-11-16)
+## D88. Queue daily schedules for ready bots (2026-11-15)
+
+**Decision:** A draft may carry one daily schedule: a `HH:MM` time and a zone, either `UTC` or a fixed offset such as `+05:30`. Invalid values fail when the draft loads or saves. A started bot with a schedule gets one queued task per local day, after the time has passed. The task holds the setup task text, or the instructions when there is no task. The last queued date commits with the task in one transaction. A restart queues nothing twice. A missed time queues one catch-up task, not one per missed day. A bot seen for the first time after its time has passed records today and queues nothing, because setup just ran the first task.
+
+**Boundary:** Queueing bypasses no gate. Pause, budget and other holds still block dispatch. Deck adds no UI, no weekday rules, no named zones with daylight saving, and no model extraction of a schedule from job text.
+
+**Reason:** A job that says "every day" ran once. The owner wants daily bots, such as a news digest at 08:00 Asia/Kolkata (`+05:30`). A fixed offset keeps the first version small and testable.
+
+## D89. Show the schedule and step limit in the setup review form (2026-11-16)
+
+**Decision:** The web review form has a daily time, a time zone offset and a step limit. Empty fields send no value. The form checks the same rules as the API and blocks save on an invalid value. The approved view shows both values.
+
+**Reason:** Issue #48. Only a raw API call could set D87 and D88 values before approval.
+
+## D90. Let the owner retire a bot (2026-11-16)
+
+**Decision:** Add the control action `retire`. It needs `{"confirm": true}`. It kills the bot's computer through the harness `kill` call and drops the runtime. It then stores `retired` in the setup record. The setup driver skips a retired setup, so it never registers or wakes after a restart. A retired bot does not count toward `max_bots`. A repeat call changes nothing. Chat, files and database rows stay.
+
+**Reason:** Issue #47. A broken bot kept its `max_bots` slot forever. The marker is written after the kill, so a failed kill can be retried. This slice has no UI and no undo.
+
+## D91. Give the model the current date and time (2026-11-16)
+
+**Decision:** Add one line to the end of each run's system message: `Current date and time: YYYY-MM-DD HH:MM UTC`. The line uses the UTC time when the run builds its messages. It goes last, so the rest of the prompt stays byte-identical.
+
+**Reason:** Issue #49. The system prompt had no date. A digest made on 2026-11-16 was headed "15 Nov 2026".
+
+## D92. Start the bare session once after the executor install (2026-11-16)
 
 **Decision:** Write guest executor files under a temp name in the same folder, then rename them. After the install, ask the guest for a readiness probe. Start `bare-session` once, through `swaymsg`, only when the probe says `no_session`. A failure in this step does not stop the install.
 

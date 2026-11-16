@@ -402,6 +402,7 @@ mod tests {
                 credentials,
                 max_steps: None,
                 task: None,
+                schedule: None,
             },
         )
         .unwrap();
