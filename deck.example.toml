@@ -20,10 +20,10 @@ agent_model = "claude-sonnet-5-5"
 small_model = "claude-haiku-5-5"
 
 [bare]
-# Command that starts the bare MCP server.
-command = "bare-mcp"
+# Command that starts the offstage MCP server. deck uses only its browser_* tools (Bare).
+command = "offstage"
 # Arguments for that command.
-args = []
+args = ["mcp"]
 # Optional: a file of NAME=value lines (mode 0600). The model types ${NAME}; bare fills in the value.
 # secrets_file = "/path/to/secrets.env"
 # Optional: a folder for browser session files (one <name>.state per session, mode 0700). Holds live logins; keep it outside the repository.

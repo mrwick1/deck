@@ -17,8 +17,8 @@ For the web app, run `cargo run`, then `npm run dev` in `web/`. Open the address
 Run `npm ci` in `web/` once. Run `npm run check` and `npm test` there before you commit.
 To build one binary, run `npm run build` in `web/`, then `cargo build --release`. The binary embeds `web/dist`.
 Without `web/dist`, `cargo build` embeds a placeholder page.
-`bare-mcp` must be on `PATH`, or set `bare.command` in `deck.toml`. The agent starts it on the first browser tool call.
-Run `cargo test -- --ignored` to run the live tests. They start the real `bare-mcp`, so it must be on `PATH`.
+`offstage` must be on `PATH`, or set `bare.command` in `deck.toml`. Its installer also installs `bare-mcp` and `bare-drive`. The agent starts `offstage mcp` on the first browser tool call and uses only its `browser_*` tools. The `[vm]` guests still run `bare-mcp` directly; see [docs/vm-offstage.md](docs/vm-offstage.md).
+Run `cargo test -- --ignored` to run the live tests. They start the real browser, so it must be on `PATH`.
 `tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
 A `[vm]` section in `deck.toml` gives the bot its own guest computer. See [docs/stage3-results.md](docs/stage3-results.md).
 The one-bot save command caps migration at 512 MiB/s. The CLI accepts `stop --bandwidth-mib 128` for the original cap. Concurrent saves and slow storage remain untested. See [docs/migration-bandwidth-results.md](docs/migration-bandwidth-results.md).

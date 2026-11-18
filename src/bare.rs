@@ -115,28 +115,45 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Conn<R, W> {
         self.notify("notifications/initialized").await
     }
 
+    /// The browser tools of offstage (`browser_<name>`), by their Bare names. The other offstage tools are dropped.
     pub async fn list_tools(&mut self) -> anyhow::Result<Value> {
-        self.request("tools/list", json!({})).await
+        let mut list = self.request("tools/list", json!({})).await?;
+        if let Some(tools) = list["tools"].as_array_mut() {
+            tools.retain_mut(|t| {
+                let Some(name) = t["name"].as_str().and_then(|n| n.strip_prefix("browser_")) else {
+                    return false;
+                };
+                t["name"] = name.into();
+                true
+            });
+        }
+        Ok(list)
     }
 
-    /// Call a tool. A JSON report in `content[0].text` is parsed; other text (a snapshot, a receipt) is a string.
+    /// Call a Bare tool through offstage. A JSON report in `content[0].text` is parsed; other text (a snapshot, a receipt) is a string.
     pub async fn call_tool(&mut self, name: &str, args: Value) -> anyhow::Result<Value> {
         let r = self
-            .request("tools/call", json!({"name": name, "arguments": args}))
+            .request(
+                "tools/call",
+                json!({"name": format!("browser_{name}"), "arguments": args}),
+            )
             .await?;
         tool_value(&r)
     }
 }
 
 /// The value of an MCP tool result: a JSON report in `content[0].text` is parsed; other text stays a string.
+/// offstage marks a failed report (`"ok": false`) as an error. It stays a report, as from Bare itself.
 pub fn tool_value(r: &Value) -> anyhow::Result<Value> {
     let text = r["content"][0]["text"]
         .as_str()
-        .ok_or_else(|| anyhow!("bare-mcp result has no text"))?;
-    if r["isError"].as_bool() == Some(true) {
-        return Err(anyhow!("bare-mcp tool error: {text}"));
+        .ok_or_else(|| anyhow!("bare result has no text"))?;
+    let value: Option<Value> = serde_json::from_str(text).ok();
+    if r["isError"].as_bool() == Some(true) && !value.as_ref().is_some_and(|v| v["ok"].is_boolean())
+    {
+        return Err(anyhow!("bare tool error: {text}"));
     }
-    Ok(serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_owned())))
+    Ok(value.unwrap_or_else(|| Value::String(text.to_owned())))
 }
 
 type Pipes = Conn<tokio::process::ChildStdout, tokio::process::ChildStdin>;
@@ -261,7 +278,7 @@ mod tests {
     use super::*;
     use tokio::io::{DuplexStream, duplex, split};
 
-    /// Replays the real bare-mcp transcript over an in-process pipe.
+    /// Replays a real transcript of Bare through offstage over an in-process pipe.
     async fn fake_server(io: DuplexStream) {
         let (r, mut w) = split(io);
         let mut lines = BufReader::new(r).lines();
@@ -271,15 +288,22 @@ mod tests {
             let result = match v["method"].as_str().unwrap() {
                 "initialize" => {
                     assert_eq!(v["params"]["protocolVersion"], PROTOCOL);
-                    json!({"protocolVersion":PROTOCOL,"capabilities":{"tools":{}},"serverInfo":{"name":"bare-mcp"}})
+                    json!({"protocolVersion":PROTOCOL,"capabilities":{"tools":{}},"serverInfo":{"name":"offstage"}})
                 }
-                "tools/list" => json!({"tools":[{"name":"open"},{"name":"step"}]}),
+                "tools/list" => {
+                    json!({"tools":[{"name":"screen_create"},{"name":"browser_open"},{"name":"browser_step"},{"name":"browser_close"}]})
+                }
                 "tools/call" => {
                     let report = match v["params"]["name"].as_str().unwrap() {
-                        "open" => {
+                        // offstage marks a failed report as an error.
+                        "browser_close" => {
+                            return_error(&mut w, id, json!({"ok":false,"failure":"x"})).await;
+                            continue;
+                        }
+                        "browser_open" => {
                             json!({"ok":true,"steps":[],"out":"/data/tmp/bare-mcp-3150233-1"})
                         }
-                        "step" => {
+                        "browser_step" => {
                             json!({"ok":true,"steps":[{"line":2,"step":"shot home","ok":true,"note":"/data/tmp/bare-mcp-3150233-1/home.png"}],"out":"/data/tmp/bare-mcp-3150233-1"})
                         }
                         _ => json!({"ok":false}),
@@ -297,6 +321,12 @@ mod tests {
         }
     }
 
+    async fn return_error(w: &mut tokio::io::WriteHalf<DuplexStream>, id: &Value, report: Value) {
+        let result = json!({"content":[{"type":"text","text":report.to_string()}],"isError":true});
+        let reply = json!({"jsonrpc":"2.0","id":id,"result":result});
+        w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+    }
+
     #[tokio::test]
     async fn replays_the_transcript() {
         let (a, b) = duplex(8192);
@@ -304,7 +334,14 @@ mod tests {
         let (r, w) = split(a);
         let mut c = Conn::new(r, w);
         c.handshake().await.unwrap();
-        assert_eq!(c.list_tools().await.unwrap()["tools"][0]["name"], "open");
+        // Only the browser tools of offstage, by their Bare names.
+        let names: Vec<Value> = c.list_tools().await.unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].clone())
+            .collect();
+        assert_eq!(names, [json!("open"), json!("step"), json!("close")]);
         let open = c
             .call_tool("open", json!({"url":"file:///x/p.html"}))
             .await
@@ -318,6 +355,9 @@ mod tests {
             step["steps"][0]["note"],
             "/data/tmp/bare-mcp-3150233-1/home.png"
         );
+        // A failed report stays a report, as from Bare itself.
+        let close = c.call_tool("close", json!({})).await.unwrap();
+        assert_eq!(close["ok"], false);
     }
 
     #[tokio::test]

@@ -873,3 +873,11 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 **Reason:** The owner asked for the compact UI on `main`. Production already served it at the root. `main` still loaded the old app, so the two differed.
 
 **Boundary:** The old UI files are not removed. Removing them needs the owner's confirmation.
+
+## D95. Reach bare through offstage (2026-11-18)
+
+**Decision:** Without `[vm]`, deck starts `offstage mcp`, not `bare-mcp`. It keeps only the `browser_*` tools and maps them to Bare names, so the rest of deck does not change. It hides the offstage `screen` argument. offstage marks a failed report (`"ok": false`) as an error; deck keeps it as a report. The `[vm]` guests still run `bare-mcp`; see [vm-offstage.md](vm-offstage.md). offstage auto-reports and self-update stay on.
+
+**Reason:** The owner decided that offstage is the only way an agent reaches `bare`, and deck is an agent. See `docs/design-agent-interface.md` in `mrwick1/bare`.
+
+**Risk:** offstage runs one tool call at a time. deck already did. offstage files a beta report after repeated failures, so busy deck traffic can file reports.

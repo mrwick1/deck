@@ -1,4 +1,4 @@
-//! Runs the real `bare-mcp`. Needs it on PATH. Run with `cargo test -- --ignored bare_live`.
+//! Runs the real `offstage mcp`, which runs `bare-mcp`. Needs both on PATH. Run with `cargo test -- --ignored bare_live`.
 #![allow(dead_code)]
 
 #[path = "../src/bare.rs"]
@@ -7,7 +7,7 @@ mod bare;
 use serde_json::json;
 
 #[tokio::test]
-#[ignore = "needs a bare-mcp with the agent tools on PATH"]
+#[ignore = "needs offstage and bare-mcp on PATH"]
 async fn bare_live() {
     let dir = std::env::temp_dir().join(format!("deck-bare-live-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -22,9 +22,13 @@ async fn bare_live() {
     );
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let b = bare::Bare::new("bare-mcp".into(), vec![]);
+    let b = bare::Bare::new("offstage".into(), vec!["mcp".into()]);
     let open = b.call("open", json!({"url": url})).await.unwrap();
-    assert_eq!(open["ok"], true, "{open}");
+    // A JSON report, or the compact receipt `ok (N ms)`.
+    assert!(
+        open["ok"] == true || open.as_str().is_some_and(|t| t.starts_with("ok (")),
+        "{open}"
+    );
     let names: Vec<String> = b
         .tools()
         .await
