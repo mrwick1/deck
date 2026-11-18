@@ -14,13 +14,13 @@ The decisions are in [decisions.md](decisions.md). The latest decision wins. Whe
 user (web app) ──HTTPS + SSE──> deck service (Rust, one process)
                                   │
                                   ├── agent loop ⇄ model endpoint (OpenAI-compatible /chat/completions)
-                                  ├── browser tools ──> bare-mcp (stdio) ──> bare
+                                  ├── browser tools ──> offstage mcp (stdio) ──> bare-mcp ──> bare
                                   ├── send_file ──> workspace (shots/, downloads/)
                                   └── SQLite store (chats, messages, runs, events, files)
 ```
 
 - The service is one binary. It serves the React web app that `web/` builds. See the README.
-- The agent gets each `bare-mcp` tool as `browser_<name>`, except `run_steps`. It hides the arguments `window`, `secrets_file`, `file`, `path`, `downloads_dir` and `inline`. This follows D18. Source: `src/tools.rs`.
+- The agent gets each Bare tool of offstage (`browser_<name>`), except `run_steps`. The other offstage tools are dropped. It hides the arguments `window`, `screen`, `secrets_file`, `file`, `path`, `downloads_dir` and `inline`. This follows D18. Source: `src/tools.rs`.
 - Screenshots go to `shots/`. Downloads go to `downloads/`. Both folders are in the workspace. Uploads accept workspace-relative paths only. `browser_step` refuses `upload` lines. This follows D19.
 - `[bare] secrets_file` names a file of `NAME=value` lines. deck passes it to `bare-mcp`. The model never sets it. The prompt lists secret names, never values. See the secrets entry in [decisions.md](decisions.md).
 - `[bare] state_dir` names a folder. deck gives each `save_state` and `ensure_session` call a file `<name>.state` in it. The model never sets the path. The files hold live logins, so the folder is mode 0700 and must stay outside the repository. See D52 in [decisions.md](decisions.md).

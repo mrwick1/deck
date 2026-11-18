@@ -161,7 +161,7 @@ fn run_steps(steps: &str, timeout_ms: u64) -> Value {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs bare-mcp on PATH and web/dist"]
+#[ignore = "needs offstage, bare-mcp on PATH and web/dist"]
 async fn screenshot_reaches_the_chat_in_the_web_app() {
     let dir = std::env::temp_dir().join(format!("deck-e2e-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -173,7 +173,7 @@ async fn screenshot_reaches_the_chat_in_the_web_app() {
     let config = format!(
         "listen = \"{addr}\"\ndata_dir = \"{data}\"\ntrusted_proxies = [\"127.0.0.1\"]\nallowed_users = []\n\
          [model]\nbase_url = \"{model}\"\napi_key_env = \"DECK_E2E_KEY\"\nagent_model = \"scripted\"\nsmall_model = \"scripted\"\n\
-         [bare]\ncommand = \"bare-mcp\"\nargs = []\n[agent]\nmax_steps = 10\n",
+         [bare]\ncommand = \"offstage\"\nargs = [\"mcp\"]\n[agent]\nmax_steps = 10\n",
         data = dir.join("data").display()
     );
     std::fs::write(dir.join("deck.toml"), config).unwrap();

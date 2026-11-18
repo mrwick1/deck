@@ -1,4 +1,4 @@
-//! Tools the model can call: every bare-mcp tool as `browser_<name>`, and `send_file`.
+//! Tools the model can call: every Bare tool of offstage as `browser_<name>`, and `send_file`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,9 +17,10 @@ const MAX_REPORT: usize = 8000;
 const MAX_TEXT: usize = 20_000;
 /// bare-mcp tools that deck does not offer: a whole journey runner.
 const HIDDEN_TOOLS: &[&str] = &["run_steps"];
-/// Arguments that deck sets or forbids: a window on the desktop, files that the model must not pick, inline image data.
+/// Arguments that deck sets or forbids: a window on the desktop or an offstage screen, files that the model must not pick, inline image data.
 const HIDDEN_ARGS: &[&str] = &[
     "window",
+    "screen",
     "secrets_file",
     "file",
     "path",
@@ -1191,7 +1192,7 @@ mod tests {
     fn schemas_wrap_bare_tools_without_hidden_args() {
         let bare = vec![
             json!({"name":"run_steps","description":"x","inputSchema":{"type":"object","properties":{}}}),
-            json!({"name":"snapshot","description":"Read","inputSchema":{"type":"object","properties":{"session":{"type":"string"},"window":{"type":"boolean"}}}}),
+            json!({"name":"snapshot","description":"Read","inputSchema":{"type":"object","properties":{"session":{"type":"string"},"window":{"type":"boolean"},"screen":{"type":"string"}}}}),
         ];
         let s = schemas(&bare, false);
         let names: Vec<&str> = s
@@ -1199,11 +1200,8 @@ mod tests {
             .map(|t| t["function"]["name"].as_str().unwrap())
             .collect();
         assert_eq!(names, ["browser_snapshot", "send_file"]);
-        assert!(
-            s[0]["function"]["parameters"]["properties"]
-                .get("window")
-                .is_none()
-        );
+        let props = &s[0]["function"]["parameters"]["properties"];
+        assert!(props.get("window").is_none() && props.get("screen").is_none());
     }
 
     /// A bot with a running task and a computer. The computer is never used by these tools.
