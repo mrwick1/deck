@@ -42,6 +42,8 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 | [docs/architecture.md](docs/architecture.md) | Parts of the system and how they talk |
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |
 | [docs/success-criteria.md](docs/success-criteria.md) | Success criteria, their tasks and their pass rules |
+| [docs/gmail-product-post.md](docs/gmail-product-post.md) | Target product post for the Gmail beta |
+| [docs/gmail-product-plan.md](docs/gmail-product-plan.md) | Implementation plan for the Gmail product, milestones M0 to M7 |
 | [docs/feedback-loop.md](docs/feedback-loop.md) | How `deck` makes `bare` better |
 | [docs/rakazo-lessons.md](docs/rakazo-lessons.md) | What we learned from Rakazo |
 | [docs/inspiration.md](docs/inspiration.md) | What we take from other open-source agents |
