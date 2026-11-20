@@ -881,3 +881,20 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 **Reason:** The owner decided that offstage is the only way an agent reaches `bare`, and deck is an agent. See `docs/design-agent-interface.md` in `mrwick1/bare`.
 
 **Risk:** offstage runs one tool call at a time. deck already did. offstage files a beta report after repeated failures, so busy deck traffic can file reports.
+
+## D96. Build the Gmail product backwards from its product post (2026-11-21)
+
+**Decision:** The first product is one bot with one job: Gmail. The target is the product post in [gmail-product-post.md](gmail-product-post.md). The plan in [gmail-product-plan.md](gmail-product-plan.md) works back from it in milestones M0 to M7. Each milestone becomes one success criterion (D56). The owner set these rules:
+
+- Deck reaches Gmail through `bare` only. No Gmail API and no IMAP.
+- The closed beta is self-hosted.
+- The brief goes to the Deck web app, with browser notifications. Other channels come later.
+- Deck sends without approval only to people that the user names in an explicit approval step.
+- Haiku sorts mail. Sonnet writes drafts and answers chat (D11).
+- Code decides first. The model gets batches of up to 50 mails in one call and returns a map from each mail to its answer. Code then makes the changes.
+- Labeling is rebuilt. Each user gets their own label set: the model proposes it from recent mail and existing labels, and the user approves it. The labels have no `Deck/` prefix. To do and Waiting live in Deck. Needs reply also shows in Gmail as one label, which Deck removes after the reply.
+- The Gmail code moves into a structure where a new feature adds its own folder.
+
+**Reason:** The owner will sell Deck to customers who create and manage bots. One job done well comes before many jobs. A batch call costs less and runs faster than one call per mail. The current `Deck/` status labels go stale, and the prefix names the tool, not the mail.
+
+**Risk:** The plan sizes are estimates. Speed promises depend on `bare` fixes. Browser steps break when Gmail changes its page.
