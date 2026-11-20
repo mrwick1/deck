@@ -1,0 +1,58 @@
+/* The fluid theme. Soft, warm dark surfaces, round corners and springs. Scoped to `.fluid`. */
+.fluid {
+  --background: #0e0e10;
+  --sidebar: #131316;
+  --card: #18181c;
+  --raised: #202025;
+  --popover: #1c1c21;
+  --foreground: #ededef;
+  --muted-foreground: #9d9da6;
+  --faint-foreground: #6e6e78;
+  --border: rgb(255 255 255 / 0.07);
+  --input: rgb(255 255 255 / 0.1);
+  --accent: rgb(255 255 255 / 0.06);
+  --brand: #f2555a;
+  --primary: #e5484d;
+  --primary-foreground: #fff;
+  --ring: rgb(242 85 90 / 0.55);
+  --warning: #f5b35b;
+  --success: #46c486;
+  --info: #6aa7ff;
+  --radius: 14px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Geist Variable", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.fluid .soft-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -12px rgb(0 0 0 / 0.6); }
+.fluid .soft-raised { background: var(--raised); border: 1px solid var(--border); border-radius: 14px; }
+.fluid .pill { border-radius: 999px; }
+.fluid :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* The search field sits in a focused dialog. Its own outline would cut the dialog edge. */
+.fluid [cmdk-input]:focus-visible { outline: none; }
+/* A pane takes focus from code so keys go to it. It is not a control, so it shows no ring. */
+.fluid [tabindex="-1"]:focus-visible { outline: none; }
+
+/* A soft glow that breathes while a bot works. */
+@keyframes fluid-breathe { 0%, 100% { opacity: .35; transform: scale(1); } 50% { opacity: .8; transform: scale(1.6); } }
+.fluid .breathe { position: relative; }
+.fluid .breathe::after { content: ""; position: absolute; inset: 0; border-radius: 999px; background: inherit; animation: fluid-breathe 1.8s ease-in-out infinite; }
+
+/* Skeleton sheen for loading cards. */
+@keyframes fluid-sheen { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.fluid .skeleton { border-radius: 10px; background: linear-gradient(90deg, rgb(255 255 255 / .04) 25%, rgb(255 255 255 / .09) 50%, rgb(255 255 255 / .04) 75%); background-size: 200% 100%; animation: fluid-sheen 1.6s linear infinite; }
+
+/* The thinking orb: three soft dots that rise in turn. */
+@keyframes fluid-dot { 0%, 80%, 100% { transform: translateY(0); opacity: .35; } 40% { transform: translateY(-4px); opacity: 1; } }
+.fluid .dots span { display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: currentColor; animation: fluid-dot 1.2s ease-in-out infinite; }
+.fluid .dots span:nth-child(2) { animation-delay: .15s; }
+.fluid .dots span:nth-child(3) { animation-delay: .3s; }
+
+/* A rotating gradient ring for "the AI is working on it". */
+@keyframes fluid-spin { to { transform: rotate(1turn); } }
+.fluid .orb { position: relative; width: 36px; height: 36px; border-radius: 999px; background: conic-gradient(from 0deg, var(--brand), #ff9a6b, #a78bfa, var(--info), var(--brand)); animation: fluid-spin 2.4s linear infinite; filter: blur(.3px); }
+.fluid .orb::after { content: ""; position: absolute; inset: 3px; border-radius: inherit; background: var(--card); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fluid .breathe::after, .fluid .skeleton, .fluid .dots span, .fluid .orb { animation: none; }
+}

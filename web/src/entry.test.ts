@@ -13,7 +13,7 @@ describe("the compact UI is the root app", () => {
   it("builds no second app for the legacy experience page", () => {
     expect(existsSync(path.join(web, "experience.html"))).toBe(false);
     const input = (config.build?.rollupOptions?.input ?? {}) as Record<string, string>;
-    expect(Object.keys(input).sort()).toEqual(["app", "prototype"]);
+    expect(Object.keys(input).sort()).toEqual(["app", "kit", "next", "prototype"]);
   });
   it("registers the service worker from the compact UI", () => {
     expect(read("src/experience/main.tsx")).toContain("registerSW");
@@ -22,7 +22,7 @@ describe("the compact UI is the root app", () => {
     const text = (read("vite.config.ts").match(/navigateFallbackDenylist: \[(.*)\]/) ?? [])[1] ?? "";
     const denylist = new Function(`return [${text}]`)() as RegExp[];
     const denied = (url: string) => denylist.some((re) => re.test(url));
-    for (const url of ["/api/chats", "/prototype.html", "/experience.html"]) expect(denied(url), url).toBe(true);
-    for (const url of ["/", "/index.html", "/chats/1"]) expect(denied(url), url).toBe(false);
+    for (const url of ["/api/chats", "/prototype.html", "/experience.html", "/next", "/next?bot=a", "/next.html", "/next/kit", "/kit.html"]) expect(denied(url), url).toBe(true);
+    for (const url of ["/", "/index.html", "/chats/1", "/nextcloud"]) expect(denied(url), url).toBe(false);
   });
 });

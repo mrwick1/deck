@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deck · Desktop Home directions</title>
+<!-- Sample data only. Three layout directions for the desktop Home. Keys 1–3 switch. Nothing in the app imports this file. -->
+<style>
+:root{
+  --background:#fcfcfc;--foreground:#27272a;--card:#fff;--muted:#fafafa;--muted-foreground:#71717a;--accent:#f4f4f5;
+  --border:#e4e4e7;--input:#d4d4d8;--primary:oklch(.488 .217 264);--primary-foreground:#fff;--ring:oklch(.488 .217 264);
+  --sidebar:#fafafa;--success:#10b981;--success-foreground:#047857;--warning:#f59e0b;--warning-foreground:#b45309;--warning-soft:#fffbeb;
+  --error:#ef4444;--error-foreground:#b91c1c;--info:#0ea5e9;--radius:10px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--font-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--background);color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;padding:0}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-radius:6px}
+h1,h2,h3,p{margin:0}
+h1{font-size:20px;line-height:1.2;font-weight:600;letter-spacing:-.02em}
+h2{font-size:13px;font-weight:600;line-height:1.3}
+.muted{color:var(--muted-foreground)}
+.tnum{font-variant-numeric:tabular-nums}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+#stage{height:100%}
+
+/* Shared parts */
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--input)}
+.dot[data-tone=busy]{background:var(--info)}
+.dot[data-tone=attention]{background:var(--warning)}
+.dot[data-tone=error]{background:var(--error)}
+.dot[data-tone=idle]{background:var(--success)}
+.dot[data-tone=busy]{box-shadow:0 0 0 3px color-mix(in srgb,var(--info) 18%,transparent)}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+.status[data-tone=attention]{color:var(--warning-foreground)}
+.status[data-tone=error]{color:var(--error-foreground)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:500;border:1px solid var(--border);background:var(--card);transition:background-color .15s ease,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--primary);border-color:transparent;color:var(--primary-foreground)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.icon{width:32px;padding:0}
+.btn:disabled{opacity:.45;cursor:default;transform:none}
+@media(hover:hover) and (pointer:fine){.btn:hover:not(:disabled){background:var(--accent)}.btn.primary:hover:not(:disabled){background:color-mix(in srgb,var(--primary) 88%,black)}}
+.kbd{font:11px var(--font-mono);color:var(--muted-foreground);border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--card)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);font-size:12px;color:var(--muted-foreground);transition:background-color .15s ease,color .15s ease}
+.chip[aria-pressed=true]{background:var(--foreground);border-color:var(--foreground);color:var(--background)}
+@media(hover:hover) and (pointer:fine){.chip:hover:not([aria-pressed=true]){background:var(--accent);color:var(--foreground)}}
+.label{font-size:12px;font-weight:500;color:var(--muted-foreground)}
+.count{font-size:12px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.badge{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:600;background:var(--warning-soft);color:var(--warning-foreground);font-variant-numeric:tabular-nums}
+.shimmer{background:linear-gradient(90deg,var(--foreground) 0 40%,var(--muted-foreground) 50%,var(--foreground) 60% 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 2.4s linear infinite}
+@keyframes sh{from{background-position:100% 0}to{background-position:-150% 0}}
+@media(prefers-reduced-motion:reduce){.shimmer{animation:none;color:var(--foreground);background:none}}
+.composer textarea{display:block;width:100%;resize:none;border:0;background:transparent;outline:none;font-size:14px;line-height:22px;field-sizing:content;min-height:44px;max-height:180px;padding:0}
+.composer textarea::placeholder{color:var(--muted-foreground)}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:50;background:var(--foreground);color:var(--background);font-size:13px;padding:10px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);animation:tin .2s var(--ease-out)}
+@keyframes tin{from{opacity:0;transform:translate(-50%,-6px)}}
+@media(prefers-reduced-motion:reduce){.toast{animation:none}}
+.enter{animation:enter .22s var(--ease-out) both}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}}
+@media(prefers-reduced-motion:reduce){.enter{animation:none}}
+
+/* Shared sidebar (variants 1 and 2) */
+.sidebar{width:248px;flex:none;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.sb-top{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 12px 0 20px}
+.wordmark{font-size:18px;font-weight:650;letter-spacing:-.04em}
+.sb-scroll{flex:1;overflow:auto;padding:4px 8px 16px}
+.sb-section{margin-top:20px}
+.sb-section>.label{display:flex;align-items:center;justify-content:space-between;padding:0 12px 6px}
+.sb-item{display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 12px;border-radius:8px;text-align:left;font-size:13px;transition:background-color .12s ease}
+.sb-item[aria-current=page]{background:var(--card);box-shadow:0 0 0 1px var(--border);font-weight:500}
+@media(hover:hover) and (pointer:fine){.sb-item:hover:not([aria-current=page]){background:var(--accent)}}
+.sb-item .badge{margin-left:auto}
+.sb-foot{border-top:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:8px;font-size:12px}
+
+/* Variant 1: Control room */
+.v1{display:flex;height:100%}
+.v1 .main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 32px;border-bottom:1px solid var(--border)}
+.topbar .grow{flex:1}
+.v1 .scroll{flex:1;overflow:auto;scrollbar-gutter:stable}
+.v1 .inner{max-width:1240px;margin:0 auto;padding:28px 32px 40px;display:grid;gap:32px}
+.needs{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.need{display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;padding:14px 16px;border-radius:var(--radius);border:1px solid color-mix(in srgb,var(--warning) 35%,var(--border));background:var(--warning-soft);transition:transform .16s var(--ease-out),box-shadow .15s ease}
+.need:active{transform:scale(.99)}
+@media(hover:hover) and (pointer:fine){.need:hover{box-shadow:0 2px 8px rgba(180,83,9,.12)}}
+.need strong{font-size:13px;font-weight:600}
+.need .what{font-size:13px;color:var(--warning-foreground)}
+.need .act{margin-top:6px;font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:4px}
+.sec-head{display:flex;align-items:baseline;gap:8px;margin-bottom:12px}
+.sec-head .grow{flex:1}
+.table{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);overflow:hidden}
+.trow{display:grid;grid-template-columns:minmax(200px,1.3fr) minmax(180px,1fr) minmax(240px,1.6fr) 72px 110px 32px;align-items:center;gap:16px;padding:0 16px;min-height:60px;border-top:1px solid var(--border);width:100%;text-align:left;transition:background-color .12s ease}
+.trow.head{min-height:36px;border-top:0;background:var(--muted);font-size:12px;color:var(--muted-foreground);font-weight:500}
+@media(hover:hover) and (pointer:fine){button.trow:hover{background:var(--muted)}}
+.trow .name{display:flex;flex-direction:column;min-width:0}
+.trow .name strong{font-weight:600;font-size:13px}
+.trow .name small{font-size:12px;color:var(--muted-foreground)}
+.trow .task{font-size:13px;min-width:0}
+.trow .task small{display:block;font-size:12px;color:var(--muted-foreground)}
+.pc{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted-foreground)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.list{border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.li{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--border);width:100%;text-align:left;transition:background-color .12s ease}
+.li:first-child{border-top:0}
+@media(hover:hover) and (pointer:fine){.li:hover{background:var(--muted)}}
+.li .copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.li .copy strong{font-weight:500;font-size:13px}
+.li .copy small{font-size:12px;color:var(--muted-foreground)}
+.li .ok{color:var(--success-foreground)}
+.dock{flex:none;border-top:1px solid var(--border);background:var(--background);padding:12px 32px 16px}
+.dock form{max-width:1240px;margin:0 auto}
+.composer{border:1px solid var(--border);border-radius:14px;background:var(--card);padding:10px 12px 10px 16px;transition:border-color .15s ease,box-shadow .15s ease}
+.composer:focus-within{border-color:color-mix(in srgb,var(--primary) 45%,var(--border));box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 10%,transparent)}
+.composer-row{display:flex;align-items:flex-end;gap:12px}
+.composer-row textarea{flex:1;padding:11px 0}
+.dest{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.dock-foot{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--muted-foreground)}
+
+/* Variant 2: Board */
+.v2{display:flex;height:100%}
+.v2 .main{flex:1;min-width:0;overflow:auto;scrollbar-gutter:stable}
+.v2 .inner{max-width:1280px;margin:0 auto;padding:40px 40px 64px}
+.hero{display:grid;gap:16px;margin-bottom:40px}
+.hero h1{font-size:28px;letter-spacing:-.025em;font-weight:600}
+.hero .composer{padding:14px 16px;border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px -16px rgba(0,0,0,.18)}
+.board{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:32px;align-items:start}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.card{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;background:var(--card);text-align:left;transition:box-shadow .15s ease,border-color .15s ease}
+@media(hover:hover) and (pointer:fine){.card:hover{border-color:var(--input);box-shadow:0 4px 16px -8px rgba(0,0,0,.14)}}
+.card[data-tone=attention]{border-color:color-mix(in srgb,var(--warning) 45%,var(--border))}
+.card-head{display:flex;align-items:flex-start;gap:12px;padding:16px 16px 12px}
+.avatar{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--accent);flex:none;font-weight:600;font-size:13px}
+.card-head .copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.card-head strong{font-weight:600}
+.card-now{margin:0 16px;padding:10px 12px;border-radius:10px;background:var(--muted);font-size:13px;min-height:62px}
+.card-now small{display:block;font-size:12px;color:var(--muted-foreground);margin-bottom:2px}
+.card-now[data-tone=attention]{background:var(--warning-soft)}
+.card-now[data-tone=attention] small{color:var(--warning-foreground)}
+.card-tasks{list-style:none;margin:0;padding:12px 16px 4px;display:grid;gap:6px}
+.card-tasks li{display:flex;align-items:center;gap:8px;font-size:12px;min-width:0}
+.card-tasks li span{min-width:0}
+.card-foot{display:flex;align-items:center;gap:8px;padding:10px 12px 12px 16px;margin-top:auto;border-top:1px solid var(--border)}
+.card-foot .grow{flex:1}.card-foot>*{white-space:nowrap;flex:none}
+.side{display:grid;gap:28px;position:sticky;top:24px}
+.side .list .li{padding:10px 14px}
+.side .need{width:100%}
+.new-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:240px;border:1px dashed var(--input);border-radius:14px;color:var(--muted-foreground);font-size:13px;transition:background-color .15s ease,color .15s ease}
+@media(hover:hover) and (pointer:fine){.new-card:hover{background:var(--muted);color:var(--foreground)}}
+
+/* Variant 3: Split inbox */
+.v3{display:flex;height:100%}
+.rail{width:56px;flex:none;border-right:1px solid var(--border);background:var(--sidebar);display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0}
+.rail .wordmark{font-size:15px;margin-bottom:12px}
+.rail button{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:var(--muted-foreground);transition:background-color .12s ease,color .12s ease}
+.rail button[aria-current=page]{background:var(--card);color:var(--foreground);box-shadow:0 0 0 1px var(--border)}
+@media(hover:hover) and (pointer:fine){.rail button:hover{color:var(--foreground)}}
+.pane-list{width:400px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--background)}
+.pl-head{height:56px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;border-bottom:1px solid var(--border)}
+.pl-head .grow{flex:1}
+.filters{display:flex;gap:6px;padding:12px 20px;border-bottom:1px solid var(--border)}
+.pl-scroll{flex:1;overflow:auto;padding:8px 8px 16px}
+.pl-group{padding:14px 12px 6px;display:flex;justify-content:space-between}
+.pl-item{display:grid;grid-template-columns:8px 1fr auto;gap:4px 12px;align-items:center;width:100%;text-align:left;padding:10px 12px;border-radius:10px;transition:background-color .12s ease}
+.pl-item[aria-selected=true]{background:var(--card);box-shadow:0 0 0 1px var(--border),0 1px 3px rgba(0,0,0,.05)}
+@media(hover:hover) and (pointer:fine){.pl-item:hover:not([aria-selected=true]){background:var(--accent)}}
+.pl-item strong{font-size:13px;font-weight:600}
+.pl-item .sub{grid-column:2/4;font-size:12px;color:var(--muted-foreground)}
+.pl-item .side-note{font-size:12px;color:var(--muted-foreground)}
+.pl-item[data-tone=attention] .side-note{color:var(--warning-foreground);font-weight:500}
+.pl-foot{flex:none;border-top:1px solid var(--border);padding:10px 20px;display:flex;gap:16px;font-size:12px;color:var(--muted-foreground)}
+.detail{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.d-head{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--border)}
+.d-head .grow{flex:1;min-width:0}
+.d-scroll{flex:1;overflow:auto;scrollbar-gutter:stable}
+.d-inner{max-width:880px;padding:28px 32px 32px;display:grid;gap:28px}
+.d-title{display:grid;gap:6px}
+.d-title h1{font-size:24px}
+.callout{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--radius);background:var(--warning-soft);border:1px solid color-mix(in srgb,var(--warning) 35%,var(--border))}
+.callout .copy{flex:1;display:grid;gap:2px}
+.callout strong{font-size:13px}
+.callout p{font-size:13px;color:var(--warning-foreground)}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.fact{padding:12px 16px;border-left:1px solid var(--border);display:grid;gap:2px}
+.fact:first-child{border-left:0}
+.fact strong{font-size:15px;font-weight:600}
+.timeline{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.timeline li{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:start;padding:12px 16px;border-top:1px solid var(--border)}
+.timeline li:first-child{border-top:0}
+.timeline small{display:block;font-size:12px;color:var(--muted-foreground)}
+.timeline .st{font-size:12px;color:var(--muted-foreground)}
+.d-dock{flex:none;padding:12px 32px 16px;border-top:1px solid var(--border)}
+.d-dock .composer{max-width:880px}
+.empty-detail{display:grid;place-items:center;flex:1;color:var(--muted-foreground)}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="toast-slot" aria-live="polite"></div>
+
+<nav class="proto-picker" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Control room</button>
+  <button class="proto-picker-item">Board</button>
+  <button class="proto-picker-item">Split inbox</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+<style>
+.proto-picker{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:rgba(10,10,10,.82);-webkit-backdrop-filter:blur(12px) saturate(1.4);backdrop-filter:blur(12px) saturate(1.4);box-shadow:0 0 0 1px rgba(255,255,255,.08) inset,0 8px 24px rgba(0,0,0,.24),0 2px 6px rgba(0,0,0,.12);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;line-height:1;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
+.proto-picker-highlight{position:absolute;top:4px;left:0;height:28px;border-radius:999px;background:rgba(255,255,255,.12)}
+.proto-picker[data-ready] .proto-picker-highlight{transition:transform 250ms cubic-bezier(.23,1,.32,1),width 250ms cubic-bezier(.23,1,.32,1)}
+@media(prefers-reduced-motion:reduce){.proto-picker[data-ready] .proto-picker-highlight{transition:none}}
+.proto-picker-item{position:relative;display:flex;align-items:center;height:28px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:rgba(255,255,255,.55);font:inherit;cursor:pointer;transition:color 150ms ease-out,transform 160ms cubic-bezier(.23,1,.32,1)}
+@media(hover:hover) and (pointer:fine){.proto-picker-item:hover{color:rgba(255,255,255,.85)}}
+.proto-picker-item:active{transform:scale(.97)}
+.proto-picker-item:focus-visible{outline:2px solid rgba(255,255,255,.4);outline-offset:2px}
+.proto-picker-item[data-active]{color:#fff}
+.proto-picker-divider{width:1px;height:16px;margin:0 4px;background:rgba(255,255,255,.12)}
+.proto-picker-replay{padding:0 10px;font-size:14px}
+.proto-picker[data-position="top"]{bottom:auto;top:24px}
+</style>
+
+<script>
+// Sample data in the shapes of /api/setups, /api/bots/:id and /api/chats. Task records carry no time, so the UI shows none.
+const bots = [
+  { id:'inbox', name:'Morning inbox brief', job:'Read my inbox each morning and summarize messages that need a reply.', tone:'busy', label:'Working', computer:'Awake', queued:2,
+    now:{ title:'Summarize 23 unread messages from overnight', detail:'Reading thread 9 of 23' },
+    tasks:[['running','Summarize 23 unread messages from overnight'],['queued','Draft replies to the two invoices'],['queued','Archive newsletters older than a week'],['done','Monday brief: 4 replies needed, 1 deadline']] },
+  { id:'invoices', name:'Vendor invoice tracker', job:'Collect vendor invoices from email and the supplier portal, and log them in the sheet.', tone:'attention', label:'Spending ceiling needs your decision', computer:'Asleep', queued:1,
+    need:{ what:'Asks to raise the ceiling from $20.00 to $35.00', why:'The supplier portal charges $0.50 per invoice download.', act:'Review request' },
+    now:null, tasks:[['held','Download October invoices from the supplier portal'],['done','Log 14 September invoices in the sheet'],['done','Find the missing Acme invoice']] },
+  { id:'flights', name:'Flight search: Kochi to Berlin', job:'Find the cheapest direct or one-stop flight for the conference week.', tone:'attention', label:'Waiting for your answer', computer:'Awake', queued:0,
+    need:{ what:'Asks which return date works: 14 or 15 December', why:'The 15th is $112 cheaper but lands after midnight.', act:'Answer' },
+    now:null, tasks:[['waiting','Choose the return date'],['done','Compare 31 fares across 4 airlines']] },
+  { id:'prices', name:'Competitor price watch', job:'Check three competitor pricing pages daily and tell me what changed.', tone:'asleep', label:'Asleep', computer:'Asleep', queued:0,
+    now:null, tasks:[['done','Daily check: 3 price changes on two sites'],['done','Daily check: no changes'],['failed','Daily check: one site blocked the browser']] },
+  { id:'research', name:'Weekly research digest', job:'Collect new papers on browser engines and write a one-page digest.', tone:'idle', label:'Awake, idle', computer:'Awake', queued:0,
+    now:null, tasks:[['done','Digest for week 45: 6 papers, 2 worth reading']] },
+];
+const setups = [
+  { id:'calendar', name:'Calendar assistant', label:'Sign-in needs your help', what:'Approve the Google sign-in on your phone', act:'Open setup' },
+  { id:'expenses', name:'Expense reports', label:'Draft ready for review', what:'Review instructions and spending before approval', act:'Review draft', draft:true },
+];
+const chats = ['Plan the bot for tax documents','Why did the price watch fail on Tuesday?','Compare two VPS providers','Summarize the bare release notes','Ideas for a reading list bot'];
+const results = bots.flatMap(b => b.tasks.filter(t => t[0]==='done').map(t => ({ bot:b, title:t[1] })));
+const needs = [...bots.filter(b => b.need).map(b => ({ name:b.name, label:b.label, what:b.need.what, act:b.need.act })), ...setups.filter(s => !s.draft).map(s => ({ name:s.name, label:s.label, what:s.what, act:s.act }))];
+
+const icon = p => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+const I = {
+  home: icon('<path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/>'), chat: icon('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>'),
+  plus: icon('<path d="M12 5v14M5 12h14"/>'), up: icon('<path d="M12 19V5M5 12l7-7 7 7"/>'), right: icon('<path d="m9 6 6 6-6 6"/>'),
+  refresh: icon('<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>'), check: icon('<path d="M20 6 9 17l-5-5"/>'),
+  monitor: icon('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'), search: icon('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  bot: icon('<rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 13h.01M15 13h.01"/>'), alert: icon('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'),
+  clock: icon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'), x: icon('<path d="M18 6 6 18M6 6l12 12"/>'), pause: icon('<path d="M9 5v14M15 5v14"/>'), draft: icon('<path d="M4 20h4L19 9l-4-4L4 16z"/>'),
+};
+const stateIcon = s => ({ done:`<span class="ok" style="color:var(--success-foreground)">${I.check}</span>`, running:`<span class="dot" data-tone="busy"></span>`, queued:`<span class="muted">${I.clock}</span>`, held:`<span style="color:var(--warning-foreground)">${I.pause}</span>`, waiting:`<span style="color:var(--warning-foreground)">${I.alert}</span>`, failed:`<span style="color:var(--error-foreground)">${I.x}</span>` })[s];
+const stateLabel = s => ({ done:'Completed', running:'Working', queued:'Queued', held:'On hold', waiting:'Waiting', failed:'Failed' })[s];
+const initials = n => n.split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+const nowLine = b => b.now ? `<span class="shimmer">${b.now.title}</span>` : b.need ? b.need.what : b.tasks.find(t => t[0]==='done') ? `Last: ${b.tasks.find(t => t[0]==='done')[1]}` : 'Ready for a task';
+
+let dest = 'new', selected = 'flights';
+const destChips = () => `<div class="dest" role="group" aria-label="Send to"><span class="label" style="margin-right:4px">To</span>${[['new','New bot'],['chat','Deck'],...bots.slice(0,3).map(b => [b.id,b.name])].map(([v,l]) => `<button type="button" class="chip" data-dest="${v}" aria-pressed="${dest===v}">${l}</button>`).join('')}<button type="button" class="chip" data-toast="Opens the list of all bots">More…</button></div>`;
+const placeholder = () => dest==='new' ? 'Describe a job for a new bot. You review the setup before it starts.' : dest==='chat' ? 'Ask Deck anything' : `Give ${bots.find(b => b.id===dest).name} a task`;
+
+const sidebar = active => `<aside class="sidebar">
+  <div class="sb-top"><span class="wordmark">deck</span><button class="btn icon ghost" aria-label="Refresh workspace" data-toast="Workspace is up to date">${I.refresh}</button></div>
+  <div style="padding:0 12px"><button class="btn primary" style="width:100%" data-toast="Opens a new bot setup">${I.plus} New bot</button></div>
+  <div class="sb-scroll">
+    <div class="sb-section" style="margin-top:12px">
+      <button class="sb-item" aria-current="${active==='home'?'page':'false'}">${I.home} Home<span class="badge">${needs.length}</span></button>
+      <button class="sb-item" data-toast="Opens Conversations">${I.chat} Conversations</button>
+    </div>
+    <div class="sb-section"><div class="label">Bots <span class="count">${bots.length}</span></div>
+      ${bots.map(b => `<button class="sb-item" data-toast="Opens ${b.name}"><span class="dot" data-tone="${b.tone}"></span><span class="truncate">${b.name}</span></button>`).join('')}
+      ${setups.map(s => `<button class="sb-item" data-toast="Opens setup for ${s.name}"><span class="muted">${I.draft}</span><span class="truncate muted">${s.name}</span></button>`).join('')}
+    </div>
+    <div class="sb-section"><div class="label">Recent conversations</div>
+      ${chats.slice(0,4).map(c => `<button class="sb-item" data-toast="Opens “${c}”"><span class="truncate">${c}</span></button>`).join('')}
+    </div>
+  </div>
+  <div class="sb-foot"><span class="dot" data-tone="idle"></span><span class="muted">Connected</span></div>
+</aside>`;
+
+// 1. Control room: sidebar, attention cards, a full bot table, results and chats, docked composer.
+function v1() {
+  return `<div class="v1">${sidebar('home')}<div class="main">
+    <header class="topbar"><h1>Home</h1><span class="grow"></span><button class="btn" data-toast="Opens search"><span class="muted">${I.search}</span><span class="muted">Search bots and conversations</span><span class="kbd">/</span></button></header>
+    <div class="scroll"><div class="inner enter">
+      <section aria-labelledby="needs-h"><div class="sec-head"><h2 id="needs-h">Needs you</h2><span class="count">${needs.length}</span></div>
+        <div class="needs">${needs.map(n => `<button class="need" data-toast="Opens ${n.name}"><strong>${n.name}</strong><span class="what">${n.what}</span><span class="act">${n.act} ${I.right}</span></button>`).join('')}</div></section>
+      <section aria-labelledby="bots-h"><div class="sec-head"><h2 id="bots-h">Bots</h2><span class="count">${bots.length} ready · ${setups.length} in setup</span><span class="grow"></span></div>
+        <div class="table" role="table" aria-label="Bots">
+          <div class="trow head" role="row"><span>Bot</span><span>Status</span><span>Now</span><span>Queue</span><span>Computer</span><span></span></div>
+          ${bots.map(b => `<button class="trow" role="row" data-toast="Opens ${b.name}"><span class="name"><strong class="truncate">${b.name}</strong><small class="truncate">${b.job}</small></span><span class="status" data-tone="${b.tone}"><span class="dot" data-tone="${b.tone}"></span><span class="truncate">${b.label}</span></span><span class="task truncate">${nowLine(b)}${b.now?`<small>${b.now.detail}</small>`:''}</span><span class="tnum muted">${b.queued||'—'}</span><span class="pc">${I.monitor}${b.computer}</span><span class="muted">${I.right}</span></button>`).join('')}
+          ${setups.map(s => `<button class="trow" role="row" data-toast="Opens setup for ${s.name}"><span class="name"><strong class="truncate">${s.name}</strong><small>In setup</small></span><span class="status" data-tone="${s.draft?'idle':'attention'}">${s.draft?I.draft:`<span class="dot" data-tone="attention"></span>`}<span class="truncate">${s.label}</span></span><span class="task truncate muted">${s.what}</span><span class="muted">—</span><span class="pc muted">—</span><span class="muted">${I.right}</span></button>`).join('')}
+        </div></section>
+      <div class="two">
+        <section aria-labelledby="res-h"><div class="sec-head"><h2 id="res-h">Completed results</h2><span class="count">${results.length}</span></div>
+          <div class="list">${results.map(r => `<button class="li" data-toast="Opens the result in ${r.bot.name}"><span class="ok">${I.check}</span><span class="copy"><strong class="truncate">${r.title}</strong><small class="truncate">${r.bot.name}</small></span><span class="muted">${I.right}</span></button>`).join('')}</div></section>
+        <section aria-labelledby="chat-h"><div class="sec-head"><h2 id="chat-h">Conversations with Deck</h2><span class="grow"></span><button class="btn ghost" data-toast="Opens Conversations">View all</button></div>
+          <div class="list">${chats.map(c => `<button class="li" data-toast="Opens “${c}”"><span class="muted">${I.chat}</span><span class="copy"><strong class="truncate">${c}</strong></span><span class="muted">${I.right}</span></button>`).join('')}</div></section>
+      </div>
+    </div></div>
+    <div class="dock"><form data-send>${destChips()}<div class="composer"><div class="composer-row"><textarea rows="1" aria-label="Message" placeholder="${placeholder()}"></textarea><button class="btn primary icon" aria-label="Send">${I.up}</button></div></div><div class="dock-foot"><span>Credentials never go in this box.</span><span><span class="kbd">Ctrl</span> <span class="kbd">Enter</span> to send</span></div></form></div>
+  </div></div>`;
+}
+
+// 2. Board: composer as the hero, a card per bot with its live state and recent tasks, a sticky side column.
+function v2() {
+  return `<div class="v2">${sidebar('home')}<main class="main"><div class="inner enter">
+    <section class="hero"><h1>What should your bots do next?</h1>
+      <form data-send class="composer">${destChips()}<div class="composer-row"><textarea rows="2" aria-label="Message" placeholder="${placeholder()}"></textarea><button class="btn primary" aria-label="Send">Send ${I.up}</button></div></form></section>
+    <div class="board">
+      <section aria-labelledby="b2"><div class="sec-head"><h2 id="b2">Bots</h2><span class="count">${bots.length}</span></div>
+        <div class="cards">${bots.map(b => `<article class="card" data-tone="${b.tone}">
+          <div class="card-head"><span class="avatar" aria-hidden="true">${initials(b.name)}</span><span class="copy"><strong class="truncate">${b.name}</strong><span class="status" data-tone="${b.tone}"><span class="dot" data-tone="${b.tone}"></span><span class="truncate">${b.label}</span></span></span></div>
+          <div class="card-now" data-tone="${b.need?'attention':''}"><small>${b.now?'Now':b.need?'Needs you':'Last result'}</small>${b.now?`<span class="shimmer">${b.now.title}</span>`:b.need?b.need.what:(b.tasks.find(t=>t[0]==='done')||[,'No tasks yet'])[1]}</div>
+          <ul class="card-tasks" aria-label="Recent tasks">${b.tasks.filter(t => t!==b.tasks.find(x=>x[0]==='running')).slice(0,3).map(t => `<li>${stateIcon(t[0])}<span class="truncate">${t[1]}</span></li>`).join('')}</ul>
+          <div class="card-foot"><span class="pc">${I.monitor}${b.computer}</span>${b.queued?`<span class="pc tnum">· ${b.queued} queued</span>`:''}<span class="grow"></span>${b.need?`<button class="btn" data-toast="Opens Requests for ${b.name}">${b.need.act}</button>`:''}<button class="btn ghost" data-toast="Opens ${b.name}">Open ${I.right}</button></div>
+        </article>`).join('')}<button class="new-card" data-toast="Opens a new bot setup">${I.plus}New bot</button></div></section>
+      <aside class="side">
+        <section aria-labelledby="n2"><div class="sec-head"><h2 id="n2">Needs you</h2><span class="count">${needs.length}</span></div><div style="display:grid;gap:8px">${needs.map(n => `<button class="need" data-toast="Opens ${n.name}"><strong>${n.name}</strong><span class="what">${n.what}</span></button>`).join('')}</div></section>
+        <section aria-labelledby="r2"><div class="sec-head"><h2 id="r2">Completed results</h2></div><div class="list">${results.slice(0,5).map(r => `<button class="li" data-toast="Opens the result"><span class="ok">${I.check}</span><span class="copy"><strong class="truncate">${r.title}</strong><small class="truncate">${r.bot.name}</small></span></button>`).join('')}</div></section>
+      </aside>
+    </div>
+  </div></main></div>`;
+}
+
+// 3. Split inbox: one list sorted by urgency, the selected bot in a detail pane, no page change to see a bot.
+function v3() {
+  const items = [
+    ['Needs you', [...bots.filter(b => b.need), ...setups.filter(s => !s.draft).map(s => ({ ...s, tone:'attention', setup:true }))]],
+    ['Working', bots.filter(b => b.now)],
+    ['Idle', bots.filter(b => !b.need && !b.now)],
+    ['In setup', setups.filter(s => s.draft).map(s => ({ ...s, tone:'asleep', setup:true }))],
+  ];
+  const b = bots.find(x => x.id===selected) || setups.find(x => x.id===selected);
+  const row = x => `<button class="pl-item" role="option" aria-selected="${x.id===selected}" data-select="${x.id}" data-tone="${x.tone}"><span class="dot" data-tone="${x.tone}"></span><strong class="truncate">${x.name}</strong><span class="side-note">${x.setup ? (x.draft?'Draft':'Setup') : x.need ? 'Needs you' : x.now ? 'Working' : x.computer}</span><span class="sub truncate">${x.setup ? x.what : nowLine(x).replace(/<[^>]+>/g,'')}</span></button>`;
+  const detail = !b ? `<div class="empty-detail">Select a bot</div>` : b.setup || !b.tasks ? `<div class="d-head"><span class="grow"><strong>${b.name}</strong></span><button class="btn primary" data-toast="Opens setup">${b.act}</button></div><div class="d-scroll"><div class="d-inner enter"><div class="d-title"><h1>${b.name}</h1><span class="status" data-tone="attention"><span class="dot" data-tone="attention"></span>${b.label}</span></div><div class="callout"><span style="color:var(--warning-foreground)">${I.alert}</span><span class="copy"><strong>${b.what}</strong><p>Setup continues after you act.</p></span></div></div></div>` : `
+    <div class="d-head"><span class="grow truncate"><span class="muted">Bots / </span><strong>${b.name}</strong></span><button class="btn" data-toast="${b.computer==='Awake'?'Sleep':'Wake'} requested">${I.monitor}${b.computer==='Awake'?'Sleep':'Wake'}</button><button class="btn" data-toast="Opens the bot workspace">Open workspace ${I.right}</button></div>
+    <div class="d-scroll"><div class="d-inner enter" data-key="${b.id}">
+      <div class="d-title"><h1>${b.name}</h1><p class="muted">${b.job}</p></div>
+      ${b.need?`<div class="callout"><span style="color:var(--warning-foreground)">${I.alert}</span><span class="copy"><strong>${b.need.what}</strong><p>${b.need.why}</p></span><button class="btn" data-toast="Opens Requests">${b.need.act}</button></div>`:''}
+      <div class="facts"><div class="fact"><span class="label">Status</span><span class="status" data-tone="${b.tone}"><span class="dot" data-tone="${b.tone}"></span><span class="truncate">${b.label}</span></span></div><div class="fact"><span class="label">Queued</span><strong class="tnum">${b.queued}</strong></div><div class="fact"><span class="label">Computer</span><span class="pc" style="font-size:13px;color:var(--foreground)">${I.monitor}${b.computer}</span></div><div class="fact"><span class="label">Completed</span><strong class="tnum">${b.tasks.filter(t=>t[0]==='done').length}</strong></div></div>
+      <section aria-labelledby="t3"><div class="sec-head"><h2 id="t3">Tasks</h2></div><ol class="timeline">${b.tasks.map(t => `<li>${stateIcon(t[0])}<span>${t[0]==='running'?`<span class="shimmer">${t[1]}</span>`:t[1]}${t[0]==='running'&&b.now?`<small>${b.now.detail}</small>`:''}</span><span class="st">${stateLabel(t[0])}</span></li>`).join('')}</ol></section>
+    </div></div>
+    <div class="d-dock"><form data-send class="composer" data-bot="${b.id}"><div class="composer-row"><textarea rows="1" aria-label="Task for ${b.name}" placeholder="Give ${b.name} a task"></textarea><button class="btn primary icon" aria-label="Send task">${I.up}</button></div></form></div>`;
+  return `<div class="v3">
+    <nav class="rail" aria-label="Main"><span class="wordmark">d</span><button aria-current="page" aria-label="Home">${I.home}</button><button aria-label="Conversations" data-toast="Opens Conversations">${I.chat}</button><button aria-label="New bot" data-toast="Opens a new bot setup">${I.plus}</button></nav>
+    <section class="pane-list" aria-label="Workspace"><div class="pl-head"><h1 style="font-size:16px">Home</h1><span class="grow"></span><button class="btn icon ghost" aria-label="Search" data-toast="Opens search">${I.search}</button><button class="btn icon ghost" aria-label="Refresh workspace" data-toast="Workspace is up to date">${I.refresh}</button></div>
+      <div class="pl-scroll" role="listbox" aria-label="Bots and setups">${items.filter(([,xs]) => xs.length).map(([g,xs]) => `<div class="pl-group"><span class="label">${g}</span><span class="count">${xs.length}</span></div>${xs.map(row).join('')}`).join('')}</div>
+      <div class="pl-foot"><span><span class="kbd">J</span> <span class="kbd">K</span> move</span><span><span class="kbd">Enter</span> select</span></div></section>
+    <section class="detail" aria-label="Selected bot">${detail}</section>
+  </div>`;
+}
+
+const variants = [v1, v2, v3];
+const stage = document.getElementById('stage');
+const picker = document.querySelector('.proto-picker');
+const highlight = picker.querySelector('.proto-picker-highlight');
+const pitems = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+const replay = picker.querySelector('.proto-picker-replay');
+let current = 0;
+function moveHighlight(){ const el = pitems[current]; highlight.style.width = el.offsetWidth + 'px'; highlight.style.transform = `translateX(${el.offsetLeft}px)`; }
+function mount(i){ stage.innerHTML = ''; requestAnimationFrame(() => { stage.innerHTML = variants[i](); }); }
+function rerender(){ const t = document.activeElement?.dataset; stage.innerHTML = variants[current](); if (t?.dest) stage.querySelector(`[data-dest="${t.dest}"]`)?.focus(); if (t?.select) stage.querySelector(`[data-select="${t.select}"]`)?.focus(); }
+function setActive(i){ if (i < 0 || i >= variants.length) return; current = i; pitems.forEach((el, j) => { el.toggleAttribute('data-active', j === i); if (j === i) el.setAttribute('aria-current','true'); else el.removeAttribute('aria-current'); }); if (i === 1) picker.removeAttribute('data-position'); else picker.dataset.position = 'top'; moveHighlight(); const url = new URL(location); url.searchParams.set('v', i + 1); history.replaceState(null, '', url); mount(i); }
+pitems.forEach((el, i) => el.addEventListener('click', () => setActive(i)));
+replay?.addEventListener('click', () => mount(current));
+window.addEventListener('resize', moveHighlight);
+let toastTimer;
+function toast(text){ const slot = document.getElementById('toast-slot'); slot.innerHTML = `<div class="toast">${text}</div>`; clearTimeout(toastTimer); toastTimer = setTimeout(() => slot.innerHTML = '', 2200); }
+stage.addEventListener('click', e => {
+  const t = e.target.closest('[data-toast],[data-dest],[data-select]'); if (!t) return;
+  if (t.dataset.dest) { dest = t.dataset.dest; rerender(); stage.querySelector('textarea')?.focus(); return; }
+  if (t.dataset.select) { selected = t.dataset.select; rerender(); return; }
+  toast(t.dataset.toast + ' (sample)');
+});
+stage.addEventListener('submit', e => { e.preventDefault(); const ta = e.target.querySelector('textarea'); if (!ta.value.trim()) { ta.focus(); return; } const to = e.target.dataset.bot ? bots.find(b => b.id===e.target.dataset.bot).name : dest==='new' ? 'a new bot setup' : dest==='chat' ? 'Deck' : bots.find(b => b.id===dest).name; toast(`Sent to ${to} (sample)`); ta.value = ''; });
+stage.addEventListener('keydown', e => { if (e.target.tagName==='TEXTAREA' && (e.ctrlKey||e.metaKey) && e.key==='Enter') { e.preventDefault(); e.target.form.requestSubmit(); } });
+document.addEventListener('keydown', e => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (current === 2 && (e.key === 'j' || e.key === 'k')) { const ids = [...stage.querySelectorAll('[data-select]')].map(x => x.dataset.select); const n = ids.indexOf(selected) + (e.key === 'j' ? 1 : -1); if (ids[n]) { selected = ids[n]; rerender(); stage.querySelector(`[data-select="${selected}"]`)?.focus(); } return; }
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= variants.length) setActive(num - 1);
+  else if (e.key === 'ArrowRight') setActive((current + 1) % variants.length);
+  else if (e.key === 'ArrowLeft') setActive((current - 1 + variants.length) % variants.length);
+  else if (e.key === 'r' || e.key === 'R') mount(current);
+});
+const requested = parseInt(new URLSearchParams(location.search).get('v'), 10);
+setActive(requested >= 1 && requested <= variants.length ? requested - 1 : 0);
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')));
+</script>
+</body>
+</html>
