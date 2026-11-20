@@ -20,7 +20,7 @@ Without `web/dist`, `cargo build` embeds a placeholder page.
 `offstage` must be on `PATH`, or set `bare.command` in `deck.toml`. Its installer also installs `bare-mcp` and `bare-drive`. The agent starts `offstage mcp` on the first browser tool call and uses only its `browser_*` tools. The `[vm]` guests still run `bare-mcp` directly; see [docs/vm-offstage.md](docs/vm-offstage.md).
 Run `cargo test -- --ignored` to run the live tests. They start the real browser, so it must be on `PATH`.
 `tests/screenshot_e2e.rs` is the end-to-end test of M1. A user sends a message in the web app, and the screenshot of the agent shows in the chat. A scripted model replaces the real one. Build `web/dist` first.
-A `[vm]` section in `deck.toml` gives the bot its own guest computer. See [docs/stage3-results.md](docs/stage3-results.md).
+A `[vm]` section in `deck.toml` gives the bot its own guest computer. Its network reaches only the test fixture by default. Set `[vm] internet = true` for real sites. This also allows reachable private services. Keep the setting unchanged when restoring a saved computer. See [docs/stage3-results.md](docs/stage3-results.md).
 The one-bot save command caps migration at 512 MiB/s. The CLI accepts `stop --bandwidth-mib 128` for the original cap. Concurrent saves and slow storage remain untested. See [docs/migration-bandwidth-results.md](docs/migration-bandwidth-results.md).
 Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before you commit.
 Run `python3 evals/run.py` to score the agent on a fixed task set with the real model. See [evals/README.md](evals/README.md).
@@ -38,6 +38,8 @@ Run `python3 evals/run.py` to score the agent on a fixed task set with the real 
 | [docs/unattended-implementation-plan.md](docs/unattended-implementation-plan.md) | Approved unattended requirements and implementation stages |
 | [docs/unattended-progress.md](docs/unattended-progress.md) | Agent assignments, integration state, verification and handoff |
 | [docs/bot-setup-integration.md](docs/bot-setup-integration.md) | Reviewed setup flow, configuration, API and remaining limits |
+| [docs/gmail-morning-summary.md](docs/gmail-morning-summary.md) | Opt-in daily Gmail summary, triage queue and label rules |
+| [docs/gmail-rebuild-results.md](docs/gmail-rebuild-results.md) | Replacement Gmail computer after the missing base |
 | [docs/vision.md](docs/vision.md) | Goal, user, scope and quality bar |
 | [docs/architecture.md](docs/architecture.md) | Parts of the system and how they talk |
 | [docs/decisions.md](docs/decisions.md) | Decisions and their reasons |

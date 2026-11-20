@@ -39,6 +39,10 @@ impl Batcher {
 
     /// Add an event received at `at`. After a restart, `at` is the time the event arrived.
     pub fn add(&mut self, at: Instant, source: &str, kind: &str, id: i64, priority: i64) {
+        // An event joins one group once, however often a caller reports it.
+        if self.groups.values().any(|g| g.ids.contains(&id)) {
+            return;
+        }
         let g = self
             .groups
             .entry((source.into(), kind.into()))
@@ -104,6 +108,17 @@ mod tests {
 
     fn ms(base: Instant, n: u64) -> Instant {
         base + Duration::from_millis(n)
+    }
+
+    #[test]
+    fn an_event_id_joins_a_group_once() {
+        let t0 = Instant::now();
+        let mut b = Batcher::new(W, M);
+        b.add(t0, "mail", "new", 7, 0);
+        b.add(ms(t0, 5), "mail", "new", 7, 0);
+        b.add(ms(t0, 5), "other", "new", 7, 0);
+        assert_eq!(b.pending(), 1);
+        assert_eq!(b.take_due(ms(t0, 1000))[0].ids, vec![7]);
     }
 
     #[test]

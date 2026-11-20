@@ -33,12 +33,15 @@ pub struct Task {
     pub detail: Option<String>,
     pub run_id: Option<i64>,
     pub created_at: String,
+    /// `model` or `gmail_poll`. Set only by the store. Not part of the API.
+    #[serde(skip)]
+    pub execution_kind: String,
 }
 
-const TASK_COLS: &str =
-    "id, chat_id, source, title, body, priority, state, detail, run_id, created_at";
+pub(super) const TASK_COLS: &str =
+    "id, chat_id, source, title, body, priority, state, detail, run_id, created_at, execution_kind";
 
-fn task_row(r: &Row) -> rusqlite::Result<Task> {
+pub(super) fn task_row(r: &Row) -> rusqlite::Result<Task> {
     Ok(Task {
         id: r.get(0)?,
         chat_id: r.get(1)?,
@@ -50,6 +53,7 @@ fn task_row(r: &Row) -> rusqlite::Result<Task> {
         detail: r.get(7)?,
         run_id: r.get(8)?,
         created_at: r.get(9)?,
+        execution_kind: r.get(10)?,
     })
 }
 
@@ -172,7 +176,7 @@ impl Store {
                 .query_map([&bot], task_row)?
                 .collect::<Result<Vec<_>, _>>()?;
             let done = c
-                .prepare(&format!("SELECT {TASK_COLS} FROM tasks WHERE bot_id = ?1 AND state IN ('done','failed','cancelled') ORDER BY seq DESC LIMIT ?2"))?
+                .prepare(&format!("SELECT {TASK_COLS} FROM tasks WHERE bot_id = ?1 AND state IN ('done','failed','cancelled') AND execution_kind = 'model' ORDER BY seq DESC LIMIT ?2"))?
                 .query_map(params![bot, finished as i64], task_row)?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok([open, done].concat())
@@ -185,7 +189,7 @@ impl Store {
         let bot = bot.to_owned();
         self.run(move |c| {
             c.query_row(
-                &format!("SELECT {TASK_COLS} FROM tasks WHERE bot_id = ?1 AND state = 'queued' ORDER BY priority DESC, seq LIMIT 1"),
+                &format!("SELECT {TASK_COLS} FROM tasks WHERE bot_id = ?1 AND state = 'queued' AND execution_kind = 'model' ORDER BY priority DESC, seq LIMIT 1"),
                 [&bot],
                 task_row,
             )

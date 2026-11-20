@@ -11,6 +11,12 @@ pub mod challenge;
 pub mod challenge_api;
 pub mod db;
 pub mod events;
+pub mod gmail;
+pub mod gmail_cleanup;
+pub mod gmail_store;
+pub mod gmail_summary;
+pub mod gmail_summary_store;
+pub mod gmail_topics;
 pub mod hub;
 pub mod provisioning;
 pub mod schedule;
@@ -114,6 +120,8 @@ struct Counters {
 struct Current {
     task_id: String,
     run_id: Option<i64>,
+    /// A Gmail poll holds the computer. Owner messages never steer it.
+    poll: bool,
 }
 
 #[derive(Default)]
@@ -150,6 +158,8 @@ pub struct Bot {
     shutdown: CancellationToken,
     /// Time to wait for the desktop after a cold boot.
     boot_wait: Duration,
+    /// The opt-in Gmail poller. Absent: no poll and no wakeup.
+    gmail: Option<gmail::GmailRuntime>,
 }
 
 impl Bot {
@@ -173,6 +183,10 @@ impl Bot {
         // Every route that shows the screen passes this gate. A read error counts as open.
         let (gate_store, gate_bot) = (store.clone(), v.bot_id.clone());
         screen.set_privacy_state(Arc::new(move || gate_store.privacy_state_sync(&gate_bot)));
+        let gmail = config.gmail.clone().map(|g| {
+            gmail::GmailRuntime::new(g, Arc::new(hub::GuestHost(hub.clone())))
+                .with_triager(agent.clone())
+        });
         Ok(Arc::new(Self {
             id: v.bot_id.clone(),
             chat_id: flags.chat_id,
@@ -198,6 +212,7 @@ impl Bot {
             stats: Counters::default(),
             shutdown: CancellationToken::new(),
             boot_wait: Duration::from_secs(60),
+            gmail,
         }))
     }
 
@@ -240,6 +255,13 @@ impl Bot {
     /// Reconcile with the host database and the computer, then start the loop.
     /// Tasks that ran when the host stopped become `held`: nothing replays by itself.
     pub async fn start(self: &Arc<Self>) -> anyhow::Result<()> {
+        // A poll never waits or holds. The next one runs on schedule.
+        self.store
+            .end_open_gmail_polls(&self.id, "interrupted by a host restart")
+            .await?;
+        if let Some(g) = &self.gmail {
+            g.arm();
+        }
         for t in self.store.tasks(&self.id, 0).await? {
             if t.state == "running" {
                 self.store
@@ -277,7 +299,19 @@ impl Bot {
         }
         let now = Instant::now();
         let ms = db::now_ms();
+        let retain_gmail = self
+            .gmail
+            .as_ref()
+            .is_some_and(|g| g.cfg.poll_only || g.cfg.summary.is_some());
+        if self.gmail.as_ref().is_some_and(|g| g.cfg.summary.is_some()) {
+            // Events that polling stored go to constrained triage, never to a general agent task.
+            self.store.gmail_handoff_events(&self.id).await?;
+        }
         for e in self.store.unbatched_events(&self.id).await? {
+            // A poll-only run leaves stored Gmail events unprocessed for a later consumer.
+            if retain_gmail && e.source == gmail_store::GMAIL_SOURCE {
+                continue;
+            }
             let ago = Duration::from_millis((ms - e.received_ms).max(0) as u64);
             let at = now.checked_sub(ago).unwrap_or(now);
             self.batcher
@@ -334,6 +368,12 @@ impl Bot {
                 && let Some(t) = self.store.next_queued(&self.id).await?
             {
                 self.dispatch(t, false).await?;
+            } else if owner.is_none()
+                && gates_open
+                && self.gmail_poll_due()
+                && self.store.unresolved(&self.id).await?.is_empty()
+            {
+                self.dispatch_gmail_poll().await?;
             }
         }
         // The idle deadline runs only while nothing owns the computer.
@@ -342,6 +382,15 @@ impl Bot {
         let unresolved = self.store.unresolved(&self.id).await?.len();
         let eligible = gates_open && self.store.next_queued(&self.id).await?.is_some();
         let mut deadline = self.batcher.lock().unwrap().next_due();
+        if gates_open
+            && !busy
+            && owner.is_none()
+            && unresolved == 0
+            && !self.stopping.load(Relaxed)
+            && let Some(d) = self.gmail.as_ref().and_then(|g| g.deadline())
+        {
+            deadline = Some(deadline.map_or(d, |x| x.min(d)));
+        }
         let idle_ok = !busy
             && owner.is_none()
             && unresolved == 0
@@ -427,6 +476,7 @@ impl Bot {
         self.inner.lock().unwrap().current = Some(Current {
             task_id: task.id.clone(),
             run_id: None,
+            poll: false,
         });
         self.inner.lock().unwrap().idle_since = None;
         drop(gate);
@@ -674,6 +724,7 @@ impl Bot {
                 .unwrap()
                 .current
                 .as_ref()
+                .filter(|c| !c.poll)
                 .map(|c| c.task_id.clone());
             if let Some(task_id) = cur {
                 internal(self.store.add_steering(&task_id, &text).await)?;
@@ -742,6 +793,10 @@ impl Bot {
     }
 
     async fn stop_inner(&self) -> R<StopResult> {
+        // Cancel a poll first, so it starts no new command while the guest stops the live ones.
+        if let Some(g) = &self.gmail {
+            g.cancel_current();
+        }
         let cur = self
             .inner
             .lock()
@@ -1074,6 +1129,7 @@ impl Bot {
             "idle_secs": self.idle.as_secs(),
             "idle_left_ms": if comp == Comp::Awake { idle_left } else { None },
             "pending_events": self.batcher.lock().unwrap().pending(),
+            "gmail": internal(self.gmail_status().await)?,
             "last_error": last_error,
             "counters": {
                 "wakes": self.stats.wakes.load(Relaxed),

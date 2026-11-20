@@ -130,6 +130,7 @@ impl Service {
         vm.runtime_dir = p.runtime_root.join(&row.setup.id);
         c.vm = Some(vm);
         c.events = None;
+        c.gmail = None;
         c.provisioning = None;
         c.data_dir = self.config.data_dir.join("bots").join(&row.setup.id);
         c.workspace_dir = Some(c.data_dir.join("workspace"));
@@ -230,6 +231,7 @@ impl Service {
                     runtime_root: p.runtime_root.clone(),
                     base: p.base.clone(),
                     fixture_port: p.template.fixture_port,
+                    internet: p.template.internet,
                     supported: p.resources.clone(),
                     limit: Duration::from_secs(p.template.lifecycle_secs),
                 });
@@ -646,6 +648,33 @@ mod tests {
             store.setup_record("bot").await.unwrap().unwrap().version,
             after.version
         );
+    }
+
+    #[tokio::test]
+    async fn a_provisioned_bot_never_inherits_the_global_gmail_accounts() {
+        let (_, store, _dir, service) = super::super::setup_api::tests::app();
+        let mut config = (*service.config).clone();
+        config.gmail = Some(crate::config::Gmail {
+            profile: "main".into(),
+            account_control_selector: "a".into(),
+            search_box_selector: "b".into(),
+            interval_secs: 120,
+            initial_hours: 24,
+            overlap_secs: 3600,
+            max_pages: 3,
+            max_scan_secs: 90,
+            poll_only: false,
+            accounts: vec![],
+            summary: None,
+        });
+        let service = Service::new(Arc::new(config), store.clone(), service.model.clone());
+        std::fs::create_dir_all(&service.config.data_dir).unwrap();
+        let setup = super::super::setup::Setup::new("draft", fixture_draft(&service)).unwrap();
+        store.create_setup(&setup).await.unwrap();
+        service.scan().await.unwrap();
+        let row = store.setup_record("draft").await.unwrap().unwrap();
+        assert!(service.config.gmail.is_some());
+        assert!(service.bot_config(&row).unwrap().gmail.is_none());
     }
 
     #[tokio::test]

@@ -124,6 +124,39 @@ impl Agent {
         self.model_calls.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// One model call with no tools and no chat history, for a caller that validates the text itself.
+    /// It uses the same accounting as a run. A held call returns `Err(AccountingHold)`.
+    pub async fn complete_without_tools(&self, system: &str, user: &str) -> anyhow::Result<String> {
+        self.model_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let messages = [
+            json!({"role":"system","content":system}),
+            json!({"role":"user","content":user}),
+        ];
+        let model_name = &self.config.model.agent_model;
+        let mut stream: std::pin::Pin<
+            Box<dyn futures_util::Stream<Item = anyhow::Result<Delta>> + Send>,
+        > = match &self.accounting {
+            None => Box::pin(self.model.stream(model_name, &messages, &[])),
+            Some(a) => Box::pin(self.model.stream_accounted(
+                model_name,
+                &messages,
+                &[],
+                &a.options,
+                a.accountant.clone(),
+            )),
+        };
+        let mut text = String::new();
+        while let Some(d) = stream.next().await {
+            match d? {
+                Delta::Text(t) => text.push_str(&t),
+                // A model that asks for a tool gets none. Its text stays as it is and fails validation.
+                Delta::ToolCall(_) | Delta::Usage(_) | Delta::Finish(_) => {}
+            }
+        }
+        Ok(text)
+    }
+
     fn bus(&self, chat_id: i64) -> broadcast::Sender<Event> {
         self.buses
             .lock()
@@ -776,6 +809,50 @@ mod tests {
             f.host.calls.lock().unwrap().is_empty(),
             "no browser action may run after the hold"
         );
+    }
+
+    #[tokio::test]
+    async fn a_tool_free_call_sends_no_tools_and_no_history_and_returns_the_text() {
+        let f = fixture(
+            vec![(
+                200,
+                sse(&[json!({"choices":[{"delta":{"content":"{}"},"finish_reason":"stop"}]})]),
+            )],
+            FakeHost::default(),
+            5,
+        )
+        .await;
+        let text = f
+            .agent
+            .complete_without_tools("rules", "data")
+            .await
+            .unwrap();
+        assert_eq!(text, "{}");
+        let sent = f.requests.lock().unwrap()[0].clone();
+        assert!(
+            sent.get("tools").is_none(),
+            "no tool schema may reach the model"
+        );
+        assert_eq!(sent["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(sent["messages"][1]["content"], "data");
+        assert_eq!(f.agent.model_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_tool_free_call_is_accounted_and_a_hold_sends_nothing() {
+        let f = fixture(vec![], FakeHost::default(), 5).await;
+        let ledger = Arc::new(Ledger {
+            hold: true,
+            ..Default::default()
+        });
+        let f = accounted(f, ledger);
+        let e = f
+            .agent
+            .complete_without_tools("rules", "data")
+            .await
+            .unwrap_err();
+        assert!(e.downcast_ref::<AccountingHold>().is_some(), "{e:#}");
+        assert!(f.requests.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
