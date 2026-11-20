@@ -27,6 +27,12 @@ pub async fn serve(method: Method, uri: Uri) -> Response {
     if path == "api" || path.starts_with("api/") || method != Method::GET {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response();
     }
+    // `/next` is the desktop Home on the new design system. `/next/kit` is its motion and component trial.
+    let path = match path {
+        "next" => "next.html",
+        "next/kit" => "kit.html",
+        _ => path,
+    };
     let (name, file) = match Assets::get(path) {
         Some(f) if !path.is_empty() => (path, f),
         _ => match Assets::get("index.html") {

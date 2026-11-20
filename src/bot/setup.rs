@@ -620,6 +620,8 @@ pub struct HarnessProvisioner {
     /// A frozen base image from `freeze-base`.
     pub base: PathBuf,
     pub fixture_port: u16,
+    /// Allow guest networking at boot. It must match the template setting.
+    pub internet: bool,
     /// The harness fixes these. A draft that asks for others fails at once.
     pub supported: Resources,
     pub limit: Duration,
@@ -655,11 +657,14 @@ impl HarnessProvisioner {
             .arg(self.runtime_root.join(id))
             .arg("--fixture-port")
             .arg(self.fixture_port.to_string())
-            .args(sub)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if self.internet {
+            cmd.arg("--internet");
+        }
+        cmd.args(sub);
         let out = tokio::time::timeout(self.limit, cmd.output())
             .await
             .map_err(|_| Fail::Timeout(format!("`{}` timed out after {:?}", sub[0], self.limit)))?
@@ -1215,7 +1220,8 @@ mod tests {
 import sys, json, os
 a = sys.argv[1:]
 d = a[a.index("--dir") + 1]
-sub = a[a.index("--dir") + 4]
+rest = a[a.index("--fixture-port") + 2:]
+sub = rest[1] if rest[0] == "--internet" else rest[0]
 open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "log"), "a").write(json.dumps(a) + "\n")
 if sub == "status":
     print(json.dumps({"running": os.path.exists(d + "/running"), "state_saved": False,
@@ -1248,6 +1254,7 @@ elif sub == "install-executor":
             runtime_root: dir.join("rt"),
             base: dir.join("base.qcow2"),
             fixture_port: 1,
+            internet: false,
             supported: Resources {
                 cpus: 2,
                 memory_mib: 2048,
@@ -1302,6 +1309,25 @@ elif sub == "install-executor":
             ]
         );
         assert!(d.join("rt/bot-1/executor.json").exists());
+    }
+
+    #[tokio::test]
+    async fn internet_option_precedes_the_subcommand_only_when_set() {
+        let d = crate::testutil::temp_dir();
+        let mut h = harness(&d);
+        h.internet = true;
+        assert!(h.call("bot-1", &["status"]).await.is_ok());
+        h.internet = false;
+        assert!(h.call("bot-1", &["status"]).await.is_ok());
+        let runs: Vec<Vec<String>> = std::fs::read_to_string(d.join("log"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let (on, off) = (&runs[0], &runs[1]);
+        let sub = on.iter().position(|x| x == "status").unwrap();
+        assert_eq!(on[sub - 1], "--internet");
+        assert!(!off.iter().any(|x| x == "--internet"));
     }
 
     #[tokio::test]

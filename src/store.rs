@@ -274,6 +274,40 @@ CREATE TABLE privacy_generations(
 );
 ";
 
+/// Durable Gmail poll state. Account keys are opaque configuration identifiers.
+/// No column holds an address, a body or a page string.
+const SCHEMA_V10: &str = "
+CREATE TABLE gmail_accounts(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    baseline_done INTEGER NOT NULL DEFAULT 0 CHECK(baseline_done IN (0,1)),
+    last_attempt_ms INTEGER,
+    last_success_ms INTEGER,
+    last_result TEXT CHECK(last_result IN ('ok','incomplete','error','auth','identity_mismatch')),
+    PRIMARY KEY(bot_id, account)
+);
+CREATE TABLE gmail_seen(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    first_seen_ms INTEGER NOT NULL,
+    PRIMARY KEY(bot_id, account, thread_id, message_id)
+);
+";
+
+/// Task execution kind and the Gmail window watermark.
+/// `execution_kind` routes a task. Only the store sets `gmail_poll`, so no title or payload can spoof it.
+/// `watermark_ms` is the START time of the last successful window scan. Old rows get no watermark:
+/// none is invented from the completion time, so the next scan seeds a silent baseline again.
+const SCHEMA_V11: &str = "
+ALTER TABLE tasks ADD COLUMN execution_kind TEXT NOT NULL DEFAULT 'model' CHECK(execution_kind IN ('model','gmail_poll'));
+CREATE UNIQUE INDEX one_outstanding_gmail_poll ON tasks(bot_id) WHERE execution_kind = 'gmail_poll' AND state IN ('queued','running');
+ALTER TABLE gmail_accounts ADD COLUMN watermark_ms INTEGER;
+ALTER TABLE gmail_accounts ADD COLUMN window_lower_s INTEGER;
+ALTER TABLE gmail_accounts ADD COLUMN scope TEXT CHECK(scope IN ('date_window'));
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Chat {
     pub id: i64,
@@ -345,6 +379,130 @@ pub(crate) fn rfc3339(secs: i64) -> String {
     )
 }
 
+/// Gmail triage progress and the daily summary record. Arrival (`gmail_seen`) is not triage:
+/// a row leaves `pending` only after a validated model answer. No column holds an address or a page string;
+/// `summary` is a short sanitized model line. `gmail_summary_days` makes delivery once for each local day.
+const SCHEMA_V12: &str = "
+CREATE TABLE gmail_triage(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    first_seen_ms INTEGER NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','triaged','superseded')),
+    category TEXT CHECK(category IN ('reply_needed','actionable','awaiting_reply','fyi')),
+    summary TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_failure TEXT,
+    triaged_ms INTEGER,
+    label_state TEXT NOT NULL DEFAULT 'none' CHECK(label_state IN ('none','applied','uncertain','failed','skipped')),
+    label_attempts INTEGER NOT NULL DEFAULT 0,
+    summarized_day TEXT,
+    PRIMARY KEY(bot_id, account, thread_id, message_id)
+);
+CREATE TABLE gmail_summary_days(
+    bot_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    delivered_ms INTEGER NOT NULL,
+    PRIMARY KEY(bot_id, day)
+);
+";
+
+/// Mailbox cleanup. `origin` ranks new mail before the backlog. `gmail_organize` holds the host decision for a revision
+/// and the progress of its topic label and its move to Trash. `gmail_org_journal` is written before each write, so a
+/// restart sees an open entry and reads before it writes again. `gmail_backlog` is the checkpoint of the backlog walk.
+/// No column holds a string from a page or from the model.
+const SCHEMA_V13: &str = "
+ALTER TABLE gmail_triage ADD COLUMN origin TEXT NOT NULL DEFAULT 'window' CHECK(origin IN ('window','backlog'));
+CREATE TABLE gmail_organize(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK(decision IN ('keep','topic','trash','review')),
+    reason TEXT NOT NULL,
+    topic TEXT CHECK(topic IN ('receipts','jobs','tech','review')),
+    topic_state TEXT NOT NULL DEFAULT 'none' CHECK(topic_state IN ('none','applied','uncertain','failed')),
+    topic_attempts INTEGER NOT NULL DEFAULT 0,
+    trash_state TEXT NOT NULL DEFAULT 'none' CHECK(trash_state IN ('none','done','uncertain','failed','refused')),
+    trash_attempts INTEGER NOT NULL DEFAULT 0,
+    decided_ms INTEGER NOT NULL,
+    acted_ms INTEGER,
+    tried_ms INTEGER,
+    PRIMARY KEY(bot_id, account, thread_id, message_id)
+);
+CREATE TABLE gmail_org_journal(
+    id INTEGER PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('category','topic','trash')),
+    attempt INTEGER NOT NULL,
+    started_ms INTEGER NOT NULL,
+    outcome TEXT,
+    reason TEXT
+);
+CREATE TABLE gmail_backlog(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    ceiling_s INTEGER NOT NULL,
+    page INTEGER NOT NULL DEFAULT 1,
+    sweep INTEGER NOT NULL DEFAULT 1,
+    sweep_new INTEGER NOT NULL DEFAULT 0,
+    queued_total INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'running' CHECK(state IN ('running','complete')),
+    updated_ms INTEGER NOT NULL,
+    PRIMARY KEY(bot_id, account)
+);
+";
+
+/// Dynamic topic labels (D106). `gmail_organize.topic` held one of four fixed words behind a CHECK. It now holds a registry
+/// key, so the table is rebuilt with every row kept. `gmail_topics` is the registry of a bot. `gmail_topic_labels` says,
+/// for each account, whether a topic label may exist (`creating`) or a readback showed it (`verified`). Names are checked
+/// by the host before they reach a column.
+const SCHEMA_V14: &str = "
+CREATE TABLE gmail_organize_new(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK(decision IN ('keep','topic','trash','review')),
+    reason TEXT NOT NULL,
+    topic TEXT,
+    topic_state TEXT NOT NULL DEFAULT 'none' CHECK(topic_state IN ('none','applied','uncertain','failed')),
+    topic_attempts INTEGER NOT NULL DEFAULT 0,
+    trash_state TEXT NOT NULL DEFAULT 'none' CHECK(trash_state IN ('none','done','uncertain','failed','refused')),
+    trash_attempts INTEGER NOT NULL DEFAULT 0,
+    decided_ms INTEGER NOT NULL,
+    acted_ms INTEGER,
+    tried_ms INTEGER,
+    PRIMARY KEY(bot_id, account, thread_id, message_id)
+);
+INSERT INTO gmail_organize_new SELECT bot_id, account, thread_id, message_id, kind, decision, reason, topic, topic_state, topic_attempts, trash_state, trash_attempts, decided_ms, acted_ms, tried_ms FROM gmail_organize;
+DROP TABLE gmail_organize;
+ALTER TABLE gmail_organize_new RENAME TO gmail_organize;
+CREATE TABLE gmail_topics(
+    bot_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    seed INTEGER NOT NULL DEFAULT 0 CHECK(seed IN (0,1)),
+    created_ms INTEGER NOT NULL,
+    PRIMARY KEY(bot_id, key)
+);
+CREATE TABLE gmail_topic_labels(
+    bot_id TEXT NOT NULL,
+    account TEXT NOT NULL,
+    key TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('creating','verified')),
+    created INTEGER NOT NULL DEFAULT 0,
+    updated_ms INTEGER NOT NULL,
+    PRIMARY KEY(bot_id, account, key)
+);
+";
+
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     migrate_to(conn, i64::MAX)
 }
@@ -354,7 +512,7 @@ pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let steps = [
         SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
-        SCHEMA_V9,
+        SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12, SCHEMA_V13, SCHEMA_V14,
     ];
     for (i, sql) in steps.iter().enumerate() {
         let v = i as i64 + 1;
@@ -366,7 +524,7 @@ pub(crate) fn migrate_to(conn: &Connection, max: i64) -> rusqlite::Result<()> {
 }
 
 impl Store {
-    fn from_conn(conn: Connection) -> anyhow::Result<Self> {
+    pub(crate) fn from_conn(conn: Connection) -> anyhow::Result<Self> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate(&conn)?;
         Ok(Self {
@@ -637,7 +795,52 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 9);
+        assert_eq!(v, 14);
+    }
+
+    #[test]
+    fn the_topic_migration_keeps_every_organize_row() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate_to(&conn, 13).unwrap();
+        conn.execute_batch(
+            "INSERT INTO gmail_organize(bot_id, account, thread_id, message_id, kind, decision, reason, topic, topic_state, topic_attempts, trash_state, decided_ms, acted_ms, tried_ms) VALUES \
+             ('main','one','0000000000000001','00000000000000a1','tech','topic','useful_topic','tech','applied',1,'none',10,11,12), \
+             ('main','one','0000000000000002','00000000000000a1','promotion','trash','unwanted',NULL,'none',0,'done',20,21,22), \
+             ('main','two','0000000000000003','00000000000000a1','other','review','unsure_kind','review','uncertain',2,'none',30,NULL,NULL);",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        let rows: Vec<(String, Option<String>, String, i64, String)> = conn
+            .prepare("SELECT thread_id, topic, topic_state, topic_attempts, trash_state FROM gmail_organize ORDER BY thread_id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[0],
+            (
+                "0000000000000001".into(),
+                Some("tech".into()),
+                "applied".into(),
+                1,
+                "none".into()
+            )
+        );
+        assert_eq!(rows[1].4, "done");
+        assert_eq!(rows[2].2, "uncertain");
+        // A registry key now fits the column.
+        conn.execute(
+            "UPDATE gmail_organize SET topic = 'travel' WHERE thread_id = '0000000000000003'",
+            [],
+        )
+        .unwrap();
+        // The old CHECK on decision stays.
+        assert!(
+            conn.execute("UPDATE gmail_organize SET decision = 'x'", [])
+                .is_err()
+        );
     }
 
     #[test]

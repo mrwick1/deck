@@ -28,7 +28,7 @@ Computer subscribes only while visible and awake. Hide it during sign-in waits. 
 
 Keep the last successful overview during connection loss and mark it stale. Disable dependent actions until a fresh read succeeds. Keep chat drafts in memory. A refresh reloads saved setup, history and task state from the backend.
 
-The public sample preview remains static. The real interface is the root app at `/` (D88), behind the existing Deck authentication middleware. `/experience.html` redirects to `/`. No new public API, auth bypass, model endpoint or credential storage is added.
+The public sample preview remains static. The real interface is the root app at `/` (D94), behind the existing Deck authentication middleware. `/experience.html` redirects to `/`. No new public API, auth bypass, model endpoint or credential storage is added.
 
 ## Design reference
 

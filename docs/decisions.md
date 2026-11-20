@@ -814,6 +814,185 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 **Reason:** Route remounts discarded pending guards, live output and recovery text. A new conversation must keep later typing when its first send returns an ID. Acknowledging one conversation must not discard another held message.
 
 **Boundary:** State lasts for the current application session. It does not survive a full page reload. Matching stored text is evidence, not proof of delivery. A lost create response can leave an empty conversation whose ID is unknown to the client.
+## D68. Persist the shared browser profile in guest-owned storage (2026-11-14)
+
+**Decision:** The guest browser adapter sets a private state file for `save_state`, `ensure_session` and `open state=`. A validated saved-state name selects the file. The live session label does not select it. One shared profile can retain multiple accounts through a site's account switcher. This adds no per-account browser or profile.
+
+**Storage:** Keep the state under the guest user's `.local/state/deck/browser` directory. Reject unsafe names, linked or foreign directories, and unsafe existing files. Preserve valid files. Bare creates state files with private permissions.
+
+**Reason:** The guest adapter previously passed no state file. A browser process restart lost saved state held only in memory. The host state directory does not apply to the guest relay.
+
+**Evidence boundary:** The adapter and live synthetic tests pass. One browser session retains two synthetic accounts after a process restart. Actual Gmail switching, guest execution and VM recovery remain separate acceptance gates. No memory-saving claim follows.
+
+## D69. Gate guest readiness on the browser capabilities the adapter uses (2026-11-14)
+
+**Decision:** `bare-call --ready` reads the `tools/list` schemas. It requires the tool properties that the adapter sets: `open` with `state` and `file`, `save_state` with `name` and `file`, and `ensure_session` with `name` and `file`. A missing tool, a missing property or a malformed schema gives `ready: false`, reason `incompatible_browser` and exit 3. The reply lists only static names such as `open.file`. It never holds page content, credentials or schema text. The no-identity check and the RPC failure reasons stay as they were. The probe makes no tool call and starts no session.
+
+**Reason:** The live guest accepted its old browser and then failed on `open` with an unknown `file` property. This is a capability contract. It does not compare version numbers. It does not require `fresh`, which the adapter does not use.
+
+**Harness:** A run with `--bare-candidate` skips the readiness probe before the candidate is installed. The candidate install keeps its hash and manifest checks and must pass the same probe before any scenario tool. A run without a candidate probes at boot and fails before the scenario on an old browser.
+
+**Evidence boundary:** Tests use fakes only. No guest image changed and nothing deployed. The guest image must contain a compatible browser. Live VM and real-account behavior remain untested.
+
+## D70. Make guest internet access explicit (2026-11-13)
+
+**Decision:** VM mode keeps fixture-only networking by default. Set `[vm] internet = true` to permit outbound access for real sites. The CLI uses `--internet`. This also permits access to reachable private services. It adds no inbound port or host mount.
+
+**Reason:** The first Gmail milestone needs a real site. Synthetic tests must keep their existing restricted network.
+
+**Recovery:** Save metadata records the network policy. Restore refuses a different policy before starting QEMU. Older saved states use the restricted default. Restore with the original setting before changing the policy for a cold boot.
+
+## D71. Add a registered account by delivering only its secrets (2026-11-14)
+
+**Decision:** Deliver the secrets of a new account alone, under new request IDs. Check the receipts of the earlier accounts before and after. Record the account in its own private file only after every check passes. Reopen the saved profile to load the new secrets.
+
+**Reason:** The guest keeps earlier secret lines, but a replay or a replaced file could lose a login. A running session reads the secret file only when it opens. Identity needs exactly one passing account among all registered accounts.
+
+## D72. Poll Gmail in the browser and queue only observed conversation revisions (2026-11-15)
+
+**Decision:** The owner chose browser polling every 120 seconds, without the Gmail API. One shared desktop owner runs all accounts in turn. A poll never disturbs a task that waits on the same desktop. A poll respects pause, budget holds and unknown-outcome holds. An account counts as healthy only after a full, completed, identity-verified scan. The first complete scan of an account stores a silent baseline and queues nothing. Each later complete scan queues one low-priority triage event for every unique (thread, latest message) pair not seen before. The store keeps every observed pair, so a change from A to B and back to A queues A once. A changed latest message marks a changed conversation. It does not prove an incoming message. An incomplete, failed, logged-out or mismatched scan records only the attempt time and a fixed result code. It never moves the baseline, the seen pairs or the queue. No poller is deployed by this decision.
+
+**Reason:** A partial page must not look like an empty inbox, and a first scan must not flood triage. The store cannot check the page, so the adapter supplies only verified complete scans. Seen is not processed: events stay durable until the batcher turns them into a task.
+
+**Storage:** Schema version 10 adds `gmail_accounts` and `gmail_seen`, keyed by bot and an opaque account key. Events use source `gmail_poll` and kind `inbox_changed`. Payloads hold only account key, thread ID and latest message ID. Seen pairs are never pruned in this change.
+
+## D73. Run one serialized Gmail window worker inside the bot loop (2026-11-15)
+
+**Decision:** D72 "healthy" means a completed, identity-verified scan of a monitored date window. It does not mean a full inbox history or real-time arrival. The first scan of an account looks back 24 hours. Each later scan starts at the start time of the last successful scan minus one hour. Limits apply: three pages, 100 rows per page and 90 seconds per account. One worker serves all accounts in turn, and a poll starts no earlier than 120 seconds after the previous start. The worker runs inside `Bot::step`, so pause, budget, unknown-outcome and waiting-task rules apply. A poll uses no model. A poll yields to an owner message between accounts.
+
+**Reason:** The owner chose one shared browser and a 120 second check. Only a window bound keeps each scan complete and short. The overlap covers mail that arrives during a scan. A watermark that moves only on success never hides a failed scan.
+
+**Storage:** Schema version 11 adds a task `execution_kind` (`model` or `gmail_poll`) and a window watermark for each account. The legacy watermark is empty, so an upgraded account seeds a silent baseline again. A start time before the watermark is refused.
+
+**Status:** Issue 550 is unresolved. This decision claims no deployment, no arrival time and no performance. The worker is off unless `[gmail]` is configured.
+
+## D74. Record scan failure reasons and re-navigate once on a stale results page (2026-11-15)
+
+**Decision:** A poll task keeps the fixed reason code and the account key of each failed scan in its detail. A scan that reads `query_box` or `grid_count` navigates once through the mailbox root and reads again. A second failure stays a failure.
+
+**Reason:** Live, Gmail kept a stale search box value after a repeat visit of a window URL, for at least 20 seconds. Waiting did not help. A root navigation did. The reason code made the failure visible. See [gmail-worker-results.md](gmail-worker-results.md).
+
+**Status:** Fix one and two have failing tests first. The live run passed four polls. It did not show how often the retry fires.
+
+## D75. Build the morning summary on a tool-less model and host-owned browser steps (2026-11-15)
+
+**Decision:** A daily summary runs inside the Gmail poll task after the accounts are scanned. The host reads each thread in the shared browser. A model call with no tools classifies batches of threads. The host validates a fixed JSON shape and stores each result. The host renders one summary grouped by account and posts it to the bot chat. A local-day row makes delivery once a day and survives a restart. The schedule uses a fixed UTC offset (`Asia/Kolkata` by default), because the repository has no timezone dependency and the machine zone is not trusted.
+
+**Triage state:** Schema 12 adds `gmail_triage`. A scan inserts a row for each new revision. A row leaves `pending` only after a validated model answer. A failure keeps the row and counts the attempt. With the summary on, the scan queues no `bot_events` row. D72 and D73 stay the same otherwise, except that the baseline now queues triage rows.
+
+**Labels:** Labels use fixed `Deck/` names. The write steps come from configuration, not from code. A label counts only after an identity-checked readback. An uncertain write is recovered by a readback before any second write. Labels stay off until the owner gives a live-validated contract.
+
+**Reason:** The agent prompt grants full authority to send and delete. A mail-driven agent task must not carry it. A tool-less model removes the path from mail text to an action. Reusing the poll task keeps one browser owner and needs no task-kind migration.
+
+**Status:** Fakes only. The thread view contract and the label contract are unverified live. See [gmail-morning-summary.md](gmail-morning-summary.md).
+
+## D76. Run the Gmail poller as a poll-only user service that keeps events unprocessed (2026-11-15)
+
+**Decision:** An isolated local user service runs the real Deck binary against the retained shared-profile VM and its retained host database. It polls three accounts every 120 seconds in one shared browser. `[gmail] poll_only = true` makes the worker store each new event and queue none for triage. Events stay unprocessed in the host database. A later run without `poll_only` batches them at start. No model endpoint is configured for the service. A wrapper script starts the VM with its own boot lock, starts Deck, writes a private status file and sends an alert on a failure that needs a person. The service never signs in, opens a message, sends, labels, archives or deletes.
+
+**Reason:** A local model proxy exists. The label-only guard does not exist yet, so a triage task could act on real mail without a limit. Poll-only collection keeps every event and makes no false completion. The status file shows each account, the stage, the last error code and the age.
+
+**Pause:** The pause that the earlier harness left in the host database is released once, by the owner's explicit authorization. A pause that the owner sets later is kept: the service releases only a pause that it set itself when it stopped.
+
+**Status:** See [gmail-worker-results.md](gmail-worker-results.md) for the activation record. Incoming-mail detection is not proven until a real arrival is observed.
+
+## D77. Read threads from the print view and write labels from the inbox list (2026-11-15)
+
+**Decision:** The summary reads a thread from the print view `?view=pt&search=all&th=<id>`. It checks the host, the thread id and the message table before it uses the text. It writes a label from the inbox list. It selects the row, proves that this row alone is selected, applies a fixed label step and reads the chip back. Each step checks the account identity before and after the write.
+
+**Reason:** A live check on 2026-11-15 showed that a legacy thread id in the URL hash does not open the thread view. The print view is a server-rendered document, so its text does not depend on the page script. A label write from the list needs no thread view.
+
+**Status:** Fakes and unit tests only. The live label write and the live summary are not proven. The service still runs poll-only.
+
+## D78. Run the morning summary live, with labels off (2026-11-15)
+
+**Decision:** The isolated service runs in summary mode. It reads each thread from the print view, calls a tool-less model through the existing local proxy and posts one combined summary a day at 08:00 Asia/Kolkata. Labels stay off in the service. The model key comes from the vault at start (`rbw get`), into the memory of the Deck process. No key file exists. Deck lists a thread in the inbox and in each category tab before it writes a label. A label step may hold alternatives, split by a `---` line, because the toolbar differs between pages. After a write, Deck reloads the list and reads the chips again. `[gmail.summary] label_catchup` (default false) runs the label stage on polls after the day's delivery.
+
+**Reason:** The live run showed that a chip on the open page is not a saved label. Gmail shows the chip, sends no request and reports a script error, so a reload drops the label (bare issue 568). Only a reload check tells these cases apart. With the check on, every write ended `uncertain`. Labels are not proven, so they are off. Most threads sit in category tabs, which the main list does not show.
+
+**Hash URL:** Gmail opens `#all/<legacy id>` and rewrites the hash tail to its own id. The old check "the hash ends with the thread ID" was a wrong assumption about the app, not a bare defect. The print view needs no such check.
+
+**Status:** See [gmail-worker-results.md](gmail-worker-results.md) for the run.
+
+## D79. A label step waits for the page to settle before it writes (2026-11-15)
+
+**Decision:** Each label step starts with `wait js "performance.now() > 60000"`, under `timeout 75000`. The page has then run for 60 s since its last load. The step holds two alternatives. The first clicks the `Labels` toolbar button. The second opens `More email options`, then `Label as`, because some toolbars have no `Labels` button. The step names no `Apply` control. Deck code does not change. The chip selector and the steps stay in private configuration.
+
+**Reason:** The cause of bare issue 568 was not a missing `Apply` step. The open `Labels` menu has a hidden `Apply` item. It never shows. A click on a label item applies the label and closes the menu. Live on 2026-11-15, the same clicks on six threads of one account gave this result. A write 31 s or less after the page load showed a chip and lost it on reload (seven attempts). A write 45 s or more after the load persisted on five of six tries. The sixth try (a production run) did not. A longer wait after the menu opened did not help. The row markup of a failing and a passing thread was the same. The test is consistent with a load time, not with a bare defect. The exact threshold between 31 s and 45 s is not measured. The step waits 60 s for margin.
+
+**Cost:** Each label write waits up to 60 s. Each thread needs one reload, so a label run of ten threads takes about ten minutes. The label stage keeps its time cap.
+
+**Status:** Persistence was proven by reload on two accounts. A step without the wait is a regression: a unit test shows a chip that is never saved. The toolbar alternative `More email options` was proven in parts, not as one step.
+
+
+## D80. Serve the compact UI from the Gmail poller behind the existing login (2026-11-15)
+
+**Decision:** The poller service binary embeds the compact UI. The route is a Deck host in Caddy with `import sso`. The service binds the tailnet address and trusts only loopback, itself and the Caddy server. The UI treats a bot with Gmail status as read-only: no composer, no destination in the home list.
+
+**Reason:** This keeps D9 and D10. One process owns the VM and the database. A chat message must not start a task in the mailbox profile.
+
+**Consequence:** The service no longer answers on loopback. Authelia uses `one_factor` for this host. A passkey factor is still open.
+
+## D81. Production VMs opt out of the 3 hour scope bound (2026-11-15)
+
+**Decision:** `vmproto.py` keeps the 3 hour `RuntimeMaxSec` by default. `DECK_VM_LIFETIME_S=infinity` removes it. The Gmail service sets that value only when its config holds `persistent_vm`. Production bases, overlays and state belong under `~/.local/share/deck-gmail`, not under `/data/tmp`.
+
+**Reason:** The scope limit stopped the production QEMU while the idle reaper had already removed its base. Prototype runs still need the bound. The global reaper stays unchanged.
+
+## D82. Replace a lost disk with a new base and keep the logical computer (2026-11-15)
+
+**Decision:** A fresh disk on a new base takes the guest id that the host database pins and starts with `max_epoch` equal to the host epoch. The helper takes both values explicitly. The host database moves intact with the SQLite backup API. The old overlay stays offline and unchanged. The new base has its own id.
+
+**Reason:** The old base is lost, so the old overlay cannot boot. The host pin and the epoch fence hold the history of the commands. Keeping them means the guest accepts only epochs above all earlier ones, and `pin_guest` still rejects any other identity. A new id would need a pin edit in the database, which is the riskier path. The owner approved the replacement and fresh sign-ins.
+
+**Consequence:** The installer restarts the executor after it writes the identity, because the udev trigger starts it first.
+
+## D83. Move clearly unwanted mail to Trash, host-enforced, with a resumable backlog (2026-11-15)
+
+**Decision:** The Gmail phase gets one new destructive authority: move one thread to Trash. The owner approved it in writing: organize the mailbox, keep software engineering and AI newsletters, move clearly unwanted promotions and irrelevant newsletters to Trash. Nothing else changes. The code never deletes for good, never empties Trash, never archives, never unsubscribes, never marks spam and never sends.
+
+**Rules:**
+- The model returns a `kind` for each thread. It never returns an action, a step or a target. The host decides from `kind`, the category, and facts that it read itself.
+- A thread goes to Trash only when all of these hold: `kind` is `promotion` or `newsletter`; the category is `fyi`; the print view shows exactly one message; the text was not cut; the text holds none of the protected words (invoice, receipt, password, code, security, interview, offer and similar); the text holds no instruction-like phrase; the list row shows no label of the owner besides the `Deck/` labels. Anything else with kind `promotion` or `newsletter` gets the `Deck/Review` label. A kind of `other` gets it too.
+- A thread with several messages is never trashed. The check is by message count, not by the latest message.
+- Receipts, jobs and software or AI content get their own label. Personal, work and security mail keep only the category label. Existing labels are never removed.
+- The trash step is a fixed text in the private config, as the label steps are. Config validation refuses a trash step with archive, spam, send, mute, unread, permanent, forever, empty, report or unsubscribe. The label steps still refuse trash and delete words.
+- Each write follows the label rule: identity before and after, a row bound to the thread and the latest message, one selected row, a journal entry before the write, a reload, and a readback. The write counts only when the reload shows the thread in Trash. An unsure write is never repeated without a fresh readback. Two attempts end as `failed`.
+- The journal lives in the host database. At the start of each pass, an open entry becomes `unknown`. The next pass reads first, so a restart cannot write twice.
+- The generic agent has no path to this code. Only the summary phase calls it, and only with the `[gmail.summary.cleanup]` section.
+
+**Backlog:** The window scan stays. A second walk reads `in:inbox before:<ceiling>` one page at a time for each account. The ceiling is the first window scan lower bound at start. The checkpoint holds the next page, the sweep number and the count of new threads of the sweep. Pages of threads that are all known already are skipped, and the page number is kept. A sweep that reaches the end of the results with no new thread ends the backlog for that account. Any other end starts a new sweep. A walk reads at most `backlog_queue_cap` pending rows ahead. Rows of the backlog rank after new mail. A per-pass cap on triage, labels and trash keeps one pass short.
+
+**Notifications:** A routine scan, label or trash success posts no alert and no notification. The summary reports counts once each day. The service helper alerts only on holds, sign-in problems and stale scans. Nothing in this change adds an emitter.
+
+**Reason:** The owner asked for a cleaned and organized mailbox, not a list of suggestions. A category-only rule would trash ordinary mail. A mixed thread can hide a protected message under a promotion. So the host decides, from the thread facts, and keeps the rest.
+
+**Boundary:** A model can misjudge `kind`. The host rules cut that risk but do not remove it. Trash is recoverable for 30 days.
+
+## D84. Live checks of the cleanup writes, and a guard for engineering and AI mail (2026-11-15)
+
+**Decision:** The first live Trash and the topic labels ran on the real accounts. The trash step `click role=button name="Delete"` matches one button after one row is selected in a list. After a full reload the thread showed in Trash and no longer in the inbox, so `Delete` moves to Trash in this view. The topic label steps use the same shape as the category label steps. A topic label shows after a reload only when the page ran for 60 s before the click. Eight `Deck/` labels now exist in each of the three accounts.
+
+**Rules added:**
+- A promotion or newsletter with a whole word of software engineering or AI content (ai, llm, api, developer, software, engineer, github, rust and similar) goes to review, not Trash. The prompt says that such mail is `tech` even when it sells something.
+- `backlog_exclude` stays empty. The live search `label:deck` matched no thread, so `-label:deck` excludes nothing.
+
+**Reason:** The owner keeps engineering and AI mail, whatever its commercial intent. A word match is cheap and errs toward review.
+
+**Boundary:** The word list is English only. A match inside a promotion sends a legitimate promotion to review. That cost is accepted.
+
+## D85. Read the backlog first and keep the last finished cycle visible (2026-11-16)
+
+**Decision:** The cleanup pass reads the backlog pages first, with a time share of one third of `max_run_secs`. Triage, moves to Trash, category labels and topic labels follow, under the whole cap. The status keeps the last finished cycle while a new cycle runs. It adds `current_started_ms` for the cycle in progress.
+
+**Reason:** The live walk never started with `backlog = true`. The backlog read came last. Each label write waits about 60 s and a pass holds up to six writes, so the cap ended the pass before the read. A cycle takes 4 to 6 minutes and the next one starts at once. The status reset `last_cycle` to empty at each start, so the helper almost never saw a complete cycle and counted none. Complete cycles were in the task list all along.
+
+**Consequence:** A page read cannot wait behind slow writes. The writes have at least two thirds of the cap. A cycle still never reports complete unless it ended without a failed account or an interrupted phase. A cap that ends a pass early is not a failure, as before.
+
+**Fairness:** The queue cap counts the pending backlog rows of one account, not of all accounts. The first live pass read 32 rows for one account. A shared cap would have kept the walk of the other two accounts closed for as long as the first one refilled the queue.
+
+**Read limit:** The first live promotions and newsletters all ended in review with the reason `partial_read`. Their print text was longer than `max_read_chars`, which is 6000 by default. The guard held, so none went to Trash. The service config now takes `summary_max_read_chars`, and the live value is 12000. The guard stays: a thread that is still cut goes to review. The model prompt grows with the limit.
+
 ## D86. Tell the owner when a run reaches the step limit (2026-11-15)
 
 **Decision:** When a run reaches `agent.max_steps`, store a fixed assistant message in the chat. The message says the step limit stopped the work and the task is not finished. Send it as a persisted text event too. The run still fails with the same task detail.
@@ -862,6 +1041,8 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 
 **Decision:** Production does not pin a `bare` release. Each `deck` deploy builds `bare-mcp` from the newest `bare` main and installs it in every guest. The guest check of the `bare-mcp` hash stays. The deploy sets the expected hash from that build. No person keeps the hash by hand. This replaces the pinned `bare` of D15.
 
+**Mechanism:** The deploy keeps the built file next to `deck`. The service config names it in `bare_mcp`. At each start, the service hashes the file and calls `resume --bare-candidate` with that hash. After the boot, the helper installs the file in the shared guest when the guest digest differs. It uses the existing install: digest, `ldd`, atomic rename, session restart, readiness. It also replaces the private pinned copy and the first run's record. The service gives the file path to `deck` and to the harness as `DECK_VM_BARE_MCP`. `vmproto.py` then does the same install in each bot computer after `start`, `restore` and `install-executor`, when the guest digest differs. A file that is missing, unreadable or fails a check stops the start. The old `expect_bare_sha256` key is ignored.
+
 **Reason:** The owner asked for it. A merged `bare` fix did not reach the guests: the Gmail service refused any `bare-mcp` except the pinned hash, and new bots took `bare` from the base image. Merged fixes must reach production with the next deploy.
 
 **Risk:** A `bare` regression reaches production with the next deploy. The rollback copy of each deploy keeps the previous `bare-mcp`, so one restore undoes it.
@@ -898,3 +1079,135 @@ Requests state belongs above the route, not only above its tabs. Activity task a
 **Reason:** The owner will sell Deck to customers who create and manage bots. One job done well comes before many jobs. A batch call costs less and runs faster than one call per mail. The current `Deck/` status labels go stale, and the prefix names the tool, not the mail.
 
 **Risk:** The plan sizes are estimates. Speed promises depend on `bare` fixes. Browser steps break when Gmail changes its page.
+
+## D97. A redacted read is not a cut read, and an old cut read is read once more (2026-11-16)
+
+**Cause:** Every promotion and newsletter ended in review with `partial_read`, also at limits of 12000 and 20000. The browser tool shows each secret value as `[secret]` in all output. The account name is a secret. A promotion holds the account name in its print header. The text that came back was shorter than the page text. The host compared the page length with the length of the returned text. It read the difference as a cut. Bare is not at fault: the redaction is documented. A check with a 10 500 character string through the same `eval` path shows no cut in transport.
+
+**Decision:** The page program returns `sent`, the length of its own slice, as a number. The host counts a read as cut only when the page text is longer than `max_read_chars` or longer than `sent`. A missing `len` or `sent` still counts as cut. The limit stays a hard bound, and a read that is really longer is still never trashed.
+
+**Retry:** One pass sends one earlier `partial_read` review back to triage (`gmail_retry_partial_reads`). It takes only the latest revision of a thread, with no trash write and no topic write in doubt. The organize row stays and takes the reason `partial_read_retry`. The new answer replaces the decision in place. A topic label that was applied stays recorded. A changed topic restarts at `none`. A second cut read ends as `partial_read_final` and is never retried. The journal of earlier writes is not touched.
+
+**Not covered:** The classifier still sees `[secret]` where the account name stood. The guards read the same text.
+
+## D98. Gmail's own `Inbox` chip is not a label of the owner (2026-11-16)
+
+**Cause:** Four threads were refused with `trash_refused`: three in account A and one in account B. An exclusive live read showed the chips of each row. Each row showed `Inbox` and `Deck/` chips only. The `Deck/` labels came from the host. `Inbox` is a chip that Gmail adds to a row in a category list. The main inbox list does not show it. The guard read every chip that is not a `Deck/` label as a label of the owner, so it refused every thread in a category list. The selector `div.au div.av` is right: it finds the chip text. Redaction and truncation were not the cause. The guard was not wrong about an owner label: no owner label was found.
+
+**Decision:** The guard ignores a chip that is exactly `Inbox`. Any other chip still counts as a label of the owner. That includes `inbox`, `Starred` and any unknown chip. There is no list of safe names beyond this one. A label of the owner stays protected.
+
+**Retry:** A new refusal gets the reason `trash_refused_final`. The four old `trash_refused` rows go back to triage once each, one in each pass (`gmail_retry_refused_trashes`). The guard decides again from a live read. The journal is not touched. A second refusal is final.
+
+**Not covered:** The read covered four threads of two accounts. Another system chip in another list is not known, and the guard refuses it.
+
+
+**Live evidence (2026-11-16):** The first read used an exclusive pause. I paused only my own hold, waited for the journal to settle, read the four rows through the guest browser, and released the pause. The service then ran the release binary with SHA-256 `67a30592081f8074094f5ba09337a17c0ba6af6caba2387ee4f2c9b115ff13d6`, with the previous binary and config kept in the private rollback directory. The tests number 498 (two new for the guard, one for the retry); format and lint pass. After the swap, the production journal shows two moves to Trash, each with a reload readback (journal rows 50 and 52). The manual proof move is not counted in them. Two of the four old refusals were queued for Trash again. One retry per pass is still running, and the three-round quiet check and the summary dedupe are not yet verified.
+
+## D99. Several label writes share one settled page (2026-11-16)
+
+**Cause:** A label write took about 85 s. It reloaded the list, waited until the page was 60 s old (D79), wrote, reloaded again and read the label back. Over a 3 h sample of the live journal, 102 category writes ran, and 31 of them ended `not_visible` and needed a second write. A cycle made about four writes. The wait was the largest part of each write.
+
+**Decision:** The label stage writes the rows of one account and one list on the page that the first write settled. It does not reload between writes. It unselects the earlier row with a click on the selected checkbox, and it reads the next row again. A doubt about the open page makes it reload as before. After each write it reads the chips of the open page. A label that was there before and is now missing ends the batch at once. After the batch, one reload and one readback follow for each row. A failed reload makes the next readback reload again. The journal entry of a row stays open until its readback. A restart marks it `unknown`, and the next pass reads first (D83).
+
+**Kept:** The 60 s wait in the label steps, the identity checks before and after each write, the one selected row, the journal before each write, the two-attempt limit and the halt on a lost label. Rows are only reordered inside one pass, by account.
+
+**Boundary:** The fake mailbox of the tests cannot model page age. The claim that Gmail saves a second write on an aged page rests on D79 (a write 45 s or more after the load persisted). A live measurement must confirm it. If the share of `not_visible` rows rises, revert this change.
+
+## D100. One build holds every known production feature, and each deploy records its source (2026-11-16)
+
+**Cause:** The live binary `64674e90` was built from a clean `news-bot-prod` tree at `330b1d7`. That branch forked at `7db325c`, before the four commits that end at `75adc78`. The binary lacked their strings (`partial_read_retry`, `trash_refused_retry`) while the binary before it had them. The news-bot deploy therefore dropped the redacted-read fix, the Inbox chip fix and the retry of old refusals. The build output (`deck.d`) named the `news-bot-prod` worktree, which is how the source was found.
+
+**Decision:** Merge `news-bot-prod`, then `main`, into the Gmail speed-up line. Keep both decision lines: the bot decisions keep the main numbers D86 to D88 and the Gmail decisions D86 to D97 become D97 to D99. Deploy one build from the merged tree. Record the source commit, the tree, the binary SHA-256 and the web bundle names for each deploy in [gmail-deploy-record.md](gmail-deploy-record.md).
+
+**Reason:** Two branches grew from one base and each deploy came from one branch only. A recorded source per deploy makes the next drift visible at once. The proof of the source is inference from the build output and a clean tree. A rebuild at `330b1d7` was not compared byte for byte.
+
+## D101. The backlog job works on one account at a time (2026-11-16)
+
+**Decision:** The cleanup pass picks one focus account: the first registered account with backlog work left. Backlog work is the walk, a queued thread that waits for triage, and a queued label, topic or Trash write with an attempt left. The pass walks, triages, labels and moves to Trash the backlog rows of that account only. The focus comes from the database, so a restart resumes the same account. New mail of every account is still read and written in the same passes. Every account still gets its ceiling at once, so the cut between old and new mail is fixed early. Scans of all accounts run as before.
+
+**Bounds:** An account whose last scan result is `auth` or `identity_mismatch` never holds the focus. A row that ran out of attempts leaves the focus too, and the status counts it as `unresolved` for its account. The status shows the `focus`, and for each account the `pending` and `unresolved` counts next to the walk state. A complete walk with `unresolved` above zero is not the same as a clean account.
+
+**Kept:** The batch caps, the settled page reuse (D99), the journal, the identity checks, the guards for protected mail and the yield to an owner task. No archive, send or permanent delete.
+
+**Reason:** The owner wants the existing mail finished account by account, in small batches, with the browser free for other tasks. The earlier rotation spent a page settle on each account in every pass.
+
+## D102. A done payment is information, and a money notice is protected (2026-11-16)
+
+**Cause:** One bank notice of a done UPI payment got the model answer `actionable` with kind `receipt` and the Action label. Of 20 stored receipts with that answer, 14 have the label (2 in account A, 12 in account B).
+
+**Decision:** The triage prompt says that a notice of a payment, debit, credit or transfer that already happened is `fyi` with kind `receipt`. The host lowers `actionable` to `fyi` for a receipt only with positive evidence that the payment is done (debited, credited, successful, paid, completed, transferred, "is complete") and no ask of the owner. Asks are the words due, overdue, failed, declined, pending, dispute, action required, blocked, locked, "will be debited", "not successful", verify, confirm, update, click, KYC, outstanding and a few more. Bank boilerplate sentences ("if you did not ...", "no action required", "do not share") are removed before the check. A receipt with no such evidence keeps `actionable`, so the owner sees it. Money words (debited, credited, UPI, transaction, A/C, withdrawn, transfer, EMI) join the protected words, so a promotion with them goes to review and never to Trash.
+
+**Revised 2026-11-16:** The first rule lowered a receipt when none of 17 words was present. Absence of a short word list is no proof that nothing is asked. The rule now needs positive evidence.
+
+**Boundary:** The words are English only. A label that Gmail already holds is not removed: Deck labels are additive. A wrong earlier label stays until the owner clears it or a later decision adds a removal step with the same identity and read-back checks. The audit found no thread with applied labels of two categories.
+
+**Reason:** The label said the owner must act, and nothing needed action. The fix changes new decisions only. The earlier rows stay as stored until reviewed.
+
+## D103. Pause the label and Trash writes with the service config (2026-11-16)
+
+**Decision:** To pause writes, the service config moves `labels` and `cleanup` to a `paused_writes` key. Deck then renders no label steps and no cleanup table. It polls and triages, and writes nothing to Gmail. To resume, move the two keys back and restart at a quiet point. A temporary `boost` overlay (higher caps, saved separately from the normal caps, ended by the service itself) exists in the service wrapper. The owner replaced the cap-only speed-up with D101. The boost stays off.
+
+**Reason:** The owner reported a wrong label. A paused config needs no code and no write to stop the writes. The pause came at a settled boundary: automation pause, no running pass, no unresolved journal entry.
+
+## D104. One exact removal path for a wrong Deck category label (2026-11-16)
+
+**Cause:** One bank notice of a done UPI payment of 500 had the Action label (D102). Deck labels are additive, so no step could remove it.
+
+**Decision:** `scripts/vm-prototype/gmail_label_repair.py` is the only removal path. It handles one account, one thread and one latest message from a private pick file. It writes only `Deck/FYI` (add) and `Deck/Action` (remove). It reads the thread through the print view first. The latest message must be a done payment by the D102 word lists. (Revised by D105: an earlier ask no longer counts as history.) The print view carries no message id, so the list row binds the latest message before and after the read and before each write. Each write reads the real checkbox state first and never repeats blindly. A reload must show the wanted label, no Action and every other chip of the row. The journal is a private append-only file. An open entry after a crash is marked `unknown`, and the next run reads first. Each operation has two attempts. The stored category changes in one transaction only after the proof.
+
+**Result:** The live repair of the single account A candidate ended `applied` for both writes, and the store row is `fyi` with label `applied`. The 14 other stored receipts were not relabeled.
+
+**Boundary:** The tool does not search for other wrong labels. The word lists are English only.
+
+## D105. The label repair refuses when any message of the thread holds an ask (2026-11-16)
+
+**Cause:** `gmail_label_repair.py` treated the latest message as the answer to every earlier one. It also treated an ask in the last 40% of a message as a bank footer. Neither is proven. The helper can remove a label again and again, so a rule that ignores an older open request is unsafe.
+
+**Decision:** The thread passes only when three things hold. The last message is a done payment, uncut, with no ask after the D102 boilerplate cut. No earlier message holds an ask after the same cut. No earlier message is cut or empty. Otherwise the repair refuses with `evidence` and writes nothing. The position of an ask in the text never excuses it. The footer-position check is removed. A refused thread needs a human check of the meaning, or a richer bounded read, before any repair.
+
+**Evidence:** The single live repair of one account A thread (D104) ended `applied` under the earlier rule. That is one result. It does not prove that the latest message decides a thread. This change did not re-read that mail or any other mail. The tests use synthetic text only.
+
+**Boundary:** The production Rust classifier is unchanged. The word lists are English only. The earlier live repair is not undone.
+
+## D106. Dynamic Gmail topic labels from a bounded registry (2026-11-16)
+
+**Cause:** The owner asked for dynamic labels. The fixed topic labels (Receipts, Jobs, Software and AI, Review) cannot name a new type of mail such as travel.
+
+**Decision:**
+- The model returns a short topic for each thread, besides the category and the kind. It gets the list of current topics and must reuse one when it fits. The topic is data. The kind keeps deciding the safety rules.
+- The host checks the topic: 2 to 24 characters, at most 3 words, letters, digits, spaces and hyphens, no run of 4 digits, no reserved word (category, control and write words). It folds case, spaces and a final `s`. A match with a registry topic reuses that topic. A new name is a new topic. The label is `Deck/` plus the name. There is no fuzzy merge beyond that fold and a small fixed alias list of the four old topics.
+- A registry per bot stores the topics. A second table stores, for each account and topic, `creating` or `verified`. A topic exists on an account only where a thread needs it.
+- The label is written with two private config steps: `topic_step` applies an existing label, `topic_create_step` creates it from the label menu and applies it to the selected thread. The host puts only the checked label name into a quoted argument. The name never reaches a selector or a program. Creation is the last alternative of one write. It runs only after the apply alternatives failed and a fresh read shows no chip. So a retry always looks first and never creates twice. The write keeps identity checks, the journal, the reload and chip readback, and the lost-label halt.
+- A dynamic label never authorizes Trash. `decide` is unchanged. A promotion or newsletter is trashed or reviewed by the same guards. A topic applies to receipt, job, tech and other mail. A topic on `other` mail replaces the review label. The kind stays `other`.
+- Limits: `topics_new_per_pass` (default 2) new registry topics and new Gmail labels in one pass, `topics_registry_cap` (default 30) topics in all. An `other` thread that hits a limit or has an invalid topic goes to Review with the reason `topic_limit` or `topic_invalid`. A receipt, job or tech thread then takes its old fixed topic.
+- Existing rows stay as they are. Only new triage gets a topic. The registry seeds the four old topics when first used. The owner's own labels are never read, renamed or changed. The new labels live in the `Deck/` namespace.
+
+**Reason:** The owner wants labels to follow the mail. A registry keeps one name for one concept across accounts. Bounds stop a label for each sender. Gmail rejects a duplicate name, so a wrong retry cannot make a second label.
+
+**Boundary:** The registry has no delete or rename. The owner cleans the labels by hand. The word lists are English only.
+
+## D107. Desktop-first redesign on one design system (2026-11-16)
+
+**Decision:** Design for the laptop first. Home is a dashboard with a sidebar. A bot opens in a pane beside Home, so Home stays visible. The bot list changes form with the fleet size: cards up to 6 bots, rows up to 15, a grouped table with a filter above 15. All screens use one design system, recorded in [web/DESIGN.md](../web/DESIGN.md). Its look follows the owner's portfolio: dark first, near black, one red accent, Geist, Geist Mono and Redaction. Surfaces are square. Controls have a 4px corner. Red is the primary button color.
+
+**Reason:** The owner found the mobile-first layout too sparse on a laptop. Three token sets and about 96 raw colors made the old styles inconsistent. The owner chose the portfolio as the reference, dark mode first and a crisp style with motion.
+
+**Scope change:** This replaces the mobile-first direction of the 2026-11-15 mobile flow review. Touch screens keep 44px targets through `pointer: coarse`. The owner approved removal of the old app in `web/src/App.tsx`, which D101 kept. Screens move to the system one at a time, starting with Home. Each move deletes the old styles of that screen.
+
+**Boundary:** This change adds the tokens, the shared parts and a development-only showcase at `web/design.html`. The build does not include the showcase. The current app stays light, but its shadcn controls take the new fonts, the red primary and the 4px corner. No screen layout changes.
+
+**Trial at `/next`:** The new Home ships at `/next`, beside the current app at `/`, so the owner can test it with real bots and ask for changes. It reads and writes through the same API as the current app. The bot pane reuses the current chat, requests and computer views, with a dark style bridge in `web/src/next/legacy.css`. Setup review, Deck conversations and the history list open in the current app. The service worker does not serve `/next`. The project `cn` in `web/src/lib/cn.ts` knows the custom text sizes; the shared `cn` dropped `text-ui` next to a text color.
+
+## D108. Fluid motion kit trial at `/next/kit` (2026-11-16)
+
+**Decision:** Try a soft, animated style before the next rebuild. The page `/next/kit` shows it with real bots and three sample bots. It uses Animate UI (`@animate-ui/react`) for menus, dialogs, tabs, tooltips, switches, highlights and text effects, and Motion for springs and the card-to-pane morph. Corners are round. Controls are pills. The page also shows loading and working states for an AI product. The page is read-only. Nothing on it sends or changes anything.
+
+**Reason:** The owner found the D107 style too sharp. The owner asked for a smooth, friendly and native feel, and for animated components from public libraries.
+
+**License:** Animate UI uses MIT with the Commons Clause. An app may use it. Its components may not be sold or shared on their own. Deck installs it as a package and does not copy its source.
+
+**Boundary:** The kit does not replace `/next` or `/`. The owner picks the parts to keep. The rebuild then follows that choice, and its decision replaces the D107 style.
+
+**Home on the kit (2026-11-16):** The owner approved the kit look. `/next` now uses it with real data: a collapsible sidebar, soft cards, a card that grows into the bot pane, pill tabs, a pill composer with a destination menu, and AI loading states. The shared parts are in `web/src/fluid/`. The pane still reuses the current chat, requests and computer views. `web/src/next/legacy.css` maps their styles to the fluid tokens until they are rebuilt.
+
+**Control room layout (2026-11-16):** The owner compared four layout prototypes and picked the Control room. The `/next` Home is now a grid of tiles: a live screen of a working bot, Needs you, Queued, Awake computers, Bots and Recently done. The live tile follows the pane's privacy rules. It hides the screen while a sign-in or protected input is open, and while the pane already shows that screen. The API has no spend data, so the prototype's spend tile became the Awake tile. The live tile does not rotate on its own, because each change opens a new screen stream. The prototype page `/next/layouts` is removed. The owner approved the result on 2026-11-16. Next: rebuild the pane views (Chat, Requests, Computer) and delete `web/src/next/legacy.css`.

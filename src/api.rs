@@ -388,6 +388,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn next_serves_the_new_home_behind_auth() {
+        let app = app();
+        let req = |uri: &str, auth: bool| {
+            let mut r = Request::builder().uri(uri);
+            if auth {
+                r = r.header("Remote-User", "test");
+            }
+            r.body(Body::empty()).unwrap()
+        };
+        let body = |res: axum::response::Response| async move {
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        };
+        let next = body(app.clone().oneshot(req("/next?bot=a", true)).await.unwrap()).await;
+        let root = body(app.clone().oneshot(req("/", true)).await.unwrap()).await;
+        assert!(next.contains("<div id=\"root\">"), "{next}");
+        assert_ne!(next, root);
+        let kit = body(app.clone().oneshot(req("/next/kit", true)).await.unwrap()).await;
+        assert!(kit.contains("Fluid kit"), "{kit}");
+        for path in ["/next", "/next/kit"] {
+            let res = app.clone().oneshot(req(path, false)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    #[tokio::test]
     async fn unknown_api_path_is_a_json_404() {
         let (s, b) = call(&app(), "GET", "/api/nope", "").await;
         assert_eq!(

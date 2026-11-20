@@ -40,6 +40,7 @@ max_steps = 30
 # bot_id = "main"
 # runtime_dir = "/path/outside/git/deck-vm"
 # harness = "scripts/vm-prototype/vmproto.py"
+# internet = false # true allows outbound access, including reachable private services
 # idle_secs = 120
 # command_secs = 120
 # lifecycle_secs = 120
@@ -51,3 +52,51 @@ max_steps = 30
 # token_env = "DECK_EVENTS_TOKEN"
 # batch_window_ms = 2000
 # batch_max_delay_ms = 10000
+
+# Opt-in Gmail polling for the bot above. It needs [vm] with internet = true and a saved browser profile
+# that holds every account. One shared browser checks each account in turn. No API, no model call per poll.
+# Account keys are opaque names. The address of each account is a guest secret named by user_secret.
+# These values are synthetic placeholders.
+# [gmail]
+# profile = "main"
+# account_control_selector = "a[aria-label*=\"Account\"]" # the one control whose label names the signed-in account
+# search_box_selector = "input[name=\"q\"]"               # the visible Gmail search box
+# interval_secs = 120    # start to start of two polls
+# initial_hours = 24     # look-back of the first scan of an account (silent baseline)
+# overlap_secs = 3600    # later scans start at the last scan start minus this
+# max_pages = 3
+# max_scan_secs = 90     # per account, with every read, retry, navigation and recheck
+# poll_only = false      # true: collect events and leave them unprocessed, with no model call
+# [[gmail.accounts]]
+# key = "account_one"
+# index = 0
+# user_secret = "ACCOUNT_ONE_USER"
+# Opt-in morning summary of all accounts. One message a day in the bot chat. The model has no tools.
+# A zone is UTC, Asia/Kolkata or a fixed offset such as +05:30. A zone with daylight saving is refused.
+# [gmail.summary]
+# time = "08:00"
+# timezone = "Asia/Kolkata"
+# max_threads_per_run = 30
+# batch_size = 5
+# max_read_chars = 6000
+# max_run_secs = 900
+# label_catchup = false  # true: run the label stage on each poll after the day's delivery too
+# Labels stay off until a live check gives the chip selector and one step for each label.
+# The steps below are synthetic. A step must apply its label and change nothing else.
+# A live step must first wait until the page has run for 60 s since its load: timeout 75000, then wait js "performance.now() > 60000".
+# A write before that shows a chip, and a reload drops it (D79).
+# A step may hold alternatives that are split by a line with three dashes. The next one runs only after a failed one,
+# and only when a fresh readback shows that the label is absent. Use it when the toolbar differs between pages.
+# [gmail.summary.labels]
+# chips_selector = "span.label-chip"
+# [gmail.summary.labels.steps]
+# needs_reply = "click css=\"#apply-needs-reply\""
+# action = "click css=\"#apply-action\""
+# waiting = "click css=\"#apply-waiting\""
+# fyi = "click css=\"#apply-fyi\""
+# Dynamic topic labels (D106). Both steps hold {label} inside a quoted argument. The host puts the checked label name there.
+# topic_step applies a label that exists. topic_create_step creates it from the label menu and applies it to the selected thread.
+# topic_step = "click role=menuitemcheckbox name=\"{label}\""
+# topic_create_step = "click role=menuitem name=\"Create new\"\ntype role=textbox name=\"Label name\" \"{label}\"\nclick role=button name=\"Create\""
+# topics_new_per_pass = 2    # in [gmail.summary.cleanup]: new topics and new Gmail labels in one pass
+# topics_registry_cap = 30   # in [gmail.summary.cleanup]: topics in the registry, the four fixed ones included
