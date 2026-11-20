@@ -7,11 +7,14 @@ The reply goes to $DECK_OUT/reply.json, so the host fetches it as a checked arti
 Files that the reply names (screenshots, downloads) are copied next to it.
 Paths of the guest never reach the model: the host maps them to its own artifact paths.
 """
-import json, os, shutil, sys, time, uuid
+import json, os, re, shutil, stat, sys, time, uuid
 
 MAX_FILE = 8 << 20
 MAX_COPIES = 12
 PROTOCOL = "2025-06-18"
+# The tool properties that this adapter sets or reads. `ready` checks these and nothing else.
+REQUIRED = {"open": ("state", "file"), "save_state": ("name", "file"), "ensure_session": ("name", "file")}
+STATE_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def session_dir():
@@ -64,8 +67,23 @@ def handshake(rpc, d, wait=30):
     open(marker, "w").close()
 
 
+def missing_capabilities(tools):
+    """Static identifiers (`tool` or `tool.property`) of the REQUIRED capabilities that `tools` lacks. Never schema text."""
+    by = {x.get("name"): x for x in tools if isinstance(x, dict) and isinstance(x.get("name"), str)}
+    gone = []
+    for name, props in REQUIRED.items():
+        schema = (by.get(name) or {}).get("inputSchema")
+        have = schema.get("properties") if isinstance(schema, dict) else None
+        if name not in by:
+            gone.append(name)
+        else:
+            gone += [f"{name}.{p}" for p in props if not (isinstance(have, dict) and isinstance(have.get(p), dict))]
+    return gone
+
+
 def ready(wait):
-    """Read-only readiness probe: print one JSON line. Exit 0 only when bare-mcp answers tools/list.
+    """Read-only readiness probe: print one JSON line. Exit 0 only when bare-mcp answers tools/list
+    and lists the tool properties in REQUIRED (reason incompatible_browser, with static `missing` names, otherwise).
 
     It sends initialize (once per session) and tools/list. It acts on no page and reads no credential.
     It prints stable reason codes, never guest output. It starts no session.
@@ -91,6 +109,9 @@ def ready(wait):
     tools = (v.get("result") or {}).get("tools")
     if "error" in v or not isinstance(tools, list) or not tools:
         return out(ready=False, reason="bad_reply")
+    gone = missing_capabilities(tools)
+    if gone:
+        return out(ready=False, reason="incompatible_browser", missing=gone)
     try:
         with open(os.path.expanduser("~/.local/state/deck-executor/identity.json")) as f:
             ident = json.load(f)
@@ -98,6 +119,36 @@ def ready(wait):
     except (OSError, ValueError, KeyError, TypeError):
         return out(ready=False, reason="no_identity")
     return out(ready=True, tools=len(tools), bot_id=bot, guest_id=guest)
+
+
+def state_file(name):
+    """Path of the one shared browser profile saved under `name`. Raises ValueError on an unsafe name or path.
+
+    The directories must be real, owned by this user, and private (no group or other bits) from `deck` down.
+    An existing file must be a regular file with one link, owned by this user, mode 0600. Nothing is repaired.
+    A missing file is left to bare, which creates it with mode 0600. This is not a defense against a hostile guest shell (D33).
+    """
+    if not (isinstance(name, str) and STATE_NAME.fullmatch(name)):
+        raise ValueError("browser state name not allowed: use 1 to 64 letters, digits, _ or -")
+    uid = os.geteuid()
+    path = os.path.expanduser("~")
+    for i, part in enumerate((".local", "state", "deck", "browser")):
+        path = os.path.join(path, part)
+        try:
+            st = os.lstat(path)
+        except FileNotFoundError:
+            os.mkdir(path, 0o700)
+            st = os.lstat(path)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or (i >= 2 and st.st_mode & 0o077):
+            raise ValueError("browser state directory is not a private directory of this user")
+    path = os.path.join(path, name + ".state")
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return path
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:
+        raise ValueError("browser state file is not a private regular file of this user")
+    return path
 
 
 def prepare(params, out, workspace):
@@ -109,6 +160,11 @@ def prepare(params, out, workspace):
     secrets = os.path.expanduser("~/.config/deck/secrets.env")
     if name in ("open", "ensure_session") and os.path.isfile(secrets):
         args["secrets_file"] = secrets
+    # One shared profile: the saved name picks the file. The model's `file` is replaced.
+    if name in ("save_state", "ensure_session"):
+        args["file"] = state_file(args.get("name"))
+    elif name == "open" and args.get("state") is not None:
+        args["file"] = state_file(args["state"])
     if name == "open":
         dl = os.path.join(workspace, "downloads")
         os.makedirs(dl, exist_ok=True)

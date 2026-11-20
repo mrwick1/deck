@@ -3,7 +3,7 @@
 
 One QEMU/KVM guest (Arch cloud image, sway, bare). Standard library only.
 State lives in a runtime directory outside Git: --dir or $DECK_VM_DIR.
-The guest has no host mounts and no network except one forward to a loopback fixture.
+The guest has no host mounts. Run mode restricts networking unless internet is enabled.
 Host control uses unix sockets only (QMP and the QEMU guest agent).
 """
 import argparse
@@ -71,12 +71,12 @@ class Paths:
 
 # ---------- pure helpers (unit tested) ----------
 
-def qemu_cmd(p, mode, fixture_port, incoming=False, seed_iso=None):
-    """Build the QEMU argument list. mode is 'setup' (internet, seed disk) or 'run' (restricted)."""
+def qemu_cmd(p, mode, fixture_port, incoming=False, seed_iso=None, internet=False):
+    """Build the QEMU argument list. mode is 'setup' (internet, seed disk) or 'run' (restricted by default)."""
     if mode == "setup":
         net = "user,id=n0,restrict=off"
     else:
-        net = f"user,id=n0,restrict=on,guestfwd=tcp:{FIXTURE_ADDR}:80-cmd:socat - TCP:127.0.0.1:{fixture_port}"
+        net = f"user,id=n0,restrict={'off' if internet else 'on'},guestfwd=tcp:{FIXTURE_ADDR}:80-cmd:socat - TCP:127.0.0.1:{fixture_port}"
     cmd = [
         "qemu-system-x86_64", "-name", f"{VM_NAME},debug-threads=on", "-no-user-config", "-nodefaults",
         "-machine", "q35,accel=kvm", "-cpu", "host", "-smp", "2", "-m", "2048",
@@ -101,6 +101,16 @@ def qemu_cmd(p, mode, fixture_port, incoming=False, seed_iso=None):
     if incoming:
         cmd += ["-incoming", "defer"]
     return cmd
+
+
+def vm_lifetime(env=os.environ):
+    """Seconds a VM scope may live. DECK_VM_LIFETIME_S=infinity is the only opt-out of the bound; production sets it."""
+    raw = env.get("DECK_VM_LIFETIME_S")
+    if raw is None:
+        return LIFETIME_S
+    if raw != "infinity":
+        sys.exit("DECK_VM_LIFETIME_S accepts only 'infinity'; unset it for the default bound")
+    return raw
 
 
 def scope_cmd(inner, lifetime=LIFETIME_S, mem_max=MEM_MAX):
@@ -269,6 +279,8 @@ def storage_report(*runtimes):
         meta = read_json(p.diskmeta) if p.diskmeta.exists() else {}
         if meta.get("kind") == "overlay":
             base = Path(meta["base"]["path"]).resolve()
+            if not base.exists():
+                sys.exit(f"backing image {meta['base'].get('id')} is missing; the overlay and saved state are kept; do not substitute another base")
             if base not in seen_bases:
                 parts["base" if not seen_bases else f"base:{base}"] = allocated_bytes(base)
                 seen_bases.add(base)
@@ -481,7 +493,7 @@ class Qga:
 
 # ---------- lifecycle ----------
 
-def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
+def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None, internet=False):
     p.mk()
     vm = read_vm(p)
     if vm and proc_ok(p, vm["pid"]):
@@ -496,7 +508,7 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
         if meta.get("kind") == "standalone" and not meta.get("run_booted"):
             write_disk_meta(p, {**meta, "run_booted": True})  # from here the disk may hold sessions: it can no longer become a base
     log = open(p.run / "qemu.log", "ab")
-    proc = subprocess.Popen(scope_cmd(qemu_cmd(p, mode, fixture_port, incoming, seed_iso)), stdout=log, stderr=log,
+    proc = subprocess.Popen(scope_cmd(qemu_cmd(p, mode, fixture_port, incoming, seed_iso, internet), lifetime=vm_lifetime()), stdout=log, stderr=log,
                             stdin=subprocess.DEVNULL, start_new_session=True)
     t = time.time()
     while not (p.pidfile.exists() and p.qmp.exists()):
@@ -506,7 +518,7 @@ def start_qemu(p, mode, fixture_port, incoming=False, seed_iso=None):
             sys.exit("qemu did not create its pidfile")
         time.sleep(0.02)
     pid = int(p.pidfile.read_text())
-    p.vm.write_text(json.dumps({"pid": pid, "launcher_pid": proc.pid, "mode": mode, "started": time.time()}))
+    p.vm.write_text(json.dumps({"pid": pid, "launcher_pid": proc.pid, "mode": mode, "internet": internet, "started": time.time()}))
     return pid
 
 
@@ -518,14 +530,21 @@ EXECUTOR_FILES = {"deck_executor.py": "/usr/local/bin/deck-executor",
                   "70-deck-executor.rules": "/etc/udev/rules.d/70-deck-executor.rules"}
 
 
-def install_executor(p, bot_id):
+def install_executor(p, bot_id, guest_id=None, max_epoch=0):
     """Bootstrap the executor into a running guest through the root test channel, then bind it to one bot.
 
     The guest identity is made here and stays on the guest disk. It is printed so the host can pin it.
     Refuses to rebind a guest that already has an identity.
+    A replacement disk for a logical computer passes the pinned `guest_id` and the host's current `max_epoch`.
+    The host database keeps its pin and its epoch. The guest then refuses any epoch at or below the host's, so the
+    fence only rises. The caller must have stopped and kept offline the old guest of this identity.
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", bot_id):
         sys.exit("bot ID must be 1 to 64 characters of A-Za-z0-9_-")
+    if guest_id is not None and not re.fullmatch(r"[0-9a-f]{32}", guest_id):
+        sys.exit("guest ID must be 32 lowercase hex digits")
+    if type(max_epoch) is not int or max_epoch < 0:
+        sys.exit("max epoch must be an integer of 0 or more")
     qga = Qga(p.qga)
     code, out, _ = qga.sh("test -e /home/deck/.local/state/deck-executor/identity.json && echo bound")
     if "bound" in out:
@@ -537,13 +556,13 @@ def install_executor(p, bot_id):
         qga.push(tmps[dst], (HERE / "guest" / src).read_bytes())
     bins = [dst for dst in EXECUTOR_FILES.values() if dst.startswith("/usr/local/bin/")]
     swap = " && ".join([f"chmod 755 {tmps[d]}" for d in bins] + [f"mv -f {tmps[d]} {d}" for d in EXECUTOR_FILES.values()])
-    guest_id = uuid.uuid4().hex
-    ident = json.dumps({"bot_id": bot_id, "guest_id": guest_id, "max_epoch": 0})
+    guest_id = guest_id or uuid.uuid4().hex
+    ident = json.dumps({"bot_id": bot_id, "guest_id": guest_id, "max_epoch": max_epoch})
     code, _, err = qga.sh(swap + " && "
                           "runuser -u deck -- sh -c 'umask 077 && mkdir -p ~/.local/state/deck-executor ~/workspace "
                           "&& cat > ~/.local/state/deck-executor/identity.json' && "
                           "udevadm control --reload && udevadm trigger --subsystem-match=virtio-ports --action=add && udevadm settle && "
-                          "systemctl daemon-reload && systemctl enable --now deck-executor.service", stdin=ident, timeout=60)
+                          "systemctl daemon-reload && systemctl enable deck-executor.service && systemctl restart deck-executor.service", stdin=ident, timeout=60)
     if code != 0:
         sys.exit(f"executor install failed: {err.strip()[:300]}")
     # sway's login start can miss the rewritten bare-session. Start it once, and only when no session runs.
@@ -609,8 +628,30 @@ def cmd_ready(a, p):
     print(json.dumps(out))
 
 
+def sync_bare_mcp(p):
+    """`DECK_VM_BARE_MCP` names the bare-mcp file that the deploy built. Install it in the bound running guest when its digest differs.
+
+    The install is the one of the shared-profile harness: digest, `ldd`, atomic rename, session restart, readiness.
+    Returns {} or {"bare_mcp_installed": digest}. A refused file or a failed install exits non-zero.
+    """
+    f = os.environ.get("DECK_VM_BARE_MCP")
+    if not f or not (p.root / "executor.json").exists():
+        return {}
+    import shared_profile_e2e as sp  # noqa: PLC0415 - it imports this module
+    want = sha256_file(f)
+    try:
+        sp.check_candidate(f, want)
+    except sp.CandidateError as x:
+        sys.exit(f"STOPPED: the bare-mcp file of the deploy is not usable: {x}")
+    live = sp.Live.on(p, read_json(p.root / "executor.json")["bot_id"])
+    if live.guest_sha(sp.BARE_MCP) == want:
+        return {}
+    return {"bare_mcp_installed": live.install_candidate(f, want)["installed_sha256"]}
+
+
 def cmd_install_executor(a, p):
-    print(json.dumps(install_executor(p, a.bot)))
+    info = install_executor(p, a.bot, a.guest_id, a.max_epoch)
+    print(json.dumps({**info, **sync_bare_mcp(p)}))
 
 
 def cmd_setup(a, p):
@@ -668,9 +709,9 @@ def kill_vm(p):
 
 def cmd_start(a, p):
     t0 = time.time()
-    pid = start_qemu(p, "run", a.fixture_port)
+    pid = start_qemu(p, "run", a.fixture_port, internet=a.internet)
     Qga(p.qga).ping_ready(a.timeout)
-    print(json.dumps({"pid": pid, "boot_to_agent_s": round(time.time() - t0, 2)}))
+    print(json.dumps({"pid": pid, "boot_to_agent_s": round(time.time() - t0, 2), **sync_bare_mcp(p)}))
 
 
 def start_save_migration(q, uri, bandwidth_mib):
@@ -736,7 +777,7 @@ def save_vm(p, qga=None, sync=True, codec="none", bandwidth_mib=None):
     t3 = time.time()
     if not gone:
         sys.exit("qemu did not exit after quit")
-    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size, "requested_bandwidth_mib": bandwidth_mib}
+    meta = {"saved": t3, "disk": disk_fingerprint(p.disk), "base": base, "codec": codec, "state_bytes": p.statefile.stat().st_size, "requested_bandwidth_mib": bandwidth_mib, "internet": vm.get("internet", False)}
     p.statemeta.write_text(json.dumps(meta))
     p.vm.unlink(missing_ok=True)
     return {"quiesce_s": round(t1 - t0, 3), "migrate_s": round(t2 - t1, 3), "exit_s": round(t3 - t2, 3),
@@ -744,18 +785,20 @@ def save_vm(p, qga=None, sync=True, codec="none", bandwidth_mib=None):
             "peak_rss_kib_sampled": peak, "cpu_s": None if None in (cpu0, cpu1) else round((cpu1 - cpu0) / 1e6, 3)}
 
 
-def restore_vm(p, fixture_port):
+def restore_vm(p, fixture_port, internet=False):
     """Start QEMU on the paired disk and load the saved state. Returns timings. Consumes the state."""
     if not p.statemeta.exists() or not p.statefile.exists():
         sys.exit("no saved state")
     meta = json.loads(p.statemeta.read_text())
+    if meta.get("internet", False) != internet:
+        sys.exit("saved state network policy differs; restore with the original internet setting")
     codec = meta.get("codec", "none")
     uri = state_uri(codec, p.statefile, "load")
     if not state_matches_disk(meta, p.disk, disk_base_id(p)):
         sys.exit("saved state does not match the disk or its base (changed after the save); refusing to restore")
     # The state file is deleted after a successful load: the disk changes from then on.
     t0 = time.time()
-    pid = start_qemu(p, "run", fixture_port, incoming=True)
+    pid = start_qemu(p, "run", fixture_port, incoming=True, internet=internet)
     q = Qmp(p.qmp)
     cg = cgroup_dir(pid)
     peak, last = tree_rss_kib(pid), 0
@@ -794,7 +837,7 @@ def cmd_stop(a, p):
 
 
 def cmd_restore(a, p):
-    print(json.dumps(restore_vm(p, a.fixture_port)))
+    print(json.dumps({**restore_vm(p, a.fixture_port, internet=a.internet), **sync_bare_mcp(p)}))
 
 
 def cmd_kill(a, p):
@@ -893,6 +936,7 @@ def cmd_verify_base(a, p):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", default=str(default_dir()), help="runtime directory outside Git (default: $DECK_VM_DIR)")
+    ap.add_argument("--internet", action="store_true", help="allow outbound guest networking, including reachable private services (default: fixture only)")
     ap.add_argument("--fixture-port", type=int, default=int(os.environ.get("DECK_VM_FIXTURE_PORT", "18080")))
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("setup", help="download the image, provision the guest, power off")
@@ -913,6 +957,8 @@ def main(argv=None):
     s.set_defaults(f=cmd_exec)
     s = sub.add_parser("install-executor", help="bootstrap the guest executor into the running VM and bind it to one bot")
     s.add_argument("--bot", required=True)
+    s.add_argument("--guest-id", help="rebind a replacement disk to the pinned guest ID (needs --max-epoch)")
+    s.add_argument("--max-epoch", type=int, default=0, help="the host's current epoch for that guest ID")
     s.set_defaults(f=cmd_install_executor)
     s = sub.add_parser("ready", help="read-only probe: the desktop session and the executor answer; prints one JSON line")
     s.add_argument("--bot", required=True)
