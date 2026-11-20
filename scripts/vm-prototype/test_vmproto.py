@@ -41,6 +41,58 @@ class FakeInstallQga:
         return self.probe if "--ready" in argv else (0, "", "")
 
 
+class BareMcpSync(unittest.TestCase):
+    """DECK_VM_BARE_MCP names the bare-mcp file of the deploy. A guest that holds another digest gets it, with the shared install checks."""
+
+    def setUp(self):
+        import shared_profile_e2e as sp
+        self.sp = sp
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.p = v.Paths(Path(self.tmp.name) / "bot")
+        self.p.mk()
+        self.file = Path(self.tmp.name) / "bare-mcp"
+        self.file.write_bytes(b"newer bare")
+        self.file.chmod(0o755)
+        self.want = v.sha256_file(self.file)
+        (self.p.root / "executor.json").write_text(json.dumps({"bot_id": "bot-1", "guest_id": "g"}))
+        self.installs = []
+
+    def sync(self, guest, env=True, **kw):
+        def install(live, pinned, sha):
+            self.installs.append((live.bot, Path(pinned), sha))
+            return {"installed_sha256": sha}
+
+        with patch.dict(os.environ, {"DECK_VM_BARE_MCP": str(self.file)} if env else {}, clear=False), \
+                patch.object(self.sp.Live, "guest_sha", lambda live, path: guest), patch.object(self.sp.Live, "install_candidate", install):
+            if not env:
+                os.environ.pop("DECK_VM_BARE_MCP", None)
+            return v.sync_bare_mcp(self.p)
+
+    def test_a_differing_guest_digest_installs_the_file_once_for_the_bound_bot(self):
+        self.assertEqual(self.sync("0" * 64), {"bare_mcp_installed": self.want})
+        self.assertEqual(self.installs, [("bot-1", self.file, self.want)])
+
+    def test_an_equal_digest_a_missing_setting_or_a_missing_binding_install_nothing(self):
+        self.assertEqual(self.sync(self.want), {})
+        self.assertEqual(self.sync("0" * 64, env=False), {})
+        (self.p.root / "executor.json").unlink()
+        self.assertEqual(self.sync("0" * 64), {})
+        self.assertEqual(self.installs, [])
+
+    def test_a_file_that_cannot_be_read_stops_before_the_guest_is_touched(self):
+        self.file.chmod(0o644)  # not executable
+        with self.assertRaises(SystemExit):
+            self.sync("0" * 64)
+        self.assertEqual(self.installs, [])
+
+    def test_the_readiness_wait_after_the_restart_uses_the_bound_bot_not_the_shared_profile(self):
+        live = self.sp.Live.on(self.p, "bot-1")
+        with patch.object(self.sp.Live, "run", lambda *a, **k: (0, "", "")), patch.object(v, "ready") as ready:
+            live.start_mcp()
+        ready.assert_called_once_with(self.p, "bot-1", 60)
+
+
 class Helpers(unittest.TestCase):
     def test_start_refuses_live_vm_before_touching_sockets(self):
         with tempfile.TemporaryDirectory() as d:
@@ -105,6 +157,27 @@ class Helpers(unittest.TestCase):
         self.assertNotIn("-incoming", cmd)
         self.assertIn("defer", v.qemu_cmd(p, "run", 18080, incoming=True))
 
+    def test_internet_is_explicit_and_keeps_fixture_and_no_host_share(self):
+        p = v.Paths("/tmp/rt")
+        cmd = v.qemu_cmd(p, "run", 18080, internet=True)
+        net = cmd[cmd.index("-netdev") + 1]
+        self.assertIn("restrict=off", net)
+        self.assertIn("guestfwd=", net)
+        self.assertNotIn("hostfwd", net)
+        self.assertNotIn("-virtfs", cmd)
+
+    def test_restore_rejects_network_change_before_starting_vm(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            p.mk()
+            p.statefile.write_bytes(b"saved")
+            p.statemeta.write_text(json.dumps({"internet": False}))
+            with patch.object(v, "start_qemu") as start:
+                with self.assertRaisesRegex(SystemExit, "network"):
+                    v.restore_vm(p, 18080, internet=True)
+                start.assert_not_called()
+                self.assertEqual(p.statefile.read_bytes(), b"saved")
+
     def test_executor_port_is_a_private_unix_socket_in_run_mode_only(self):
         p = v.Paths("/tmp/rt")
         run = " ".join(v.qemu_cmd(p, "run", 18080))
@@ -118,6 +191,72 @@ class Helpers(unittest.TestCase):
         for bad in ("", "a b", "../x", "x" * 65):
             with self.assertRaises(SystemExit):
                 v.install_executor(p, bad)
+
+    def _rebind(self, guest_id=None, max_epoch=0):
+        """Run install_executor against a fake guest channel. Returns (identity written to the guest, executor.json)."""
+        seen = {}
+
+        class FakeQga:
+            def __init__(self, path):
+                pass
+
+            def sh(self, script, stdin=None, timeout=10):
+                if script.startswith("test -e"):
+                    return 0, "", ""
+                seen["ident"] = json.loads(stdin)
+                return 0, "", ""
+
+            def push(self, path, data):
+                pass
+
+            def exec(self, argv, timeout=10):
+                return 0, '{"ready": true}', ""
+
+        with tempfile.TemporaryDirectory() as d:
+            p = v.Paths(d)
+            with patch.object(v, "Qga", FakeQga):
+                v.install_executor(p, "bot-1", **({"guest_id": guest_id, "max_epoch": max_epoch} if guest_id else {}))
+            return seen["ident"], json.loads((p.root / "executor.json").read_text())
+
+    def test_install_executor_restarts_the_service_after_it_writes_the_identity(self):
+        """The udev trigger can start the executor before the identity file exists. It reads that file only at start."""
+        scripts = []
+
+        class FakeQga:
+            def __init__(self, path):
+                pass
+
+            def sh(self, script, stdin=None, timeout=10):
+                scripts.append(script)
+                return 0, "", ""
+
+            def push(self, path, data):
+                pass
+
+            def exec(self, argv, timeout=10):
+                return 0, '{"ready": true}', ""
+
+        with tempfile.TemporaryDirectory() as d, patch.object(v, "Qga", FakeQga):
+            v.install_executor(v.Paths(d), "bot-1")
+        last = scripts[-1]
+        self.assertLess(last.index("identity.json"), last.index("systemctl restart deck-executor.service"))
+
+    def test_install_executor_keeps_a_new_identity_by_default(self):
+        ident, info = self._rebind()
+        self.assertRegex(ident["guest_id"], r"^[0-9a-f]{32}$")
+        self.assertEqual((ident["max_epoch"], info["guest_id"]), (0, ident["guest_id"]))
+
+    def test_install_executor_rebinds_an_existing_logical_computer(self):
+        """A fresh disk takes the pinned guest id and the host epoch, so the host pin and the fence stay monotonic."""
+        ident, info = self._rebind("ab" * 16, 17)
+        self.assertEqual(ident, {"bot_id": "bot-1", "guest_id": "ab" * 16, "max_epoch": 17})
+        self.assertEqual(info, {"bot_id": "bot-1", "guest_id": "ab" * 16})
+
+    def test_install_executor_rejects_a_bad_rebind_before_touching_the_guest(self):
+        with patch.object(v, "Qga", side_effect=AssertionError("guest touched")):
+            for gid, ep in (("short", 1), ("AB" * 16, 1), ("ab" * 16, -1), ("ab" * 16, True), ("ab" * 16, "1")):
+                with self.assertRaises(SystemExit):
+                    v.install_executor(v.Paths("/tmp/does-not-exist-rt"), "bot-1", guest_id=gid, max_epoch=ep)
 
     def install(self, probe):
         """Run install_executor against a fake QGA. `probe` answers `bare-call --ready`."""
@@ -166,6 +305,15 @@ class Helpers(unittest.TestCase):
         self.assertIn("MemoryMax=1G", c)
         self.assertIn("RuntimeMaxSec=5", c)
         self.assertEqual(c[-1], "x")
+
+    def test_default_lifetime_is_bounded_and_infinity_is_opt_in(self):
+        self.assertEqual(v.vm_lifetime({}), v.LIFETIME_S)
+        self.assertEqual(v.vm_lifetime({"DECK_VM_LIFETIME_S": "infinity"}), "infinity")
+        with self.assertRaises(SystemExit):
+            v.vm_lifetime({"DECK_VM_LIFETIME_S": "0"})
+        with self.assertRaises(SystemExit):
+            v.vm_lifetime({"DECK_VM_LIFETIME_S": "forever"})
+        self.assertIn("RuntimeMaxSec=infinity", v.scope_cmd(["x"], lifetime="infinity"))
 
     def test_zombie_counts_as_gone(self):
         import subprocess, time
@@ -269,6 +417,22 @@ class BaseAndOverlay(unittest.TestCase):
         total = v.storage_report(a, b)
         self.assertEqual(total["total_bytes"], sum(total["parts"].values()))
         self.assertIn("base", total["parts"])
+
+    def test_status_names_a_missing_base_without_a_traceback(self):
+        base = self.frozen()
+        bpath = v.base_path(self.bases, base["id"])
+        a = self.overlay("a", bpath)
+        bpath.chmod(0o644)
+        bpath.unlink()
+        before = a.disk.read_bytes()
+        env = {**os.environ, "XDG_CACHE_HOME": str(self.root / "cache")}
+        r = subprocess.run([sys.executable, "-I", str(Path(v.__file__)), "--dir", str(a.root), "status"], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertIn(f"backing image {base['id']} is missing", r.stderr)
+        self.assertIn("do not substitute", r.stderr)
+        self.assertEqual(a.disk.read_bytes(), before)
 
     def test_overlay_refuses_replacing_a_disk_and_unknown_or_tampered_base(self):
         base = self.frozen()
