@@ -1,0 +1,31 @@
+/* The pane reuses the current chat, requests and computer views. Their styles read the old variables.
+   This file maps those variables to the fluid tokens and rounds their corners. It goes away when the views move to the fluid look. */
+.next-pane .experience {
+  color-scheme: dark;
+  font-size: 13px;
+  --page: #0e0e10; --surface: #18181c; --raised: #202025; --line: rgb(255 255 255 / 0.08); --ink: #ededef; --secondary: #9d9da6; --muted: #6e6e78;
+  --accent: rgb(255 255 255 / 0.06); --error-ink: #f2716a; --error-bg: rgb(242 85 90 / 0.1); --warn-ink: #f5b35b; --busy: #6aa7ff;
+  --background: #0e0e10; --foreground: #ededef; --card: #18181c; --card-foreground: #ededef; --muted-foreground: #9d9da6; --border: rgb(255 255 255 / 0.08);
+  --chat-content-max-width: 640px;
+  display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; color: var(--ink);
+}
+.next-pane .experience[hidden] { display: none; }
+.next-pane .experience p { color: var(--secondary); }
+.next-pane .experience .content { padding: 16px 20px; }
+.next-pane .experience .compact-composer { margin: 8px 16px 14px; border-radius: 22px; background: var(--raised); border-color: var(--line); }
+.next-pane .experience .composer-input textarea { font-size: 14px; line-height: 20px; }
+.next-pane .experience .composer-context select { min-height: 32px; font-size: 13px; background: var(--raised); color: var(--ink); border-radius: 999px; }
+.next-pane .experience .message-pane [data-slot=aui_thread-viewport] { padding: 16px 20px 40px; }
+.next-pane .experience :is(.approval-request, .review-conflict, .review-recovery, .request-banner) { background: rgb(245 179 91 / 0.08); border-color: rgb(245 179 91 / 0.25); color: var(--ink); border-radius: 16px; }
+.next-pane .experience :is(.requests-notice.error, .workspace-connection) { background: var(--error-bg); color: #f2a39e; border-radius: 14px; }
+.next-pane .experience :is(.primary, .secondary, .send, .text-button) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; transition: background-color .15s, opacity .15s; }
+.next-pane .experience .primary { background: #e5484d; color: #fff; }
+.next-pane .experience .secondary { background: var(--raised); color: var(--ink); border: 1px solid var(--line); }
+.next-pane .experience .text-button { padding: 4px 10px; color: var(--secondary); }
+.next-pane .experience .send { width: 34px; padding: 0; background: #e5484d; color: #fff; }
+.next-pane .experience :is(button, a, input, textarea, select):focus-visible { outline: 2px solid rgb(242 85 90 / 0.55); outline-offset: 2px; }
+.next-pane .experience :is(.request-card, .live-screen, .computer-frame, .budget-fields) { border-radius: 16px; }
+.next-pane .experience :is(input, textarea) { border-radius: 12px; }
+.next-pane .experience button:disabled, .next-pane .experience [aria-disabled=true] { opacity: .5; cursor: not-allowed; }
+.next-pane .experience .fine-print { font-size: 12px; color: var(--muted); }
+.experience.live-tile .computer-frame { height: auto; aspect-ratio: 16 / 9; padding: 0; border-radius: 16px; background: var(--background); border: 1px solid var(--border); }

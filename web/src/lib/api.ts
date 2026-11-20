@@ -96,7 +96,37 @@ export interface CeilingRequest {
   current_ceiling_minor: number;
   reason: string;
 }
+/** Present only on a bot that polls Gmail. Account keys are labels, never addresses. */
+export interface GmailAccountStatus {
+  key: string;
+  checked: boolean;
+  result: string | null;
+  last_attempt_ms: number;
+  last_success_ms: number;
+}
+export interface GmailStatus {
+  mode: string;
+  running: boolean;
+  stage: string | null;
+  interval_secs: number;
+  next_due_in_ms: number | null;
+  overdue_ms: number;
+  unprocessed_events: number;
+  accounts: GmailAccountStatus[];
+  summary?: {
+    time: string;
+    timezone: string;
+    labels: string;
+    label_halted: boolean;
+    label_states: Record<string, number>;
+    next_summary: string | null;
+    last_delivery: { age_ms: number; day: string } | null;
+    triage_backlog: Record<string, number[]>;
+    triage_errors: Record<string, unknown>;
+  };
+}
 export interface BotStatus {
+  gmail?: GmailStatus | null;
   bot_id: string;
   chat_id: number;
   computer: "saved" | "waking" | "awake" | "saving" | "failed";
